@@ -1,0 +1,318 @@
+import * as Dialog from '@radix-ui/react-dialog'
+import { AlertTriangle, FolderSearch } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+
+import { type CommandPreset, type FsProbeResponse, listCommandPresets, pickFolder } from '../api.js'
+import { useI18n } from '../i18n.js'
+import { ConfirmWorkspaceDialog } from './ConfirmWorkspaceDialog.js'
+import { ServerBrowseDialog } from './ServerBrowseDialog.js'
+import type { WorkspaceCreateInput } from './workspace-create-input.js'
+
+type AddWorkspaceDialogProps = {
+  /**
+   * Discriminator: `idle` = dialog closed; `request-pick` = parent asked us to
+   * open a new flow, we should fire the native picker on mount.
+   */
+  trigger: number
+  onClose: () => void
+  onCreate: (input: WorkspaceCreateInput) => Promise<unknown> | undefined
+}
+
+type Stage =
+  | { kind: 'idle' }
+  | { kind: 'picking' }
+  | { kind: 'confirm'; probe: FsProbeResponse | null; pasteDefault: boolean }
+  | { kind: 'error'; message: string; title?: string }
+
+const DEFAULT_COMMAND_PRESET_ID = 'claude'
+
+const chooseDefaultCommandPresetId = (presets: CommandPreset[]) =>
+  presets.some((preset) => preset.id === DEFAULT_COMMAND_PRESET_ID && preset.available)
+    ? DEFAULT_COMMAND_PRESET_ID
+    : (presets.find((preset) => preset.available)?.id ??
+      presets[0]?.id ??
+      DEFAULT_COMMAND_PRESET_ID)
+
+export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceDialogProps) => {
+  const { t } = useI18n()
+  // Effect-stable view of `t`: writing to a ref lets the trigger-driven
+  // useEffect read the current translator without re-running each render
+  // (which would re-fire the native folder picker every time language changes).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  }, [t])
+  const [stage, setStage] = useState<Stage>({ kind: 'idle' })
+  const [serverBrowseOpen, setServerBrowseOpen] = useState(false)
+  const [commandPresets, setCommandPresets] = useState<CommandPreset[]>([])
+  const [commandPresetId, setCommandPresetId] = useState(DEFAULT_COMMAND_PRESET_ID)
+  const [commandPresetError, setCommandPresetError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const createInFlightRef = useRef(false)
+  const pickerFlowGenerationRef = useRef(0)
+  const commandPresetSnapshotRef = useRef<{
+    error: string | null
+    id: string
+    presets: CommandPreset[]
+  }>({ error: null, id: DEFAULT_COMMAND_PRESET_ID, presets: [] })
+  // Keep the latest onClose in a ref so the pick effect can depend only on
+  // `trigger`. If we listed onClose in the deps array, a fresh inline lambda
+  // from the parent (which is the normal React pattern) would re-fire the
+  // native picker every render — including after a successful create.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    if (trigger === 0 || createInFlightRef.current) return
+    const flowGeneration = ++pickerFlowGenerationRef.current
+    let cancelled = false
+    const isCurrentFlow = () =>
+      !cancelled && pickerFlowGenerationRef.current === flowGeneration
+    setServerBrowseOpen(false)
+    setCommandPresetError(null)
+    setSubmitError(null)
+    const presetsReady = listCommandPresets()
+      .then((presets) => {
+        if (!isCurrentFlow()) return
+        const nextId = presets.some(
+          (preset) => preset.id === commandPresetSnapshotRef.current.id && preset.available
+        )
+          ? commandPresetSnapshotRef.current.id
+          : chooseDefaultCommandPresetId(presets)
+        commandPresetSnapshotRef.current = { error: null, id: nextId, presets }
+        setCommandPresets(presets)
+        setCommandPresetId(nextId)
+      })
+      .catch(() => {
+        if (!isCurrentFlow()) return
+        const errorMessage = tRef.current('workspace.preset.loadFailed')
+        commandPresetSnapshotRef.current = {
+          error: errorMessage,
+          id: DEFAULT_COMMAND_PRESET_ID,
+          presets: [],
+        }
+        setCommandPresets([])
+        setCommandPresetId(DEFAULT_COMMAND_PRESET_ID)
+        setCommandPresetError(errorMessage)
+      })
+    setStage({ kind: 'picking' })
+    pickFolder()
+      .then(async (result) => {
+        await presetsReady
+        if (!isCurrentFlow()) return
+        // User canceled the native dialog — dismiss silently without showing
+        // any additional UI. This mirrors how macOS Finder handles cancel.
+        if (result.canceled) {
+          if (result.error) {
+            setStage({ kind: 'error', message: result.error })
+            return
+          }
+          setStage({ kind: 'idle' })
+          onCloseRef.current()
+          return
+        }
+        if (!result.supported) {
+          // Platform has no native picker wired. Pop the compact confirm with
+          // the paste-path fallback expanded by default.
+          setStage({ kind: 'confirm', probe: null, pasteDefault: true })
+          return
+        }
+        if (!result.probe?.ok || !result.probe.is_dir) {
+          setStage({
+            kind: 'error',
+            message: result.error ?? tRef.current('workspace.error.outsideSandbox'),
+          })
+          return
+        }
+        setStage({ kind: 'confirm', probe: result.probe, pasteDefault: false })
+      })
+      .catch((error: unknown) => {
+        if (!isCurrentFlow()) return
+        const message =
+          error instanceof Error ? error.message : tRef.current('workspace.error.pickerFailed')
+        setStage({ kind: 'error', message })
+      })
+    return () => {
+      cancelled = true
+      if (pickerFlowGenerationRef.current === flowGeneration) {
+        pickerFlowGenerationRef.current += 1
+      }
+    }
+  }, [trigger])
+
+  const handleCancel = () => {
+    if (createInFlightRef.current) return
+    pickerFlowGenerationRef.current += 1
+    setServerBrowseOpen(false)
+    setSubmitError(null)
+    setStage({ kind: 'idle' })
+    onClose()
+  }
+
+  const handleCreate = (input: WorkspaceCreateInput) => {
+    if (createInFlightRef.current) return
+    createInFlightRef.current = true
+    setSubmitError(null)
+    setSubmitting(true)
+    void Promise.resolve()
+      .then(() => onCreate(input))
+      .then(() => {
+        createInFlightRef.current = false
+        setSubmitting(false)
+        setSubmitError(null)
+        setStage({ kind: 'idle' })
+      })
+      .catch((error: unknown) => {
+        createInFlightRef.current = false
+        setSubmitting(false)
+        const message = error instanceof Error ? error.message : t('workspace.error.createFailed')
+        setSubmitError(message)
+      })
+  }
+
+  const handleCommandPresetChange = (value: string) => {
+    if (createInFlightRef.current) return
+    commandPresetSnapshotRef.current = { ...commandPresetSnapshotRef.current, id: value }
+    setCommandPresetId(value)
+  }
+
+  const renderedCommandPresets =
+    commandPresets.length > 0 || commandPresetError
+      ? commandPresets
+      : commandPresetSnapshotRef.current.presets
+  const renderedCommandPresetId =
+    commandPresetId === ''
+      ? ''
+      : renderedCommandPresets.length > 0 &&
+          !renderedCommandPresets.some(
+            (preset) => preset.id === commandPresetId && preset.available
+          )
+        ? commandPresetSnapshotRef.current.id
+        : commandPresetId
+  const renderedCommandPresetError = commandPresetError ?? commandPresetSnapshotRef.current.error
+
+  if (stage.kind === 'idle') return null
+  if (stage.kind === 'picking') {
+    // Esc / click-outside cancels the in-flight picker; without onOpenChange
+    // the dialog was unkillable until the native picker resolved.
+    const cancelPicking = () => {
+      pickerFlowGenerationRef.current += 1
+      setStage({ kind: 'idle' })
+      onCloseRef.current()
+    }
+    return (
+      <Dialog.Root open onOpenChange={(next) => !next && cancelPicking()}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="app-overlay fixed inset-0 z-40" />
+          <Dialog.Content
+            data-testid="add-workspace-picking"
+            aria-describedby={undefined}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          >
+            <Dialog.Title className="sr-only">{t('workspace.picking.title')}</Dialog.Title>
+            <div
+              data-testid="add-workspace-picking-panel"
+              className="dialog-scale-pop elev-2 flex items-center gap-3 rounded-lg border px-5 py-4"
+              style={{
+                background: 'var(--bg-elevated)',
+                borderColor: 'var(--border-bright)',
+              }}
+            >
+              <FolderSearch
+                size={18}
+                aria-hidden
+                className="animate-pulse"
+                style={{ color: 'var(--accent)' }}
+              />
+              <span className="text-sm text-pri">{t('workspace.picking.message')}</span>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    )
+  }
+  if (stage.kind === 'error') {
+    return (
+      <Dialog.Root open onOpenChange={(open) => !open && handleCancel()}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="app-overlay fixed inset-0 z-40" />
+          <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center p-4">
+            <Dialog.Content
+              data-testid="add-workspace-error"
+              className="dialog-scale-pop elev-2 pointer-events-auto w-[440px] max-w-[calc(100vw-32px)] rounded-lg border p-5"
+              style={{
+                background: 'var(--bg-elevated)',
+                borderColor: 'var(--border-bright)',
+              }}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded"
+                  style={{
+                    background: 'color-mix(in oklab, var(--status-red) 14%, transparent)',
+                    color: 'var(--status-red)',
+                  }}
+                >
+                  <AlertTriangle size={18} aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Dialog.Title className="text-lg font-semibold text-pri">
+                    {stage.title ?? t('workspace.error.pickerFailed')}
+                  </Dialog.Title>
+                  <Dialog.Description className="mt-1.5 break-words text-sm text-ter">
+                    {stage.message}
+                  </Dialog.Description>
+                </div>
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={handleCancel} className="icon-btn">
+                  {t('common.close')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStage({ kind: 'confirm', probe: null, pasteDefault: true })}
+                  className="icon-btn icon-btn--primary"
+                >
+                  {t('workspace.error.pastePathInstead')}
+                </button>
+              </div>
+            </Dialog.Content>
+          </div>
+        </Dialog.Portal>
+      </Dialog.Root>
+    )
+  }
+  return (
+    <>
+      <ConfirmWorkspaceDialog
+        commandPresetError={renderedCommandPresetError}
+        commandPresetId={renderedCommandPresetId}
+        commandPresets={renderedCommandPresets}
+        pasteFallbackDefault={stage.pasteDefault}
+        probe={stage.probe}
+        onCancel={handleCancel}
+        onCommandPresetChange={handleCommandPresetChange}
+        onCreate={handleCreate}
+        onOpenServerBrowse={() => !createInFlightRef.current && setServerBrowseOpen(true)}
+        open={!serverBrowseOpen}
+        submitError={submitError}
+        submitting={submitting}
+      />
+      <ServerBrowseDialog
+        commandPresetError={renderedCommandPresetError}
+        commandPresetId={renderedCommandPresetId}
+        commandPresets={renderedCommandPresets}
+        onBack={() => setServerBrowseOpen(false)}
+        onClose={handleCancel}
+        onCommandPresetChange={handleCommandPresetChange}
+        onCreate={handleCreate}
+        open={serverBrowseOpen}
+        submitError={submitError}
+        submitting={submitting}
+      />
+    </>
+  )
+}

@@ -1,0 +1,31 @@
+Hive
+Copyright (c) 2026 Shaokun Tu (tt-a1i) and contributors.
+
+This product includes software licensed under the Business Source License 1.1.
+See LICENSE.BSL for the source license and LICENSE for historical Apache-2.0
+terms that apply only to versions covered by that file.
+
+Redistributions, forks, and modified versions must preserve this notice and
+the applicable license files. The Hive name, logo, and visual identity are
+covered by the trademark guidelines in TRADEMARK.md and are not granted by the
+source license.
+
+Hive includes optional marketplace prompt snapshots from third-party projects.
+Their upstream license files are preserved under the packaged vendor
+marketplace directories when those snapshots are included in a release.
+
+-------------------------------------------------------------------------------
+Termestra distribution addendum
+
+Termestra is an independently maintained modified distribution. It is not
+affiliated with, endorsed by, sponsored by, or maintained by tt-a1i.
+
+The Termestra distribution includes substantial modifications and additions,
+including a Java and Spring application runtime, a Maven build, modular domain
+boundaries, and subsequent reliability and user-interface work. This addendum
+does not replace, amend, or narrow the license and attribution obligations for
+the Licensed Work identified in LICENSE.BSL.
+
+Third-party components and assets distributed with Termestra remain subject to
+their own terms. See THIRD_PARTY_NOTICES.md and the license files retained next
+to those components.

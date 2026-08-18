@@ -1,0 +1,16 @@
+{
+  "name": "@termestra/cli",
+  "version": "VERSION",
+  "description": "Termestra local multi-agent workspace launcher",
+  "license": "BUSL-1.1",
+  "type": "module",
+  "bin": {"termestra": "bin/termestra.mjs", "team": "bin/team.mjs"},
+  "engines": {"node": ">=20"},
+  "optionalDependencies": {
+    "@termestra/runtime-darwin-arm64": "VERSION",
+    "@termestra/runtime-darwin-x64": "VERSION",
+    "@termestra/runtime-linux-arm64": "VERSION",
+    "@termestra/runtime-linux-x64": "VERSION",
+    "@termestra/runtime-win32-x64": "VERSION"
+  }
+}

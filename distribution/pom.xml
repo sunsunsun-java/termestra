@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <parent><groupId>dev.termestra</groupId><artifactId>termestra-parent</artifactId><version>0.1.0-SNAPSHOT</version></parent>
+  <artifactId>termestra-distribution</artifactId>
+  <packaging>pom</packaging>
+  <dependencies>
+    <dependency><groupId>dev.termestra</groupId><artifactId>termestra-backend</artifactId><version>${project.version}</version></dependency>
+  </dependencies>
+  <build><plugins>
+    <plugin><groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.6.3</version><executions>
+      <execution><id>jlink-runtime</id><phase>prepare-package</phase><goals><goal>exec</goal></goals><configuration><executable>sh</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>scripts/build-runtime.sh</argument><argument>${project.build.directory}/runtime-current</argument></arguments></configuration></execution>
+      <execution><id>verify-npm-runtime</id><phase>verify</phase><goals><goal>exec</goal></goals><configuration><executable>node</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>scripts/verify-npm-runtime.mjs</argument><argument>${project.build.directory}</argument></arguments></configuration></execution>
+    </executions></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-antrun-plugin</artifactId><version>3.2.0</version><executions><execution><phase>package</phase><goals><goal>run</goal></goals><configuration><target>
+      <delete dir="${project.build.directory}/npm-cli"/>
+      <mkdir dir="${project.build.directory}/runtime-current/app"/>
+      <copy file="${project.basedir}/../backend/target/termestra-backend-${project.version}.jar" tofile="${project.build.directory}/runtime-current/app/termestra.jar"/>
+      <copy todir="${project.build.directory}/npm-cli"><fileset dir="${project.basedir}/npm/cli"/></copy>
+      <copy file="${project.basedir}/../README.md" todir="${project.build.directory}/npm-cli"/>
+      <copy file="${project.basedir}/../README.zh-CN.md" todir="${project.build.directory}/npm-cli"/>
+      <copy file="${project.basedir}/../LICENSE.BSL" todir="${project.build.directory}/npm-cli"/>
+      <copy file="${project.basedir}/../LICENSE" todir="${project.build.directory}/npm-cli"/>
+      <copy file="${project.basedir}/../NOTICE" todir="${project.build.directory}/npm-cli"/>
+      <copy file="${project.basedir}/../TRADEMARK.md" todir="${project.build.directory}/npm-cli"/>
+      <copy file="${project.basedir}/../THIRD_PARTY_NOTICES.md" todir="${project.build.directory}/npm-cli"/>
+      <copy todir="${project.build.directory}/npm-cli/frontend/web/public" overwrite="true">
+        <fileset dir="${project.basedir}/../frontend/web/public">
+          <include name="logo.png"/>
+          <include name="screenshots/termestra-promo-hero-light.png"/>
+          <include name="screenshots/1.png"/>
+          <include name="screenshots/2.png"/>
+          <include name="screenshots/3.png"/>
+          <include name="screenshots/4.png"/>
+          <include name="sounds/LICENSE-KENNEY.txt"/>
+          <include name="cli-agent-icons/**"/>
+        </fileset>
+      </copy>
+      <copy todir="${project.build.directory}/npm-cli/docs">
+        <fileset dir="${project.basedir}/../docs">
+          <include name="**/*.md"/>
+        </fileset>
+      </copy>
+      <copy todir="${project.build.directory}/npm-cli/backend/src/main/resources/vendor/marketplace">
+        <fileset dir="${project.basedir}/../backend/src/main/resources/vendor/marketplace">
+          <include name="en/LICENSE"/>
+          <include name="en/SOURCES.md"/>
+          <include name="zh/LICENSE"/>
+          <include name="zh/SOURCES.md"/>
+        </fileset>
+      </copy>
+      <replace file="${project.build.directory}/npm-cli/package.json" token="VERSION" value="${project.version}"/>
+      <exec executable="sh" dir="${project.basedir}" failonerror="true"><arg value="scripts/build-npm-runtime.sh"/><arg value="${project.build.directory}/runtime-current"/><arg value="${project.build.directory}/npm"/><arg value="${project.version}"/></exec>
+    </target></configuration></execution></executions></plugin>
+  </plugins></build>
+</project>

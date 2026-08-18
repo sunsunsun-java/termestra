@@ -1,0 +1,81 @@
+# IDE and editor state
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+.factorypath
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+*.rej
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local Termestra workspace state
+.termestra/
+runtime-data/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+/.npmrc
+!/.npmrc.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
+# Local databases and SQLite sidecar files
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Logs, dumps, and temporary files
+*.log
+*.log.*
+*.pid
+*.tmp
+*.dump
+*.hprof
+hs_err_pid*
+
+# Java and Maven build state
+target/
+**/target/
+.m2/
+*.class
+dependency-reduced-pom.xml
+.flattened-pom.xml
+pom.xml.versionsBackup
+release.properties
+
+# Node.js and frontend build state
+**/node_modules/
+frontend/web/dist/
+.pnpm-store/
+/distribution/npm/**/*.tgz
+*.tsbuildinfo
+.vite/
+
+# Test, coverage, and tool caches
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+.cache/

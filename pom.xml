@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>dev.termestra</groupId>
+  <artifactId>termestra-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>Termestra</name>
+  <description>Local-first orchestration for teams of real CLI agents.</description>
+
+  <licenses>
+    <license>
+      <name>Business Source License 1.1</name>
+      <url>https://mariadb.com/bsl11/</url>
+      <distribution>repo</distribution>
+      <comments>See LICENSE.BSL and NOTICE for the licensed work, additional use grant, and attribution.</comments>
+    </license>
+  </licenses>
+
+  <properties>
+    <java.version>21</java.version>
+    <maven.compiler.release>${java.version}</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <spring-boot.version>4.0.4</spring-boot.version>
+    <archunit.version>1.4.1</archunit.version>
+    <picocli.version>4.7.7</picocli.version>
+    <sqlite-jdbc.version>3.51.3.0</sqlite-jdbc.version>
+    <pty4j.version>0.13.9</pty4j.version>
+    <jna.version>5.14.0</jna.version>
+  </properties>
+
+  <modules>
+    <module>frontend</module>
+    <module>backend</module>
+    <module>distribution</module>
+  </modules>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>info.picocli</groupId>
+        <artifactId>picocli</artifactId>
+        <version>${picocli.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.xerial</groupId>
+        <artifactId>sqlite-jdbc</artifactId>
+        <version>${sqlite-jdbc.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.15.0</version>
+          <configuration>
+            <release>${maven.compiler.release}</release>
+            <parameters>true</parameters>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.5.5</version>
+          <configuration>
+            <useModulePath>false</useModulePath>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-failsafe-plugin</artifactId>
+          <version>3.5.3</version>
+        </plugin>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <version>${spring-boot.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.6.3</version>
+        <inherited>false</inherited>
+        <executions>
+          <execution>
+            <id>verify-brand-boundary</id>
+            <phase>verify</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>node</executable>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <arguments><argument>scripts/verify-brand-boundary.mjs</argument></arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,92 @@
+name: platform packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.platform }}-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - runner: windows-2022
+            platform: win32
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.2'
+      - run: corepack enable
+      - name: Set release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: mvn --batch-mode versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false
+      - run: mvn --batch-mode --no-transfer-progress clean verify
+      - name: Smoke test assembled npm runtime
+        run: node distribution/scripts/verify-npm-runtime.mjs distribution/target
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ matrix.platform }}-${{ matrix.arch }}
+          path: distribution/target/npm/runtime-${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        with:
+          name: npm-cli
+          path: distribution/target/npm-cli
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: runtime-*
+          path: dist/runtimes
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-cli
+          path: dist/npm-cli
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.2'
+          registry-url: https://registry.npmjs.org
+      - name: Publish platform runtimes first
+        shell: bash
+        run: for package in dist/runtimes/runtime-*; do npm publish "$package" --access public --provenance; done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish CLI
+        run: npm publish dist/npm-cli --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

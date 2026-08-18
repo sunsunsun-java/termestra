@@ -1,0 +1,10 @@
+{
+  "name": "@termestra/runtime-PLATFORM-ARCH",
+  "version": "VERSION",
+  "license": "BUSL-1.1",
+  "description": "Private Termestra Java runtime for PLATFORM-ARCH",
+  "private": false,
+  "os": ["PLATFORM"],
+  "cpu": ["ARCH"],
+  "files": ["runtime/", "app/", "LICENSE.BSL", "LICENSE", "NOTICE", "TRADEMARK.md", "THIRD_PARTY_NOTICES.md"]
+}

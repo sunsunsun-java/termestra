@@ -1,0 +1,1926 @@
+@import "tailwindcss";
+
+@theme {
+  /* Twenty-style dark surfaces. The old palette pushed bg-0 down to #08090a
+     (near-black); Twenty sits at #171717 (charcoal). Charcoal reads as
+     "considered" — near-black reads as "Tailwind default dark". Same idea
+     for text: Twenty uses #ebebeb (~92% white) rather than off-white. */
+  --color-bg-0: #171717;
+  --color-bg-1: #1b1b1b;
+  --color-bg-2: #1d1d1d;
+  --color-bg-3: #222222;
+  --color-bg-crust: #0e0e0e;
+
+  /* Charcoal scale — Trigger.dev-inspired neutrals that fill the gap between
+     bg-2 (#18181b) and border-bright (#2b2b30). Used by interactive containers
+     that need a "hover one step lighter" affordance without jumping all the
+     way to bg-3 (which now reads as "grid" / table chrome). */
+  --color-charcoal-775: #1c1e21;
+  --color-charcoal-750: #212327;
+  --color-charcoal-700: #272a2e;
+  --color-charcoal-650: #2c3034;
+  --color-charcoal-600: #3b3e45;
+
+  /* Borders */
+  --color-border: #1d1d1d;
+  --color-border-bright: #484848;
+
+  /* Text — Twenty steps. primary is ~92% white (not screaming),
+     secondary is ~70%, tertiary ~50%. Three is enough for daily density;
+     light/extra-light/inverted/danger exist as token stops for the rare
+     callsite that needs a 4th shade — defined once, used sparingly. */
+  --color-text-primary: #ebebeb;
+  --color-text-secondary: #b3b3b3;
+  /* Tertiary used to be #818181, which dropped below AA body contrast
+     (≈4.0:1) on `bg-elevated` (#222). Bumped to #9c9c9c for ~5.6:1 across
+     bg-0..bg-3; this is the color a body of 11-13px tertiary text actually
+     wants to sit at. `--text-light` is kept as the same value alias. */
+  --color-text-tertiary: #9c9c9c;
+  --color-text-light: #9c9c9c;
+  --color-text-extra-light: #6f6f6f;
+  --color-text-inverted: #1b1b1b;
+  --color-text-danger: #d4544f;
+
+  /* Accent — Twenty's deep blue. Replaces the Linear indigo we'd been using.
+     Same family but more saturated and "true blue" — less violet, more weight.
+     The hover step matches Twenty's accent10. */
+  --color-accent: #3358d4;
+  --color-accent-hover: #5072dd;
+
+  /* Status — Twenty's status palette. More muted than GitHub status colors
+     we had before; sits next to text without clashing. */
+  --color-status-green: #54a271;
+  --color-status-orange: #e67333;
+  --color-status-red: #d4544f;
+  --color-status-blue: #3358d4;
+  --color-status-purple: #8551c0;
+  --color-status-gold: #ffeb38;
+
+  /* M6 — overlay & elevated */
+  --color-bg-overlay: rgba(0, 0, 0, 0.72);
+  --color-bg-elevated: #222222;
+
+  /* Typography scale — Twenty-aligned. Six steps total: the only sizes that
+     should appear in the app. The previous palette mixed Tailwind defaults
+     (xs=12, sm=14, base=16...) with eleven different `text-[Npx]` inline
+     literals; this @theme block overrides Tailwind so every `text-xs` /
+     `text-sm` / `text-base` / `text-lg` resolves to a Twenty step. Use
+     `text-base` (13px) as the body default; `text-xs` is the smallest
+     allowed in the app. */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 13px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+}
+
+:root {
+  /* Twenty-style dark surfaces (mirror of @theme above). The previous design used
+     to follow Linear's near-black; the move to charcoal #171717 is the
+     single biggest "this isn't Tailwind defaults" signal in this commit. */
+  --bg-0: #171717;
+  --bg-1: #1b1b1b;
+  --bg-2: #1d1d1d;
+  --bg-3: #222222;
+  --bg-crust: #0e0e0e;
+
+  /* M6 — overlay & elevated */
+  --bg-overlay: rgba(0, 0, 0, 0.72);
+  --bg-elevated: #222222;
+
+  /* Charcoal scale — see @theme block above. Available as raw vars for any
+     CSS rule that needs the in-between greys (e.g. hover ladder on chips). */
+  --charcoal-775: #1c1e21;
+  --charcoal-750: #212327;
+  --charcoal-700: #272a2e;
+  --charcoal-650: #2c3034;
+  --charcoal-600: #3b3e45;
+
+  /* Semantic surface aliases — `dimmed` is the resting state, `bright` is the
+     interactive "I'm clickable / focused" step. Adopt these in new code and
+     leave existing `bg-1/2/3` usages alone; cascade will keep them aligned. */
+  --background-dimmed: var(--bg-1);
+  --background-bright: var(--bg-2);
+  --grid-dimmed: var(--border);
+  --grid-bright: var(--border-bright);
+
+  /* Borders */
+  --border: #1d1d1d;
+  --border-bright: #484848;
+
+  /* Text — Twenty steps. primary/secondary/tertiary cover the three
+     density levels we actually use; light/extra-light/inverted/danger
+     are token stops for occasional callsites that need a 4th body shade
+     (light), a near-disabled tone (extra-light), light-on-dark text on a
+     filled CTA (inverted), or a destructive cue (danger) — all defined
+     once so future code doesn't reach for inline hex values. */
+  --text-primary: #ebebeb;
+  --text-secondary: #b3b3b3;
+  --text-tertiary: #9c9c9c;
+  --text-light: #9c9c9c;
+  --text-extra-light: #6f6f6f;
+  --text-inverted: #1b1b1b;
+  --text-danger: var(--status-red);
+
+  /* Accent — Twenty deep blue. */
+  --accent: #3358d4;
+  --accent-hover: #5072dd;
+
+  /* Status — Twenty muted palette. */
+  --status-green: #54a271;
+  --status-orange: #e67333;
+  --status-red: #d4544f;
+  --status-blue: #3358d4;
+  --status-purple: #8551c0;
+  --status-gold: #ffeb38;
+
+  /* M6 — icon scale */
+  --icon-xs: 12px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+
+  /* M6 — radius scale */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* Motion. Twenty's recipe is bare `ease` for hovers and a single cubic
+     curve only on character-bearing entrances (dialog/toast). The six-curve
+     system we used to ship (entrance/spring/overshoot/modal/in/in-out) was
+     the loudest non-Twenty tell in this file — Linear/Plane wear it, Twenty
+     doesn't. We keep `--ease-out` defined for the three places it still
+     earns its keep (dialog/drawer/toast keyframes) and standardize everything
+     else on `ease`. Durations dropped 120→100 / 180→150 to land on Twenty's
+     `instant 75 / fast 150 / normal 300` ladder. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);          /* dialog/drawer enter only */
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);              /* dialog/drawer exit only */
+  --ease-modal: cubic-bezier(0.32, 0.72, 0, 1);       /* drawer slide */
+  --ease-overshoot: cubic-bezier(0.34, 1.56, 0.64, 1); /* toast spring */
+  --dur-fast: 100ms;
+  --dur-base: 150ms;
+  --dur-slow: 280ms;
+
+  /* M6 — focus ring & elevation */
+  --ring-focus: rgba(94, 106, 210, 0.45);
+  /* Cool-tinted shadow base — `#292f3d` (rgb 41 47 61) at low alpha.
+     Drop-in upgrade over pure-black shadows: same darkening effect, but the
+     micro-purple tint reads as "lit by an ambient screen" instead of a hole
+     punched in the page. Plane uses this; we ported the channel values. */
+  --shadow-tint: 41 47 61;
+
+  --shadow-elev-2:
+    0 4px 12px rgba(var(--shadow-tint), 0.4),
+    0 1px 2px rgba(var(--shadow-tint), 0.3);
+
+  /* Card shadows — Twenty's `.card` ships with `border: 1px solid border-medium`
+     and no box-shadow at all. We kept a single contact line as a hairline edge
+     so the card still separates from its container, and dropped the inset
+     rim highlight (Twenty has zero inset shadows anywhere). The hover step
+     gets the accent-tinted ring but no ambient elevation. */
+  --shadow-card:
+    0 0 0 1px rgba(var(--shadow-tint), 0.12);
+  --shadow-card-hover:
+    0 0 0 1px color-mix(in oklab, var(--accent) 35%, transparent);
+
+  color-scheme: dark;
+}
+
+/* Accent-tinted selection. 22% reads as highlighted without shouting. */
+::selection {
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+  color: var(--text-primary);
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg-0);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--accent);
+  /* No font-feature-settings, no text-rendering, no letter-spacing.
+     Twenty doesn't set any of these and trusts Inter's native metrics —
+     the previous tweaks (tnum + cv11 + ss01 + ss03 + optimizeLegibility +
+     -0.011em tracking) were the loudest "AI-polished" tell in the file. */
+}
+
+#root { height: 100%; }
+
+/* DM Mono — Twenty's monospace. */
+.mono {
+  font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Linear dark palette helpers (class sugar) */
+.bg-0 { background: var(--bg-0); }
+.bg-1 { background: var(--bg-1); }
+.bg-2 { background: var(--bg-2); }
+.bg-3 { background: var(--bg-3); }
+.bg-crust { background: var(--bg-crust); }
+.text-pri { color: var(--text-primary); }
+.text-sec { color: var(--text-secondary); }
+.text-ter { color: var(--text-tertiary); }
+.border-d  { border-color: var(--border); }
+.border-b1 { border-color: var(--border-bright); }
+.accent { color: var(--accent); }
+.bg-accent { background: var(--accent); }
+
+/* Scrollbar */
+.scroll-y { overflow-y: auto; }
+.scroll-y::-webkit-scrollbar,
+.input::-webkit-scrollbar,
+.xterm-viewport::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-y::-webkit-scrollbar-thumb,
+.input::-webkit-scrollbar-thumb,
+.xterm-viewport::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 4px; }
+.scroll-y::-webkit-scrollbar-thumb:hover,
+.input::-webkit-scrollbar-thumb:hover,
+.xterm-viewport::-webkit-scrollbar-thumb:hover { background: var(--border-bright); }
+.scroll-y::-webkit-scrollbar-track,
+.input::-webkit-scrollbar-track,
+.xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+/* Firefox fallback — applies to anything that scrolls inside the app. */
+.scroll-y,
+.input,
+.xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--bg-3) transparent; }
+
+/* xterm focus affordance — when the PTY container has focus, give the user
+   a 1px accent inset so they know keystrokes will be captured. xterm sets
+   .focus on its outermost div whenever the underlying textarea is focused. */
+.xterm.focus {
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+/* Workspace row — Twenty's NavigationDrawerItem pattern. The interactive
+   surface is an inset rounded chip (margin + radius 4) rather than an
+   edge-to-edge bar; the active/hover wash sits inside the chip so it reads
+   "selected pill" rather than "highlighted row".
+   Active state ALSO brightens text (Twenty pattern): selected items go
+   from text-secondary to text-primary, so the row persists visually even
+   when the mouse moves away. The React side adds `font-medium` on the
+   workspace name when active. */
+.ws-row {
+  width: calc(100% - 12px);
+  margin: 0 6px;
+  padding-left: calc(0.5rem - 1px);
+  border: 1px solid color-mix(in oklab, var(--border-bright) 72%, var(--border));
+  border-radius: 10px;
+  box-sizing: border-box;
+  transition:
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+  cursor: pointer;
+  position: relative;
+}
+.ws-row:hover {
+  background: color-mix(in oklab, #ffffff 5%, transparent);
+  border-color: var(--border-bright);
+}
+.ws-row.active {
+  background: color-mix(in oklab, #ffffff 7%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 48%, var(--border-bright));
+}
+
+/* Sidebar inline delete (per-row) — 18% red wash + 50% red ring (inset, so
+   the row geometry stays stable). The icon colour switches via the tailwind
+   hover:text-status-red class on the button. */
+.ws-row-delete:hover {
+  background: color-mix(in oklab, var(--status-red) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--status-red) 50%, var(--border-bright));
+}
+.ws-row-delete {
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+}
+
+/* Sidebar add-workspace dashed CTA — gets accent on hover. */
+.ws-add {
+  background: transparent;
+  transition:
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+.ws-add--inline {
+  width: calc(100% - 12px);
+  margin-right: 6px;
+  margin-left: 6px;
+  padding-left: calc(0.5rem - 1px);
+  border-radius: 10px;
+}
+.ws-add__icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+}
+.ws-add:hover {
+  background: color-mix(in oklab, var(--accent) 6%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 50%, var(--border-bright));
+  color: var(--text-primary);
+}
+
+/* Container-query driven compaction — when the sidebar is dragged narrower
+   than ~140px, hide row paths and the "Add Workspace" label so only icons /
+   names show, preventing visual overflow. */
+.workspace-sidebar {
+  container-type: inline-size;
+  container-name: ws-sidebar;
+  transition: width var(--dur-base) ease;
+}
+.workspace-sidebar[data-resizing="true"] {
+  transition: none;
+}
+.ws-sidebar-header {
+  min-height: 48px;
+}
+.icon-btn.workspace-sidebar-toggle {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  z-index: 21;
+  padding: 0;
+  background: var(--bg-0);
+  color: var(--text-secondary);
+}
+.icon-btn.workspace-sidebar-toggle:hover {
+  background: var(--bg-2);
+}
+
+/* The zero-workspace view needs its own responsive treatment. EmptyState is
+   shared with roomy content panes and deliberately has generous padding; in a
+   resizable sidebar that padding otherwise squeezes Chinese/English labels
+   into single-character columns. Keep the full message while it is useful,
+   then progressively reduce it to a clear, accessible create action. */
+.ws-empty [data-testid="empty-state-title"] {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.ws-empty [data-testid="empty-state-description"] {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+}
+.ws-empty__action {
+  max-width: 100%;
+  line-height: 1.25;
+  text-align: center;
+}
+.ws-empty__action-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@container ws-sidebar (max-width: 240px) {
+  .ws-empty [data-testid="empty-state"] {
+    gap: 10px;
+    padding: 20px 12px;
+  }
+  .ws-empty [data-testid="empty-state-description"] {
+    display: none;
+  }
+  .ws-empty [data-testid="empty-state-title"] {
+    font-size: 14px;
+    line-height: 20px;
+  }
+}
+
+@container ws-sidebar (max-width: 184px) {
+  .ws-empty__action {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+  }
+  .ws-empty__action-label {
+    display: none;
+  }
+}
+
+@container ws-sidebar (max-width: 160px) {
+  .ws-empty [data-testid="empty-state"] {
+    gap: 0;
+    padding: 16px 0;
+  }
+  .ws-empty [data-testid="empty-state-icon"],
+  .ws-empty [data-testid="empty-state-title"] {
+    display: none;
+  }
+  .ws-empty__action {
+    margin-top: 0;
+  }
+}
+
+@container ws-sidebar (max-width: 140px) {
+  .ws-add__label { display: none; }
+  .ws-add--inline {
+    width: 48px;
+    padding-right: 8px;
+    padding-left: calc(0.5rem - 1px);
+  }
+}
+
+/* Compact mode (≤96px) — Discord-style avatar column. Hide the row layout +
+   sidebar title text + count badge + delete-button affordance; surface the
+   avatar cell instead. The inline "New workspace" CTA collapses to an icon-
+   only square so it sits neatly under the avatars instead of stretching. */
+@container ws-sidebar (max-width: 96px) {
+  .ws-sidebar-header {
+    padding-right: 0;
+    padding-left: 0;
+  }
+  .icon-btn.workspace-sidebar-toggle {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .ws-row { display: none; }
+  .ws-avatar-cell { display: flex; }
+  .ws-sidebar-title__text { display: none; }
+  .ws-sidebar-count { display: none; }
+  .ws-row-delete { display: none; }
+  .ws-add--inline {
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 6px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 10px;
+  }
+  .ws-add__icon { width: 30px; height: 30px; flex-basis: 30px; }
+}
+
+.workspace-sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  z-index: 20;
+  width: 8px;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.workspace-sidebar-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: transparent;
+  transition:
+    background var(--dur-fast) ease,
+    box-shadow var(--dur-fast) ease;
+}
+.workspace-sidebar-resizer:hover::before,
+.workspace-sidebar-resizer:focus-visible::before,
+.workspace-sidebar-resizer[data-resizing="true"]::before {
+  background: color-mix(in oklab, var(--accent) 68%, var(--border-bright));
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 12%, transparent);
+}
+
+/* Status dot — neutral baseline used by sidebar / inline indicators */
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.pulse-green { background: var(--status-green); animation: termestra-pulse 1.6s ease-in-out infinite; }
+.pulse-orange { background: var(--status-orange); animation: termestra-pulse 1.6s ease-in-out infinite; }
+@keyframes termestra-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* Status dot — typed (spec §3.6 + §3.6.4). One token per kind so colors stay
+   stable across cards / sidebar / sub-header. Working/queued get a soft
+   ripple via animated box-shadow expansion (1.8s — slow reads as premium). */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+  flex-shrink: 0;
+  transition: background var(--dur-base) ease;
+}
+.status-dot--working {
+  background: var(--status-green);
+  animation: termestra-ripple-green 1.8s ease-in-out infinite;
+}
+.status-dot--idle {
+  background: var(--text-tertiary);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--text-tertiary) 18%, transparent);
+}
+.status-dot--queued {
+  background: var(--status-orange);
+  animation: termestra-ripple-orange 1.8s ease-in-out infinite;
+}
+.status-dot--stopped {
+  background: var(--status-red);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--status-red) 22%, transparent);
+  opacity: 0.85;
+}
+@keyframes termestra-ripple-green {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in oklab, var(--status-green) 22%, transparent); }
+  50%      { box-shadow: 0 0 0 7px color-mix(in oklab, var(--status-green) 6%, transparent); }
+}
+@keyframes termestra-ripple-orange {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in oklab, var(--status-orange) 22%, transparent); }
+  50%      { box-shadow: 0 0 0 7px color-mix(in oklab, var(--status-orange) 6%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-dot--working,
+  .status-dot--queued { animation: none; }
+}
+
+/* Pill — unified inline-status surface. Used by worker card status,
+   queue counters, and any future inline-tone chip. Tone variants set
+   color + tinted bg + tinted border; the base handles shape, size,
+   spacing, and typography so callsites don't drift. .pill--ghost
+   strips the bg/border for an "idle" pill that's text-only. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+/* Pill tone variants — the text gets a small white-mix so it pops on the
+   tinted background. Without this, red/green pills sat at <4:1 contrast on
+   their own 10% wash. The 50-55% mix lifts text into AA territory without
+   changing the visual identity of the tone. */
+.pill--green {
+  color: color-mix(in oklab, var(--status-green) 55%, white);
+  background: color-mix(in oklab, var(--status-green) 14%, transparent);
+  border-color: color-mix(in oklab, var(--status-green) 28%, transparent);
+}
+.pill--orange {
+  color: color-mix(in oklab, var(--status-orange) 65%, white);
+  background: color-mix(in oklab, var(--status-orange) 12%, transparent);
+  border-color: color-mix(in oklab, var(--status-orange) 28%, transparent);
+}
+.pill--red {
+  color: color-mix(in oklab, var(--status-red) 50%, white);
+  background: color-mix(in oklab, var(--status-red) 14%, transparent);
+  border-color: color-mix(in oklab, var(--status-red) 30%, transparent);
+}
+.pill--neutral {
+  color: var(--text-secondary);
+  background: var(--bg-3);
+  border-color: var(--border);
+}
+.pill--ghost {
+  color: var(--text-tertiary);
+  background: transparent;
+  border-color: transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Button — Twenty-style. Two key shifts from the old `.icon-btn`:
+   1. Larger touch target (height 28px, was ~22px) with proportional padding.
+      Twenty runs 24px small / 32px medium; we sit at 28px, the lightest
+      density that still feels deliberate.
+   2. No inset-highlight, no ambient shadow at rest. Twenty buttons are
+      flat — the `background var(--dur-fast)` transition does all the work.
+      The inner-highlight trick we had was the loudest "designed" tell in
+      the previous palette; removing it is the single biggest "this isn't
+      AI-generated polish" signal in the file. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: 28px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-bright);
+  background: var(--bg-2);
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
+}
+.icon-btn:hover {
+  background: var(--bg-3);
+  color: var(--text-primary);
+}
+.icon-btn:active { background: var(--bg-3); }
+.icon-btn:focus-visible {
+  outline: none;
+  /* Single 3px solid halo at low alpha — Twenty's focus pattern. The
+     previous 2-band ring (2px tight + 6px halo) was technically nicer but
+     read as fussy; one band is enough on a flat button. */
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 30%, transparent);
+}
+.icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Primary — the blue-CTA variant. Saturated brand color, white text. */
+.icon-btn--primary {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+.icon-btn--primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #ffffff;
+}
+
+.icon-btn--danger {
+  color: var(--status-red);
+  border-color: color-mix(in oklab, var(--status-red) 30%, var(--border-bright));
+}
+.icon-btn--danger:hover {
+  background: color-mix(in oklab, var(--status-red) 14%, transparent);
+  border-color: color-mix(in oklab, var(--status-red) 40%, transparent);
+  color: var(--status-red);
+}
+
+/* Solid-danger primary — the destructive equivalent of icon-btn--primary.
+   Twenty's destructive CTAs are filled red, not outlined. The outlined
+   .icon-btn--danger is still appropriate for inline / icon-only actions
+   (sidebar row delete, worker card remove); this variant is for the
+   confirm-modal "Delete" button where the action is heavy and needs to
+   read as a real CTA. */
+.icon-btn--danger-solid {
+  background: var(--status-red);
+  color: #ffffff;
+  border-color: var(--status-red);
+}
+.icon-btn--danger-solid:hover {
+  background: color-mix(in oklab, var(--status-red) 88%, #000);
+  border-color: color-mix(in oklab, var(--status-red) 88%, #000);
+  color: #ffffff;
+}
+
+/* Plane/Trigger-inspired role variants. The default `.icon-btn` is `secondary`
+   in their parlance (bg + 1px border + subtle shadow); these add the rest of
+   the matrix. Each modifier only overrides what differs from the base. */
+
+/* Tertiary — lighter than secondary, no border, lives on a tinted container. */
+.icon-btn--tertiary {
+  background: var(--charcoal-700);
+  border-color: transparent;
+}
+.icon-btn--tertiary:hover {
+  background: var(--charcoal-600);
+  border-color: transparent;
+}
+
+/* Ghost — transparent until interacted with. The most-quiet variant; used
+   for inline icon-only affordances (close, dismiss, kebab) where chrome is
+   noise. No box-shadow at rest so it disappears into its container. */
+.icon-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-tertiary);
+}
+.icon-btn--ghost:hover {
+  background: var(--charcoal-700);
+  border-color: transparent;
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+/* Link — text-only, underlined on hover. Pairs with `.icon-btn--ghost` for
+   "Skip", "Cancel", and similar tertiary text actions. */
+.icon-btn--link {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  padding-left: 2px;
+  padding-right: 2px;
+  color: var(--text-secondary);
+}
+.icon-btn--link:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Card — Twenty's recipe. Flat surface, 1px border at rest, no shadow.
+   Two notes vs the previous pass: (1) corner radius lands at 4px (Twenty's
+   `radius.sm`) instead of 8px — the soft 8px reads "SaaS app", 4px reads
+   "data-dense CRM" which is the family we want. (2) Rest border is the
+   quiet `--border` step; only hover firms it up to `--border-bright`. The
+   accent-tint hover background from the previous pass
+   Twenty never wears — hover is just a gray-step. */
+.card {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  transition:
+    border-color 100ms ease,
+    background 100ms ease;
+}
+.card--interactive { cursor: pointer; }
+.card--interactive:hover {
+  border-color: var(--border-bright);
+}
+
+/* Selectable card — used by RoleCard and AgentChip in the Add Worker dialog
+   (and the Confirm Workspace command preset row). One class handles all four
+   interactive states (idle / hover / focus-visible / aria-pressed) so picker
+   grids don't drift apart visually across the app. Active state lives on
+   aria-pressed="true" so the same markup works for radio-like single-select
+   groups without flipping a separate `active` className. */
+.selectable-card {
+  position: relative;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) ease,
+    background var(--dur-fast) ease,
+    box-shadow var(--dur-fast) ease;
+}
+.selectable-card--dashed { border-style: dashed; border-color: var(--border-bright); }
+.selectable-card:hover:not([aria-pressed="true"]) {
+  border-color: var(--border-bright);
+  background: color-mix(in oklab, var(--accent) 3%, var(--bg-2));
+}
+.selectable-card:focus-visible {
+  outline: none;
+  /* Single 3px solid halo — matches `.input`. */
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 30%, transparent);
+}
+.selectable-card[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 14%, var(--bg-2));
+}
+
+/* Role badges — flex-shrink:0 + nowrap so they never clip in narrow rows. */
+.role-badge {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.role-badge--coder {
+  background: color-mix(in oklab, var(--status-blue) 22%, var(--bg-2));
+  color: var(--status-blue);
+}
+.role-badge--tester {
+  background: color-mix(in oklab, var(--status-orange) 22%, var(--bg-2));
+  color: var(--status-orange);
+}
+.role-badge--reviewer {
+  background: color-mix(in oklab, var(--status-purple) 22%, var(--bg-2));
+  color: var(--status-purple);
+}
+.role-badge--orch { background: var(--bg-3); color: var(--text-secondary); }
+.role-badge--custom { background: var(--bg-3); color: var(--text-secondary); }
+
+/* line-clamp utilities */
+.line-clamp-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Drawer */
+.drawer {
+  transform: translateX(100%);
+  transition: transform 0.25s ease-out;
+}
+.drawer.open { transform: translateX(0); }
+
+/* Slim 2px progress bar — replaces the full progress card. Solid accent
+   (no gradient), 999px ends so the leading edge of the fill looks
+   intentional rather than chopped. */
+.task-progress-thin {
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-3);
+}
+.task-progress-thin > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+
+/* Header lays out title + counts + actions on one row; bottom edge omitted so
+   the progress bar below reads as the natural separator. */
+.task-drawer__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  flex-shrink: 0;
+}
+
+/* Progress bar sits flush under the header — acts as the header's lower
+   border, only drawn when there are tasks to count. */
+.task-drawer__progress {
+  margin: 0 16px 8px;
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-node {
+  position: relative;
+}
+
+/* Each task row is a clickable card-like container. The left edge gains an
+   accent when hovered or focused so the eye can track which row is active
+   even when the body of the row is text-heavy. */
+.task-row {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+  border-radius: 6px;
+  padding: 8px 10px 8px 12px;
+  position: relative;
+  transition: background-color var(--dur-fast) ease;
+}
+
+.task-row::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color var(--dur-fast) ease;
+}
+
+.task-row:hover {
+  background: var(--bg-2);
+}
+
+.task-row:hover::before,
+.task-row:focus-within::before {
+  background: color-mix(in oklab, var(--accent) 60%, transparent);
+}
+
+.task-row__indicator {
+  margin-top: 2px;
+  display: inline-flex;
+  height: 20px;
+  width: 20px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+.task-row__title {
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* The checkbox + status indicator are wrapped in a label so the entire
+   indicator zone toggles the task; the rest of the row is non-clickable
+   surface so the action buttons stay reachable without swallowing clicks. */
+.task-row__checkbox-cell {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.task-row__input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+.task-row__input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* Hover-revealed action cluster on the right edge of the row. */
+.task-row__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease;
+}
+.task-row:hover .task-row__actions,
+.task-row:focus-within .task-row__actions {
+  opacity: 1;
+}
+.task-row__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  width: 22px;
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.task-row__action:hover {
+  background: var(--bg-3);
+  color: var(--text-primary);
+}
+.task-row__action--danger:hover {
+  background: color-mix(in oklab, var(--status-red) 18%, transparent);
+  color: var(--status-red);
+}
+
+.task-row--child-input {
+  cursor: default;
+}
+.task-row--child-input:hover {
+  background: var(--bg-2);
+}
+
+.task-children {
+  position: relative;
+  margin-left: 22px;
+  padding-left: 14px;
+}
+
+/* Stronger subtask guideline so multi-level nesting reads at a glance — the
+   prior `var(--border)` was too quiet to register against the row hover bg. */
+.task-children::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 8px;
+  left: 0;
+  width: 1px;
+  background: var(--border-bright);
+}
+
+.task-status-open {
+  color: var(--text-tertiary);
+  background: var(--bg-3);
+}
+
+.task-status-done {
+  color: var(--status-green);
+  background: color-mix(in oklab, var(--status-green) 13%, transparent);
+}
+
+/* Owner pill — tone driven by --owner-tone (hash of name). Same shape across
+   palette entries; only colour shifts so the eye learns the mapping. */
+.task-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: color-mix(in oklab, var(--owner-tone, var(--status-blue)) 35%, white);
+  background: color-mix(in oklab, var(--owner-tone, var(--status-blue)) 16%, transparent);
+  border: 1px solid color-mix(in oklab, var(--owner-tone, var(--status-blue)) 30%, transparent);
+}
+
+/* Legacy alias kept so any external consumer of `.task-mention` doesn't
+   regress; same shape as `.task-owner` but using the default blue tone. */
+.task-mention {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  border: 1px solid color-mix(in oklab, var(--status-blue) 28%, transparent);
+  border-radius: 999px;
+  padding: 0 8px;
+  color: color-mix(in oklab, var(--status-blue) 30%, white);
+  background: color-mix(in oklab, var(--status-blue) 14%, transparent);
+  font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.task-child-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 18px;
+  border-radius: 999px;
+  padding: 0 6px 0 4px;
+  color: var(--text-tertiary);
+  background: var(--bg-3);
+  font-size: 11px;
+}
+
+/* Inline add-task affordance. Starts as a dashed-ring "ghost row" so it
+   blends with the list rhythm; transforms into a real input on click. */
+.task-add-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  border-radius: 6px;
+  padding: 8px 10px 8px 12px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.task-add-toggle:hover {
+  background: var(--bg-2);
+  color: var(--text-secondary);
+}
+.task-add-toggle__icon {
+  display: inline-flex;
+  height: 20px;
+  width: 20px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border-bright);
+  border-radius: 999px;
+  color: var(--text-tertiary);
+}
+
+.task-add-input {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 6px;
+  padding: 8px 10px 8px 12px;
+  background: var(--bg-2);
+}
+.task-add-input__icon {
+  display: inline-flex;
+  height: 20px;
+  width: 20px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-3);
+  color: var(--text-secondary);
+  border-radius: 999px;
+}
+.task-add-input__field {
+  min-width: 0;
+  flex: 1;
+  background: transparent;
+  font-size: 14px;
+  color: var(--text-primary);
+  outline: none;
+}
+.task-add-input__field::placeholder {
+  color: var(--text-tertiary);
+}
+
+.task-completed-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.task-completed-toggle:hover {
+  background: var(--bg-2);
+  color: var(--text-secondary);
+}
+
+/* §6.6.1 — depth-cap marker. Drawn at level ≥3 instead of yet another indent
+   step; reads as "this is a continuation of the tree, but we stopped widening
+   the gutter so the drawer doesn't compress into a strip". */
+.task-row__deep-marker {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--text-tertiary);
+}
+
+/* §6.6.1 — once we hit the depth cap the children container keeps stacking
+   visually but stops indenting and stops drawing the parent guide line, so
+   the visual cost of going one level deeper is zero. */
+.task-children--deep {
+  margin-left: 0;
+  padding-left: 8px;
+}
+.task-children--deep::before {
+  display: none;
+}
+
+/* §6.6.5 — per-row collapse/expand button. Sits in the title row alongside
+   the N/M progress badge. Quiet at rest so the title still dominates. */
+.task-row__collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  width: 18px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-tertiary);
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.task-row__collapse:hover {
+  background: var(--bg-3);
+  color: var(--text-secondary);
+}
+
+/* §6.6.6 — owner chip becomes a button. Keep the visual identical to the
+   non-clickable `.task-owner` (same height, padding, palette) so users can't
+   tell at a glance which chips are interactive — the cursor + hover signal
+   carry the affordance. */
+.task-owner--clickable {
+  cursor: pointer;
+  font: inherit;
+  font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.task-owner--clickable:hover {
+  filter: brightness(1.1);
+}
+.task-owner--clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* §6.6.6 cross-pane jump — 1s highlight ring on the target WorkerCard when
+   an `@<name>` chip is clicked. The animation is the entire feedback signal;
+   if your design tokens don't have a glow var, fall back to the accent ring. */
+@keyframes worker-card-highlight {
+  0% {
+    box-shadow: 0 0 0 2px var(--accent), 0 0 18px 4px color-mix(in oklab, var(--accent) 40%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent;
+  }
+}
+.worker-card-shell--highlight {
+  animation: worker-card-highlight 1000ms ease-out;
+}
+
+/* §3.5.2 + §6.6.4 — Tasks 抽屉 stale overlay. Mirrors the worker-card stale
+   treatment: desaturate + dim, leaving structure legible. Status / progress
+   colors are reapplied at full saturation via nested selectors so users can
+   still distinguish open vs done while in stale mode (per §6.6.4 rule that
+   `connection=stale` doesn't degrade information density). */
+.drawer--stale {
+  filter: saturate(0.35) brightness(0.85);
+}
+.drawer--stale .task-status-done,
+.drawer--stale .task-status-open {
+  filter: saturate(1.6) brightness(1.15);
+}
+
+
+/* Deprecated — kept only for compat; prefer `.app-overlay` on a
+   <Dialog.Overlay> element. M6-A migrated all known callers; remove this
+   class in M6-D收口 once external code (if any) is verified. */
+.modal-backdrop {
+  background: var(--bg-overlay);
+}
+
+/* Dialog.Overlay surface — Twenty uses a flat 72% black backdrop, no blur.
+   The previous implementation layered blur(10px) + saturate(140%); dropped to match. */
+.app-overlay {
+  background: var(--bg-overlay);
+}
+
+/* Inner top highlight — utility for elevated surfaces (drops a 1px line of
+   light at the top edge to fake ambient screen-light reflection). */
+.elev-1 {
+  box-shadow: 0 2px 6px rgba(var(--shadow-tint), 0.36);
+}
+.elev-2 {
+  box-shadow:
+    0 12px 28px rgba(var(--shadow-tint), 0.46),
+    0 4px 10px rgba(var(--shadow-tint), 0.36);
+}
+
+/* Canonical text input — replaces inline rounded-md/border/px-3/py-2 across
+   dialogs. Includes a proper focus-visible ring (was missing everywhere). */
+.input {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-1);
+  /* Quiet rest border (Twenty's `border.color.medium`); only firms up on
+     hover and gets the accent ring on focus. Previously sat at
+     `--border-bright` at rest, which made every input look "active". */
+  border: 1px solid var(--border);
+  outline: none;
+  transition: border-color 100ms ease, box-shadow 100ms ease;
+}
+/* Placeholder weight matches Twenty's input recipe: 500-weight ghost text
+   reads as a "label-ish prompt" rather than soft body. */
+.input::placeholder { color: var(--text-tertiary); font-weight: 500; }
+.input:hover:not(:focus) { border-color: var(--border-bright); }
+/* Twenty's input focus is just a border-color shift — no halo. The caret
+   already announces "you are typing here", and dropping the ring keeps the
+   field as quiet as the rest of the chrome. The ring stays on buttons and
+   selectable-cards where there is no caret cue. */
+.input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: none;
+}
+.input--readonly { background: var(--bg-0); color: var(--text-secondary); cursor: default; }
+
+/* Error state — used by inputs flagged with an active validation error.
+   Border firms up to red at rest *and* focus (matches Twenty: error
+   state never swaps to the accent on focus). */
+.input--error {
+  border-color: color-mix(in oklab, var(--status-red) 50%, var(--border-bright));
+}
+.input--error:hover:not(:focus) {
+  border-color: color-mix(in oklab, var(--status-red) 65%, var(--border-bright));
+}
+.input--error:focus-visible {
+  border-color: var(--status-red);
+  box-shadow: none;
+}
+
+/* Dialog open/close choreography — radix sets [data-state] on Overlay and
+   Content. Three flavors so animations don't fight each layout family:
+     • .dialog-pop  — centered dialogs (top-1/2 left-1/2 -translate-x/y-1/2),
+                      scale + opacity around their existing translate.
+     • .dialog-scale-pop — dialogs centered by an outer grid layer; scale only.
+     • .drawer-pop  — side panels (inset-y-0 right-0), slide in from right. */
+/* Dialog enter/exit — Twenty fades opacity-only over its 300ms `normal`
+   animation token. The previous implementation scaled from 0.94 → 1; the scale was a
+   "designed" tell. Translate keyframes keep `dialog-pop` (centered via
+   transform) anchored; `dialog-scale-pop` (centered by an outer grid)
+   doesn't need transforms at all. */
+@keyframes dialog-overlay-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dialog-overlay-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes dialog-pop-in {
+  from { opacity: 0; transform: translate(-50%, -50%); }
+  to   { opacity: 1; transform: translate(-50%, -50%); }
+}
+@keyframes dialog-pop-out {
+  from { opacity: 1; transform: translate(-50%, -50%); }
+  to   { opacity: 0; transform: translate(-50%, -50%); }
+}
+@keyframes dialog-scale-pop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes dialog-scale-pop-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes drawer-pop-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes drawer-pop-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(24px); }
+}
+.app-overlay[data-state="open"]  { animation: dialog-overlay-in 180ms var(--ease-out); }
+.app-overlay[data-state="closed"] { animation: dialog-overlay-out 140ms var(--ease-in); }
+.dialog-pop[data-state="open"]   { animation: dialog-pop-in 300ms var(--ease-out) both; }
+.dialog-pop[data-state="closed"] { animation: dialog-pop-out 140ms var(--ease-in) both; }
+.dialog-scale-pop[data-state="open"]   { animation: dialog-scale-pop-in 300ms var(--ease-out) both; }
+.dialog-scale-pop[data-state="closed"] { animation: dialog-scale-pop-out 140ms var(--ease-in) both; }
+.drawer-pop[data-state="open"]   { animation: drawer-pop-in 220ms var(--ease-modal) both; }
+.drawer-pop[data-state="closed"] { animation: drawer-pop-out 160ms var(--ease-in) both; }
+@media (prefers-reduced-motion: reduce) {
+  .app-overlay[data-state="open"],
+  .app-overlay[data-state="closed"],
+  .dialog-pop[data-state="open"],
+  .dialog-pop[data-state="closed"],
+  .dialog-scale-pop[data-state="open"],
+  .dialog-scale-pop[data-state="closed"],
+  .drawer-pop[data-state="open"],
+  .drawer-pop[data-state="closed"] { animation: none; }
+}
+
+/* Tooltip — Twenty's recipe. Dark elevated surface, hairline border, 11px
+   font, single-line content. The `dialog-overlay-in` keyframe is borrowed
+   for the opacity-only fade-in; 100ms is fast enough to feel native. */
+.tooltip {
+  z-index: 70;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  box-shadow: var(--shadow-elev-2);
+  animation: dialog-overlay-in 100ms ease;
+  max-width: 260px;
+}
+
+/* Toast progress bar — countdown sliver along the bottom edge, scaled from
+   left so it visibly drains as the dismiss timer ticks down. Pauses when
+   the user is hovering the toast (the dismiss timer is paused in JS at
+   the same moment, so the bar and the actual timeout stay in sync). */
+.toast-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  opacity: 0.5;
+  transform-origin: left;
+  animation: toast-progress linear forwards;
+  pointer-events: none;
+}
+.toast:hover .toast-progress-bar {
+  animation-play-state: paused;
+}
+@keyframes toast-progress {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-progress-bar { animation: none; opacity: 0; }
+}
+
+/* Toast spring entrance — overshoot once on open, fast slide on close. */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.toast-pop { animation: toast-in 320ms var(--ease-overshoot); }
+@media (prefers-reduced-motion: reduce) {
+  .toast-pop { animation: none; }
+}
+
+.float-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  border: 1px solid var(--border-bright);
+  background: var(--bg-1);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+.float-action:hover {
+  background: color-mix(in oklab, var(--bg-2) 85%, transparent);
+  border-color: var(--border-bright);
+  color: var(--text-primary);
+}
+.float-action:active {
+  background: color-mix(in oklab, var(--bg-3) 90%, transparent);
+}
+.float-action:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 30%, transparent);
+}
+.float-action:disabled { opacity: 0.5; cursor: not-allowed; }
+.float-action[data-variant="primary"] {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+.float-action[data-variant="primary"]:hover {
+  background: var(--accent-hover);
+}
+.float-action[data-variant="danger"] {
+  color: var(--status-red);
+}
+.float-action[data-variant="danger"]:hover {
+  background: color-mix(in oklab, var(--status-red) 18%, transparent);
+  border-color: color-mix(in oklab, var(--status-red) 50%, var(--border-bright));
+  color: var(--status-red);
+}
+.float-action-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: color-mix(in oklab, var(--border-bright) 80%, transparent);
+}
+
+/* Worker tile grid — elastic auto-fill. Each tile has a 200px minimum and
+   stretches to fill the remaining row width, so columns adapt smoothly to
+   the WorkersPane width: ~200 → 1, ~440 → 2, ~660 → 3, ~880 → 4 … */
+.worker-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
+  gap: 10px;
+}
+
+/* Worker card — centered "person tile" with hero avatar, name, role text,
+   status indicator. Uses .card / .card--interactive shadow + hover lift. */
+.worker-card-shell {
+  position: relative;
+}
+
+/* Stopped worker — the card visually steps back so a grid mixing working
+   and stopped agents reads at a glance. Reduced opacity + slight desat
+   on the card body. Hover restores full saturation so the user can still
+   inspect / restart the agent without the chrome fighting them. */
+.worker-card-shell[data-status='stopped'] .worker-card {
+  opacity: 0.65;
+  filter: saturate(0.6);
+  transition:
+    opacity var(--dur-fast) ease,
+    filter var(--dur-fast) ease;
+}
+.worker-card-shell[data-status='stopped']:hover .worker-card,
+.worker-card-shell[data-status='stopped']:focus-within .worker-card {
+  opacity: 1;
+  filter: none;
+}
+
+/* Worker-card status pill — `.pill` does the chrome; this only adds the
+   layout hook so the pill aligns at the start of the flex column. The
+   tone modifier (.pill--green / --orange / --red / --ghost) is set by
+   the React side based on the status kind. */
+.worker-card__status {
+  align-self: flex-start;
+}
+
+.worker-card-shell:hover .worker-card__actions,
+.worker-card-shell:focus-within .worker-card__actions {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.worker-card__actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition:
+    opacity var(--dur-fast) ease,
+    transform var(--dur-fast) ease;
+  pointer-events: none;
+  z-index: 2;
+}
+.worker-card__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--border-bright);
+  background: var(--bg-2);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+.worker-card__action:hover {
+  background: var(--bg-3);
+  border-color: var(--text-tertiary);
+  color: var(--text-primary);
+}
+/* Press affordance — background-darken alone (no scale transform). */
+.worker-card__action:active { background: var(--charcoal-700); }
+.worker-card__action:disabled { opacity: 0.5; cursor: not-allowed; }
+.worker-card__action[data-variant="primary"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+.worker-card__action[data-variant="primary"]:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.worker-card__action[data-variant="danger"]:hover {
+  background: color-mix(in oklab, var(--status-red) 14%, transparent);
+  border-color: color-mix(in oklab, var(--status-red) 40%, var(--border-bright));
+  color: var(--status-red);
+}
+
+.modal-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 6;
+  outline: none;
+  user-select: none;
+  touch-action: none;
+}
+.modal-resize-handle--left  { left: -4px; }
+.modal-resize-handle--right { right: -4px; }
+.modal-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: transparent;
+  transition:
+    background var(--dur-fast) ease,
+    box-shadow var(--dur-fast) ease;
+}
+.modal-resize-handle--left::before  { left: 4px; }
+.modal-resize-handle--right::before { right: 4px; }
+.modal-resize-handle:hover::before,
+.modal-resize-handle[data-resizing]::before {
+  background: color-mix(in oklab, var(--accent) 68%, var(--border-bright));
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 12%, transparent);
+}
+
+/* Vertical splitter between Orchestrator and Workers panes. The overlay takes
+   no layout space, but unlike the sidebar's edge resizer it stays visible: a
+   subtle rule plus a centred grip makes the adjustable split discoverable. */
+.pane-splitter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  background: transparent;
+  cursor: col-resize;
+  z-index: 5;
+  outline: none;
+  user-select: none;
+  touch-action: none;
+}
+.pane-splitter::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 1px;
+  background: var(--border-bright);
+  transition:
+    background var(--dur-fast) ease,
+    box-shadow var(--dur-fast) ease;
+}
+.pane-splitter::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 5px;
+  height: 44px;
+  border: 1px solid var(--border-bright);
+  border-radius: 999px;
+  background: var(--bg-2);
+  box-shadow: 0 1px 4px color-mix(in oklab, black 28%, transparent);
+  transform: translateY(-50%);
+  transition:
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    box-shadow var(--dur-fast) ease;
+}
+.pane-splitter:hover::before,
+.pane-splitter:focus-visible::before,
+.pane-splitter[data-dragging]::before {
+  background: color-mix(in oklab, var(--accent) 68%, var(--border-bright));
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 12%, transparent);
+}
+.pane-splitter:hover::after,
+.pane-splitter:focus-visible::after,
+.pane-splitter[data-dragging]::after {
+  border-color: color-mix(in oklab, var(--accent) 78%, var(--border-bright));
+  background: color-mix(in oklab, var(--accent) 22%, var(--bg-2));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 10%, transparent);
+}
+
+/* The workers pane can be narrowed by the main splitter. Keep its header
+   readable instead of allowing flex-shrink to stack Chinese glyphs vertically. */
+.workers-pane {
+  container-type: inline-size;
+}
+
+.workers-pane-header__identity > :first-child {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@container (max-width: 360px) {
+  .workers-pane-header__main {
+    gap: 8px;
+  }
+
+  .workers-pane-header__identity,
+  .workers-pane-header__actions {
+    gap: 8px;
+  }
+
+  .workers-pane-header__action {
+    width: 32px;
+    min-width: 32px;
+    padding-right: 0;
+    padding-left: 0;
+    justify-content: center;
+  }
+
+  .workers-pane-header__action-label {
+    display: none;
+  }
+}
+
+@container (max-width: 220px) {
+  .workers-pane-header {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .workers-pane-header__main {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workers-pane-header__identity,
+  .workers-pane-header__actions {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .workers-pane-header__actions {
+    margin-left: 0;
+  }
+}
+
+/* CLI / preset select — wraps a native <select> with custom chrome.
+   Drops the system focus outline, replaces the chevron with a lucide one,
+   matches .input visual language. */
+.cli-select {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  transition:
+    border-color 100ms ease,
+    box-shadow 100ms ease;
+}
+.cli-select:hover { border-color: var(--border-bright); }
+.cli-select:focus-within {
+  border-color: var(--accent);
+  box-shadow: none;
+}
+.cli-select__leading {
+  position: absolute;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+.cli-select__trailing {
+  position: absolute;
+  right: 10px;
+  color: var(--text-secondary);
+  pointer-events: none;
+  transition: transform var(--dur-fast) ease;
+}
+.cli-select:focus-within .cli-select__trailing { transform: translateY(1px); }
+.cli-select__field {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 100%;
+  padding: 8px 32px 8px 38px;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.cli-select__field:disabled { color: var(--text-tertiary); cursor: not-allowed; }
+.cli-select__field option {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* Themed custom listbox replacing the OS-rendered <select> menu. Anchored
+   to the .cli-select container, opens below the trigger, dark surface so it
+   blends with the dialog instead of flashing a white system popover. */
+.cli-select__field--button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  cursor: pointer;
+}
+.cli-select__menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 60;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  background: var(--bg-elevated);
+  /* 1px hairline (was 0.5px — too fragile on subpixel displays). Border
+     gives the floating menu its edge; the shadow gives ambient depth. */
+  border: 1px solid var(--border-bright);
+  border-radius: 4px;
+  box-shadow: var(--shadow-elev-2);
+  max-height: 240px;
+  overflow-y: auto;
+  animation: dialog-scale-pop-in 120ms var(--ease-out) both;
+  transform-origin: top center;
+}
+.cli-select__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+.cli-select__option:hover,
+.cli-select__option:focus-visible {
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  outline: none;
+}
+.cli-select__option[aria-selected="true"] {
+  color: var(--accent);
+}
+.cli-select__check {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+/* "Browse marketplace" entry button in AddWorker — same bg-3 invisibility
+   issue as the cards; give it an explicit accent-mix hover. */
+.marketplace-browse-btn:hover {
+  background: color-mix(in oklab, var(--accent) 12%, var(--bg-0));
+  border-color: color-mix(in oklab, var(--accent) 50%, var(--border-bright));
+  color: var(--text-primary);
+}
+
+/* Marketplace card hover/active — bg-3 == bg-elevated in this theme so a
+   plain `hover:bg-3` is a no-op on the drawer container; cards need
+   explicit accent-mix washes to look interactive. Selected cards skip the
+   hover wash (they already have an accent border + accent-mix fill). */
+.marketplace-card[data-selected='true'] {
+  border-color: var(--accent);
+}
+.marketplace-card:not([data-selected='true']):hover {
+  background: color-mix(in oklab, var(--accent) 6%, var(--bg-2));
+  border-color: color-mix(in oklab, var(--accent) 35%, var(--border-bright));
+}
+.marketplace-card:not([data-selected='true']):active {
+  background: color-mix(in oklab, var(--accent) 10%, var(--bg-2));
+}
+
+/* Lightweight prose for the marketplace preview pane — not a full typography
+   plugin, just enough hierarchy to read agent prompts at a glance instead of
+   wading through a <pre> block. Pairs with marked + DOMPurify on the JS side. */
+.marketplace-prose {
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.marketplace-prose > * + * { margin-top: 8px; }
+.marketplace-prose h1,
+.marketplace-prose h2,
+.marketplace-prose h3,
+.marketplace-prose h4 {
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.marketplace-prose h1 { font-size: 15px; margin-top: 12px; }
+.marketplace-prose h2 { font-size: 13px; margin-top: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+.marketplace-prose h3 { font-size: 12px; margin-top: 10px; color: var(--text-secondary); }
+.marketplace-prose h4 { font-size: 12px; color: var(--text-secondary); }
+.marketplace-prose p { color: var(--text-primary); }
+.marketplace-prose ul,
+.marketplace-prose ol { padding-left: 18px; }
+.marketplace-prose ul { list-style: disc; }
+.marketplace-prose ol { list-style: decimal; }
+.marketplace-prose li + li { margin-top: 2px; }
+.marketplace-prose li { color: var(--text-primary); }
+.marketplace-prose strong { color: var(--text-primary); font-weight: 600; }
+.marketplace-prose em { color: var(--text-secondary); font-style: italic; }
+.marketplace-prose code {
+  font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-3);
+  color: var(--text-secondary);
+}
+.marketplace-prose pre {
+  font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+.marketplace-prose pre code { background: transparent; padding: 0; color: var(--text-primary); }
+.marketplace-prose blockquote {
+  margin: 8px 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-bright);
+  color: var(--text-secondary);
+}
+.marketplace-prose a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.marketplace-prose a:hover { color: var(--accent-hover); }
+.marketplace-prose hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+.marketplace-prose table {
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.marketplace-prose th,
+.marketplace-prose td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+.marketplace-prose th { background: var(--bg-2); color: var(--text-secondary); }
