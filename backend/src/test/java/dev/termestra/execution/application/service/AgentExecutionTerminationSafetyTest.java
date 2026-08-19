@@ -13,6 +13,7 @@ import dev.termestra.execution.domain.model.RunStatus;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -184,6 +185,37 @@ class AgentExecutionTerminationSafetyTest {
         service.close();
     }
 
+    @Test void forgetWorkspaceReturnsAfterTheBoundedNativeStopDeadlineWithoutReleasingOwnership()
+            throws Exception{
+        RecordingRepository repository=new RecordingRepository();
+        RecordingCredentials credentials=new RecordingCredentials();
+        BlockingStopPty process=new BlockingStopPty(125);
+        ProcessTerminationSupervisor supervisor=new ProcessTerminationSupervisor(Duration.ofMillis(100));
+        AgentExecutionService service=service(repository,credentials,ignored->process,
+                new RunCapacityBudget(1,1),supervisor);
+        try{
+            AgentRunView run=service.start(new StartAgentCommand(WORKSPACE,AGENT,"4010"));
+
+            long started=System.nanoTime();
+            service.forgetWorkspace(WORKSPACE);
+            long elapsedMillis=TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-started);
+
+            assertTrue(process.stopEntered.await(1,TimeUnit.SECONDS));
+            assertTrue(elapsedMillis<1_000,
+                    "workspace cleanup must not wait forever on an uninterruptible native stop");
+            assertDoesNotThrow(()->service.get(run.runId()),
+                    "ownership must remain until the native stop actually completes");
+            assertFalse(credentials.revoked.get());
+
+            process.allowTermination();
+            awaitMissing(service,run.runId());
+            assertTrue(credentials.revoked.get());
+        }finally{
+            process.allowTermination();
+            service.close();
+        }
+    }
+
     @Test void forgetWorkspaceStopsAllRunsConcurrently() throws Exception{
         ConcurrentStopFixture fixture=new ConcurrentStopFixture(8);
         try{
@@ -195,6 +227,34 @@ class AgentExecutionTerminationSafetyTest {
             for(AgentRunView run:runs)assertThrows(RunNotFound.class,
                     ()->fixture.service.get(run.runId()));
         }finally{fixture.service.close();}
+    }
+
+    @Test void serviceCloseReturnsAfterTheBoundedNativeStopDeadlineWithoutReleasingOwnership()
+            throws Exception{
+        RecordingRepository repository=new RecordingRepository();
+        RecordingCredentials credentials=new RecordingCredentials();
+        BlockingStopPty process=new BlockingStopPty(126);
+        AgentExecutionService service=service(repository,credentials,ignored->process,
+                new RunCapacityBudget(1,1),new ProcessTerminationSupervisor(Duration.ofMillis(100)));
+        AgentRunView run=service.start(new StartAgentCommand(WORKSPACE,AGENT,"4010"));
+        try{
+            long started=System.nanoTime();
+            service.close();
+            long elapsedMillis=TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-started);
+
+            assertTrue(process.stopEntered.await(1,TimeUnit.SECONDS));
+            assertTrue(elapsedMillis<1_000,
+                    "service close must not wait forever on an uninterruptible native stop");
+            assertDoesNotThrow(()->service.get(run.runId()));
+            assertFalse(credentials.revoked.get());
+
+            process.allowTermination();
+            awaitStatus(service,run.runId(),"error");
+            assertTrue(credentials.revoked.get());
+        }finally{
+            process.allowTermination();
+            service.close();
+        }
     }
 
     @Test void serviceCloseStopsAllRunsConcurrently(){
@@ -212,10 +272,19 @@ class AgentExecutionTerminationSafetyTest {
                                                    AgentCredentialIssuer credentials,
                                                    PseudoTerminalLauncher launcher,
                                                    RunCapacityBudget capacity){
+        return service(repository,credentials,launcher,capacity,new ProcessTerminationSupervisor());
+    }
+
+    private static AgentExecutionService service(RecordingRepository repository,
+                                                   AgentCredentialIssuer credentials,
+                                                   PseudoTerminalLauncher launcher,
+                                                   RunCapacityBudget capacity,
+                                                   ProcessTerminationSupervisor supervisor){
         return new AgentExecutionService(repository,(workspaceId,agentId)->Optional.of(
                 descriptor(workspaceId,agentId)),credentials,launcher,noCapture(),
                 (presetId,command)->List.of(),noRecovery(),
-                Clock.fixed(Instant.parse("2026-08-11T00:00:00Z"),ZoneOffset.UTC),capacity);
+                Clock.fixed(Instant.parse("2026-08-11T00:00:00Z"),ZoneOffset.UTC),
+                new dev.termestra.shared.concurrency.RuntimeOperationCoordinator(),capacity,supervisor);
     }
 
     private static AgentDescriptor descriptor(String workspaceId,String agentId){
@@ -289,6 +358,33 @@ class AgentExecutionTerminationSafetyTest {
         @Override public boolean alive(){return alive.get();}
         void emit(String text){output.accept(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));}
         void allowTermination(){mayStop.set(true);}
+    }
+
+    private static final class BlockingStopPty implements PseudoTerminalHandle{
+        private final long pid;private final AtomicBoolean alive=new AtomicBoolean(true);
+        private final CountDownLatch stopEntered=new CountDownLatch(1);
+        private final CountDownLatch release=new CountDownLatch(1);
+        private BlockingStopPty(long pid){this.pid=pid;}
+        @Override public long pid(){return pid;}
+        @Override public void activate(Consumer<byte[]> output,IntConsumer exit){}
+        @Override public void write(byte[] input){}
+        @Override public void resize(int columns,int rows){}
+        @Override public void pauseOutput(){}
+        @Override public void resumeOutput(){}
+        @Override public void stop(){stopAndConfirm();}
+        @Override public boolean stopAndConfirm(){
+            stopEntered.countDown();
+            boolean interrupted=false;
+            while(true){
+                try{release.await();break;}
+                catch(InterruptedException ignored){interrupted=true;}
+            }
+            if(interrupted)Thread.currentThread().interrupt();
+            alive.set(false);
+            return true;
+        }
+        @Override public boolean alive(){return alive.get();}
+        void allowTermination(){release.countDown();}
     }
 
     private static final class ActivationFailureRetryingPty extends RetryingStopPty{

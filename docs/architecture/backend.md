@@ -89,7 +89,9 @@ claim 了 durable work，必须在 `RuntimeOperationBusyException` 时明确 def
 释放 claim。
 
 Agent Execution 另外使用每 Run 的公平 `ptyInputLock` 串行浏览器输入与自动输入；
-停止流程先终止进程树，再完成持久终态，避免死锁在正在写 PTY 的调用上。
+停止流程先终止进程树，再完成持久终态，避免死锁在正在写 PTY 的调用上。原生终止
+由有界的守护平台线程监管；调用方到期只得到明确失败，Run、credential 和容量仍由
+同一终止尝试保留，直到确认进程树已经停止。
 
 ## 进程与恢复
 

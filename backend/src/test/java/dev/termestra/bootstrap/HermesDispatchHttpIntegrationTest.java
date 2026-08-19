@@ -3,7 +3,9 @@ package dev.termestra.bootstrap;
 import dev.termestra.auth.application.AgentCredentialService;
 import dev.termestra.bootstrap.support.HermesPtyFixture;
 import dev.termestra.bootstrap.support.TestJavaCommand;
+import dev.termestra.execution.application.port.in.AgentExecutionUseCase;
 import dev.termestra.platform.persistence.sqlite.SqliteDatabase;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -20,6 +22,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -36,7 +39,16 @@ class HermesDispatchHttpIntegrationTest {
 
     @LocalServerPort int port;
     @Autowired AgentCredentialService credentials;
+    @Autowired AgentExecutionUseCase execution;
     @Autowired SqliteDatabase database;
+    private final Set<String> workspacesWithRealPtys=new java.util.LinkedHashSet<>();
+
+    @AfterEach void stopRealPtys(){
+        for(String workspaceId:workspacesWithRealPtys){
+            execution.listActiveSummaries(workspaceId).forEach(run->execution.stop(run.runId()));
+        }
+        workspacesWithRealPtys.clear();
+    }
 
     @Test
     void coldStartDeliversStartupBeforeTaskAndOnlyThenAcknowledgesTheDispatch() {
@@ -50,6 +62,7 @@ class HermesDispatchHttpIntegrationTest {
                         "autostart_orchestrator", false))
                 .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
         String workspaceId = Objects.requireNonNull(workspace).get("id").toString();
+        workspacesWithRealPtys.add(workspaceId);
         Map<?, ?> worker = client.post().uri("/api/workspaces/" + workspaceId + "/workers")
                 .header(HttpHeaders.COOKIE, cookie)
                 .bodyValue(Map.of("name", "Hermes Worker", "role", "custom", "description", "Check delivery"))

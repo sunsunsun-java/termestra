@@ -92,7 +92,10 @@ public final class Pty4jProcessLauncher implements PseudoTerminalLauncher {
                 activated=true;
                 Thread.ofVirtual().name("termestra-pty-output-"+pid()).start(
                         ()->read(output,failure));
-                Thread.ofVirtual().name("termestra-pty-exit-"+pid()).start(
+                // waitFor() itself can park, but its exit path owns native process-tree cleanup.
+                // Keep that boundary off a virtual thread so a native call cannot pin a carrier
+                // or stall virtual-thread lifecycle shutdown.
+                Thread.ofPlatform().daemon(true).name("termestra-pty-exit-"+pid()).start(
                         ()->waitFor(exit,failure));
             }
         }

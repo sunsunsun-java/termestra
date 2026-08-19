@@ -113,7 +113,9 @@ Delivery 是 Team 自有的技术恢复状态，不取代 Dispatch。只有明�
 
 Run 持久状态为 `starting`、`running`、`exited`、`error`。前两者 active，后两者
 terminal。停止或 PTY 退出必须先确认进程树终止并持久化 terminal 状态；UI 可在
-持久化重试期间保守显示终止/错误，而不是继续显示工作中。
+持久化重试期间保守显示终止/错误，而不是继续显示工作中。原生终止调用的等待期限
+只约束请求或生命周期调用方；到期时 Run 仍持有 credential 与容量，直到后台监管器
+确认进程树停止，不能把超时当作已终止。
 
 ## SQLite 所有权
 

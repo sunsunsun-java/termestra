@@ -47,12 +47,19 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
                           PseudoTerminalLauncher launcher,AgentSessionCapture sessionCapture,CommandPresetPolicy presetPolicy,
                           AgentRecoveryContextProvider recovery,Clock clock,RuntimeOperationCoordinator operations,
                           RunCapacityBudget runCapacity){
+        this(repository,directory,credentials,launcher,sessionCapture,presetPolicy,recovery,clock,operations,
+                runCapacity,new ProcessTerminationSupervisor());
+    }
+    AgentExecutionService(AgentExecutionRepository repository,AgentDirectory directory,AgentCredentialIssuer credentials,
+                          PseudoTerminalLauncher launcher,AgentSessionCapture sessionCapture,CommandPresetPolicy presetPolicy,
+                          AgentRecoveryContextProvider recovery,Clock clock,RuntimeOperationCoordinator operations,
+                          RunCapacityBudget runCapacity,ProcessTerminationSupervisor processTerminations){
         this.repository=repository;this.directory=directory;this.credentials=credentials;this.launcher=launcher;
         this.sessionCapture=sessionCapture;this.presetPolicy=presetPolicy;this.recovery=recovery;this.clock=clock;
         this.operations=operations;this.runCapacity=runCapacity;
         repository.markUnfinishedRunsStale(Instant.now(clock));
         this.terminalTransitions=new TerminalTransitionRetrier(repository);
-        this.processTerminations=new ProcessTerminationSupervisor();
+        this.processTerminations=Objects.requireNonNull(processTerminations,"processTerminations");
     }
 
     @Override public void configure(ConfigureAgentCommand command){operations.withAgent(command.workspaceId(),command.agentId(),()->{requireAgent(command.workspaceId(),command.agentId());AgentLaunchConfiguration config=new AgentLaunchConfiguration(command.command(),command.arguments(),command.commandPresetId(),command.interactiveCommand(),command.presetAugmentationDisabled(),command.resumeArgsTemplate(),command.sessionIdCaptureJson(),command.environment());if(!repository.saveConfiguration(command.workspaceId(),command.agentId(),config,Instant.now(clock)))throw new ExecutionConflict("Agent no longer exists: "+command.agentId());});}
@@ -285,11 +292,18 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
             RuntimeException terminationFailure=processTerminations.terminate(
                     run.id,run.process::stopAndConfirm,
                     ()->{
-                        run.terminationPending.set(false);
+                        synchronized(run){run.terminationPending.set(false);}
                         continueAfterConfirmedTermination(run,terminal,exitCode,ended);
                     });
             if(terminationFailure!=null){
-                synchronized(run){run.terminalPersistenceFailure=terminationFailure;}
+                synchronized(run){
+                    // The native attempt can complete at the same instant its bounded caller
+                    // times out. Its callback then owns the terminal transition, so do not
+                    // overwrite that confirmed result with the stale wait failure.
+                    if(run.terminationPending.get())run.terminalPersistenceFailure=terminationFailure;
+                }
+                // The caller reached its deadline, even if the native callback won the race
+                // immediately afterwards. Preserve that explicit uncertainty for the caller.
                 return terminationFailure;
             }
             synchronized(run){return run.terminalPersistenceFailure;}
@@ -397,7 +411,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
         run.terminationPending.set(true);
         quiesceAutomaticInput(run);
         RuntimeException failure=processTerminations.terminate(run.id,run.process::stopAndConfirm,
-                ()->{run.terminationPending.set(false);discardDurablyMissingRun(run);});
+                ()->{synchronized(run){run.terminationPending.set(false);}discardDurablyMissingRun(run);});
         if(failure!=null)LOG.warn(
                 "Run {} was deleted durably, but its process tree is still awaiting bounded termination retry",
                 run.id,failure);

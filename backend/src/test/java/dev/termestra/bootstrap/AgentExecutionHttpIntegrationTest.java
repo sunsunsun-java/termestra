@@ -169,6 +169,9 @@ class AgentExecutionHttpIntegrationTest {
         client.get().uri("/api/workspaces/" + workspaceId + "/team")
                 .header("x-termestra-agent-id", orchestratorId).header("x-termestra-agent-token", orchestratorToken)
                 .exchange().expectStatus().isOk().expectBody().jsonPath("$[0].status").isEqualTo("stopped");
+        client.post().uri("/api/runtime/runs/" + orchestratorRun + "/stop").header(HttpHeaders.COOKIE, cookie)
+                .exchange().expectStatus().isAccepted();
+        awaitStopped(client, cookie, orchestratorRun);
     }
 
     @Test void mapsOnlyTheTermestraRuntimePortRequestToTheAgentEnvironment() {

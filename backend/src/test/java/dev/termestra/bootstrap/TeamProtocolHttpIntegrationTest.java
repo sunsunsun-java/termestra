@@ -3,6 +3,7 @@ package dev.termestra.bootstrap;
 import dev.termestra.auth.application.AgentCredentialService;
 import dev.termestra.bootstrap.support.PtyTestFixture;
 import dev.termestra.bootstrap.support.TestJavaCommand;
+import dev.termestra.execution.application.port.in.AgentExecutionUseCase;
 import dev.termestra.platform.persistence.sqlite.SqliteDatabase;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,8 +25,17 @@ class TeamProtocolHttpIntegrationTest {
     @DynamicPropertySource static void properties(DynamicPropertyRegistry registry){registry.add("termestra.data-directory",DATA_DIRECTORY::toString);}
     @LocalServerPort int port;
     @Autowired AgentCredentialService credentials;
+    @Autowired AgentExecutionUseCase execution;
     @Autowired SqliteDatabase database;
     @Autowired com.fasterxml.jackson.databind.ObjectMapper json;
+    private final Set<String> workspacesWithRealPtys=new LinkedHashSet<>();
+
+    @AfterEach void stopRealPtys(){
+        for(String workspaceId:workspacesWithRealPtys){
+            execution.listActiveSummaries(workspaceId).forEach(run->execution.stop(run.runId()));
+        }
+        workspacesWithRealPtys.clear();
+    }
 
     @Test void runsSendReportCancelListAndDispatchQueriesAcrossRealHttpAndSqlite(){
         WebTestClient client=WebTestClient.bindToServer().baseUrl("http://127.0.0.1:"+port).build();
@@ -35,6 +45,7 @@ class TeamProtocolHttpIntegrationTest {
                 .bodyValue(Map.of("name","Team Lab","path",workspacePath.toString(),"autostart_orchestrator",false)).exchange()
                 .expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
         String workspaceId=Objects.requireNonNull(workspace).get("id").toString();
+        workspacesWithRealPtys.add(workspaceId);
         Map<?,?> worker=client.post().uri("/api/workspaces/"+workspaceId+"/workers").header(HttpHeaders.COOKIE,cookie)
                 .bodyValue(Map.of("name","Alice","role","coder","description","Implement tasks")).exchange()
                 .expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
