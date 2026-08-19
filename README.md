@@ -1,483 +1,327 @@
 <p align="center">
-  <img src="./frontend/web/public/logo.png" alt="Termestra logo" width="112" />
+  <img src="./frontend/web/public/logo.png" alt="Termestra 图标" width="112" />
 </p>
 
 # Termestra
 
 <p align="center">
-  <img src="./frontend/web/public/screenshots/termestra-promo-hero-light.png" alt="Termestra local-first workspace for coordinating visible CLI agents" width="1120" />
+  <img src="./frontend/web/public/screenshots/termestra-promo-hero-light.png" alt="Termestra 本地优先 CLI Agent 协作工作空间" width="1120" />
 </p>
 
-**Turn the AI CLIs already on your machine into a visible, persistent team.**
+**把你电脑上已有的 AI CLI 组成一支可见、可持续协作的团队。**
 
-Termestra gives one Orchestrator and multiple CLI workers a shared local
-workspace, real terminals, durable task state, and SQLite-first reliable
-dispatch. It uses a Java runtime and an explicit three-state team model—without
-hidden subagents—so work stays visible instead of disappearing into unrelated
-terminal windows.
+Termestra 为一个 Orchestrator 和多个 CLI Worker 提供共享的本地工作空间、
+真实终端、持久化任务状态和可靠派单。每个 Agent 都是可见的本地 CLI 进程，
+不会作为隐藏 subagent 消失在后台。
 
-[![Java 21+](https://img.shields.io/badge/Java-21%2B-4b73a3)](https://adoptium.net/)
-[![Maven 3.9+](https://img.shields.io/badge/Maven-3.9%2B-c71a36)](https://maven.apache.org/)
-[![Node 22.22+ source](https://img.shields.io/badge/Node.js-22.22%2B%20source-43853d)](https://nodejs.org/)
-![Status](https://img.shields.io/badge/status-alpha-f59e0b)
-![Build targets](https://img.shields.io/badge/targets-macOS%20%7C%20Linux%20%7C%20Windows-64748b)
+[![npm](https://img.shields.io/npm/v/%40termestra%2Fcli?label=npm)](https://www.npmjs.com/package/@termestra/cli)
+[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-43853d)](https://nodejs.org/)
+![项目状态](https://img.shields.io/badge/status-alpha-f59e0b)
+![支持平台](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-64748b)
 
-[English](README.md) · [简体中文](README.zh-CN.md)
+> Termestra 是本地优先应用。服务只监听 `127.0.0.1`，数据保存在你的电脑上，
+> 选中的源码目录不会被 Termestra 删除。
 
-> Termestra is local-first. The server binds to `127.0.0.1`, the database is
-> stored on your machine, and every running Agent is a real local CLI process.
+## 快速开始
 
-## Why Termestra
+### 环境要求
 
-AI coding CLIs are capable on their own. Coordinating several of them is where
-the friction starts:
+- Node.js 20 或更高版本，并可使用 npm；
+- 至少安装并登录一个受支持的 AI CLI，例如 Codex、Claude Code、Gemini 或
+  OpenCode。
 
-- every Agent lives in a different terminal and loses shared context;
-- it is hard to tell who is working, idle, stopped, or waiting for input;
-- a task can be recorded without ever reaching a worker's terminal;
-- terminal reconnects and process restarts can hide what actually happened;
-- review, testing, and research are often deferred until the primary task ends.
+npm 包已经包含当前平台所需的 Java 运行时，**无需单独安装 JDK、Maven 或
+pnpm**。
 
-Termestra makes that coordination explicit. The Orchestrator sees a persistent
-team, dispatches through a small `team` protocol, and receives reports tied to
-stable dispatch IDs. SQLite is authoritative, so refreshes and backend restarts
-do not erase the roster or queued work.
-
-## Use It For
-
-**Build, review, and test in parallel**
-
-Create a Coder, Reviewer, and Tester with the built-in scenario, then give the
-Orchestrator one outcome instead of micromanaging three terminals.
-
-```text
-Implement passwordless sign-in. Have one worker build it, one review the
-security boundary, and one add integration coverage. Summarize the evidence.
-```
-
-**Research and fact-check**
-
-Let one worker investigate while another checks sources and assumptions. Their
-reports remain associated with the real team members that produced them.
-
-```text
-Compare these two deployment options. Ask the researcher to gather primary
-evidence and the fact-checker to challenge every material claim.
-```
-
-**Write documentation as a pipeline**
-
-Use the Docs Pipeline scenario to create a Drafter and a Doc Reviewer, keeping
-authorship and review separate without creating hidden subagents.
-
-```text
-Rewrite the onboarding guide for a first-time contributor. The drafter should
-produce the guide; the reviewer should verify every command against the repo.
-```
-
-## Try the Demo First
-
-On the first-run screen, choose **Try Demo** to open a read-only workspace with
-pre-recorded Orchestrator, worker, and Tasks data. The demo does not start an AI
-CLI, modify a real repository, or consume provider credits.
-
-Use it to explore workspace navigation, resizable panes, worker states, terminal
-layout, and task progress before creating a real workspace.
-
-## Product Tour
-
-These four screens use the built-in anonymous demo: first launch, a recorded
-task view, the team roster, and the open-target chooser. They do not show a
-real Workspace, user account, or running external CLI.
-
-<p align="center">
-  <img src="./frontend/web/public/screenshots/1.png" alt="Termestra first-run screen for creating a Workspace or opening the read-only demo" width="680" />
-</p>
-<p align="center"><sub>Create a trusted local Workspace, or explore the read-only demo without installing an Agent CLI.</sub></p>
-
-<p align="center">
-  <img src="./frontend/web/public/screenshots/2.png" alt="The read-only demo with recorded Orchestrator and worker state beside an open Tasks panel" width="1120" />
-</p>
-<p align="center"><sub>Explore recorded dispatch activity and task progress without starting an external CLI.</sub></p>
-
-<p align="center">
-  <img src="./frontend/web/public/screenshots/3.png" alt="The read-only demo showing Orchestrator scrollback with a working Coder and an idle Reviewer" width="1120" />
-</p>
-<p align="center"><sub>Role, state, and pre-recorded terminal context remain visible in the same local workspace.</sub></p>
-
-<p align="center">
-  <img src="./frontend/web/public/screenshots/4.png" alt="The read-only demo's open-target menu using neutral vector glyphs for compatible tools" width="1120" />
-</p>
-<p align="center"><sub>Compatible tools are identified by name while the UI uses Termestra-neutral vector glyphs.</sub></p>
-
-## Quick Start
-
-Termestra is currently an alpha source release (`0.1.0-SNAPSHOT`). The most
-reproducible path today is to build it from source.
-
-Requirements:
-
-- JDK 21 or newer
-- Maven 3.9 or newer
-- Node.js 22.22.2 or newer for the current locked source dependencies
-- Corepack with pnpm 10.29.1
-- at least one supported Agent CLI installed and signed in
-
-```bash
-corepack enable
-mvn clean verify
-mvn -pl backend spring-boot:run
-```
-
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Termestra does not open a
-browser automatically.
-
-**npm runtime package release**
-
-The packaged-installation contract, isolated global-install verification, and
-five-platform release workflow are implemented. The public npm channel is not
-declared available until the first protected tag completes its cross-platform
-build and published-package verification. Once published, installation and
-updates use:
+### 安装并启动
 
 ```bash
 npm install -g @termestra/cli
+termestra --version
 termestra
-termestra update
 ```
 
-The npm launcher selects a matching optional platform runtime package, which
-contains the jlink Java runtime. Packaged users need Node.js 20+ but do not need
-to install a separate JDK. Linux packages require glibc. Use a different port
-with:
+启动后，在浏览器中打开
+[http://127.0.0.1:3000](http://127.0.0.1:3000)。Termestra 不会自动打开浏览器。
+
+npm 启动器会自动安装并选择与当前操作系统和 CPU 架构匹配的运行时包。
+
+### 指定端口
 
 ```bash
 termestra --port 4020
 ```
 
-**First run**
+然后访问 [http://127.0.0.1:4020](http://127.0.0.1:4020)。
 
-1. Add a Workspace and choose a trusted local directory.
-2. Select an Orchestrator CLI preset and start it.
-3. Termestra initializes `.termestra/tasks.md` and `.termestra/PROTOCOL.md` in
-   the Workspace for task tracking and recovery guidance.
-4. Add workers individually, import role templates, or choose a one-click team
-   scenario.
-5. Give the Orchestrator a goal. It can inspect the visible roster with
-   `team list`, dispatch with `team send`, and collect worker reports.
+### 更新
 
-The browser can also be installed as a PWA. Installation does not turn Termestra
-into a hosted service; the local Java runtime must still be running.
-
-## How It Works
-
-```text
-Browser / installed PWA
-        │ HTTP + bounded WebSocket streams
-        ▼
-Spring WebFlux local runtime (127.0.0.1)
-        │
-        ├── Workspace, Team, Tasks, Marketplace, Settings
-        ├── reliable Dispatch delivery and retry scheduler
-        ├── SQLite authoritative state
-        └── pty4j process and terminal lifecycle
-                    │
-                    ├── Orchestrator CLI
-                    │       ├── team list
-                    │       ├── team send
-                    │       └── team cancel
-                    └── Worker CLIs
-                            ├── team report
-                            └── team status
+```bash
+termestra update
 ```
 
-Planning, terminal activity, and live team state stay visible through the Tasks
-panel, real terminals, and roster without turning the interface into a hidden
-workflow engine.
+也可以显式安装最新版：
 
-Workers are not in-process model calls. Each member is a visible, persistent
-Team Member; while running, it is backed by a real PTY process. A dispatch is
-written to SQLite before delivery, delivered in FIFO order per worker, and
-tracked separately from the worker's public `idle`, `working`, or `stopped`
-state. Roster, configuration, queued work, and run metadata survive a backend
-restart; live processes do not, so affected members return as `stopped`.
+```bash
+npm install -g @termestra/cli@latest
+```
 
-Delivery failures, retryable failures, and uncertain terminal writes are kept
-distinct. An uncertain write is not blindly retried because doing so could run
-the same task twice. The UI surfaces delivery issues for explicit recovery.
+### 卸载
 
-## Agent Presets
+```bash
+npm uninstall -g @termestra/cli
+```
 
-Termestra detects executables from the **backend process PATH**. Installing only
-a desktop application does not make its CLI available.
+卸载不会删除已有 Workspace，也不会删除你选择的源码目录。运行数据默认保存在
+`~/.config/termestra/`，需要清理时请先确认其中的数据不再需要。
 
-| Preset | Executable | Default launch behavior | Recovery in this release |
+## 为什么需要 Termestra
+
+单个 AI 编程 CLI 已经很强，但同时协调多个 CLI 时，问题很快就会出现：
+
+- Agent 分散在不同终端里，彼此缺少共享上下文；
+- 很难确认谁正在工作、空闲、已停止，或正在等待输入；
+- 任务可能已经记录，却没有真正送进 Worker 的终端；
+- 终端重连或进程重启后，很难判断现场发生了什么；
+- 开发、审查、测试和调研通常只能依次完成。
+
+Termestra 把协作关系显式化。Orchestrator 面对的是一支持久化的真实团队，通过
+精简的 `team` 协议派单，并收到与稳定 Dispatch ID 关联的报告。SQLite 是权威
+状态源，因此刷新页面或重启运行时不会丢失团队名单和排队中的工作。
+
+## 适合用来做什么
+
+### 并行开发、审查和测试
+
+通过内置场景创建 Coder、Reviewer 和 Tester，然后只给 Orchestrator 一个最终
+目标，不必分别操作多个终端。
+
+```text
+实现免密登录。让一个成员负责开发，一个成员审查安全边界，另一个成员补充集成测试，最后汇总全部证据。
+```
+
+### 调研与事实核查
+
+让一个 Worker 负责调研，另一个 Worker 检查来源和假设。每份报告都会保留其
+真实团队成员和派单关系。
+
+```text
+比较这两种部署方案。请调研员收集一手资料，再由核查员挑战每一个重要结论。
+```
+
+### 文档流水线
+
+通过“文档流水线”场景创建起草成员和审稿成员，在不创建隐藏 subagent 的前提下
+分离写作与核验职责。
+
+```text
+为第一次参与项目的贡献者重写入门指南。起草成员负责成文，审稿成员逐条验证所有命令。
+```
+
+## 先试用演示模式
+
+首次进入页面时选择 **试用演示**，即可打开带有预录 Orchestrator、Worker 和
+Tasks 数据的只读工作空间。演示模式不会启动真实 AI CLI、不会修改真实仓库，
+也不会消耗模型额度。
+
+<p align="center">
+  <img src="./frontend/web/public/screenshots/1.png" alt="Termestra 首次进入页面，可创建 Workspace 或打开只读演示" width="680" />
+</p>
+<p align="center"><sub>创建可信的本地 Workspace，或先打开只读演示。</sub></p>
+
+<p align="center">
+  <img src="./frontend/web/public/screenshots/2.png" alt="只读演示中的团队状态和 Tasks 面板" width="1120" />
+</p>
+<p align="center"><sub>任务、派单活动和团队状态集中显示。</sub></p>
+
+<p align="center">
+  <img src="./frontend/web/public/screenshots/3.png" alt="只读演示中的 Orchestrator 和 Worker 终端" width="1120" />
+</p>
+<p align="center"><sub>角色、状态和终端上下文在同一工作空间中保持可见。</sub></p>
+
+## 首次使用
+
+1. 添加 Workspace，并选择一个可信的本地目录。
+2. 选择 Orchestrator CLI 预设并启动。
+3. Termestra 会在 Workspace 中初始化 `.termestra/tasks.md` 和
+   `.termestra/PROTOCOL.md`，用于任务跟踪和团队恢复。
+4. 单独添加 Worker、导入角色模板，或选择一键组队场景。
+5. 把最终目标告诉 Orchestrator。它可以使用 `team list` 查看团队、使用
+   `team send` 派单，并收集 Worker 报告。
+
+## 工作原理
+
+```text
+浏览器
+  │ HTTP + 有界 WebSocket 数据流
+  ▼
+Termestra 本地运行时（127.0.0.1）
+  │
+  ├── Workspace、Team、Tasks、Marketplace、Settings
+  ├── SQLite 权威状态与可靠 Dispatch 投递
+  └── 本地 PTY 进程与终端生命周期
+        │
+        ├── Orchestrator CLI
+        │     ├── team list
+        │     ├── team send
+        │     └── team cancel
+        └── Worker CLI
+              ├── team report
+              └── team status
+```
+
+每个 Worker 都是界面中可见、可持久化的 Team Member；运行时由真实 PTY 进程
+支撑。每个派单先写入 SQLite，再按 Worker 串行交付。团队名单、配置、排队任务
+和运行元数据可以跨重启保留；实时进程不会保留，受影响的成员会恢复为
+`stopped`。
+
+Termestra 会区分明确失败、可重试失败和结果不确定的终端写入。结果不确定时不会
+盲目重试，避免同一任务被执行两次；界面会把问题显式展示给用户处理。
+
+## 主要能力
+
+- **持久化 Workspace 与团队**：配置、角色、排队任务和运行元数据可以跨刷新及
+  重启保留。
+- **真实终端会话**：通过有界 WebSocket 数据流提供交互式终端，支持 resize、
+  重连快照和慢消费者保护。
+- **可靠派单**：消息、Dispatch 和投递记录在同一事务中受理，后台调度器执行
+  有限重试，并在重启后恢复待投递任务。
+- **可见的投递问题**：明确失败和结果不确定的写入不会静默丢失。
+- **一键组队场景**：内置开发·审查·测试、调研与核查、文档流水线。
+- **Worker 角色市场**：提供可在加入 Workspace 前审阅的中英文角色模板。
+- **Tasks 面板**：同步 `.termestra/tasks.md`，通过 revision 检测避免静默覆盖。
+- **会话恢复**：Claude、Codex、Gemini 和 OpenCode 优先恢复原生 session；所有
+  Provider 都有持久化恢复摘要兜底。
+- **本地演示与双语界面**：无需真实 Provider 即可体验产品，并可切换英文与
+  简体中文界面。
+
+Termestra 当前有意不提供隐藏自动创建的 subagent、Workflow/DAG 自动化、定时
+任务、Team Memory、远程访问和多用户认证。它也无法从技术上强制 Orchestrator
+模型一定派单；委派依赖可见协议和提示契约。
+
+## 支持的 Agent CLI
+
+Termestra 从启动它的 Shell 所继承的 `PATH` 中检测可执行文件。请先单独安装、
+登录并确认对应 AI CLI 可以正常运行。
+
+| 预设 | 可执行命令 | 默认启动方式 | 恢复方式 |
 | --- | --- | --- | --- |
-| Claude Code | `claude` | permission bypass | native session, then summary fallback |
-| Codex | `codex` | bypass approvals and sandbox | native session, then summary fallback |
-| OpenCode | `opencode` | provider default | native session, then summary fallback |
-| Gemini | `gemini` | YOLO mode | native session, then summary fallback |
-| Hermes | `hermes` | YOLO mode | Termestra recovery summary |
-| Qwen Code | `qwen` | YOLO approval mode | Termestra recovery summary |
-| Pi | `pi` | approve mode | Termestra recovery summary |
-| Antigravity CLI | `agy` | permission bypass | Termestra recovery summary |
-| Cursor CLI | `cursor-agent` | force mode | Termestra recovery summary |
-| Grok Build | `grok` | always approve | Termestra recovery summary |
-| Custom | user-defined | user-defined command | Termestra recovery summary |
+| Claude Code | `claude` | 绕过权限确认 | 原生 session，失败后回退到恢复摘要 |
+| Codex | `codex` | 绕过审批与沙箱 | 原生 session，失败后回退到恢复摘要 |
+| OpenCode | `opencode` | Provider 默认模式 | 原生 session，失败后回退到恢复摘要 |
+| Gemini | `gemini` | YOLO 模式 | 原生 session，失败后回退到恢复摘要 |
+| Hermes | `hermes` | YOLO 模式 | Termestra 恢复摘要 |
+| Qwen Code | `qwen` | YOLO 审批模式 | Termestra 恢复摘要 |
+| Pi | `pi` | approve 模式 | Termestra 恢复摘要 |
+| Antigravity CLI | `agy` | 绕过权限确认 | Termestra 恢复摘要 |
+| Cursor CLI | `cursor-agent` | force 模式 | Termestra 恢复摘要 |
+| Grok Build | `grok` | 自动批准 | Termestra 恢复摘要 |
+| 自定义 | 用户定义 | 用户定义命令 | Termestra 恢复摘要 |
 
-These are convenience defaults, not a sandbox. Review every installed CLI and
-its flags before using it on sensitive code.
+这些是便捷默认配置，不是沙箱。在敏感代码上使用前，请自行核对 CLI 及其启动
+参数。
 
-## What Termestra Provides
+## 支持平台
 
-- **Persistent workspaces and teams** — names, paths, Orchestrator configuration,
-  worker roles, queued work, and run metadata survive browser and backend
-  restarts; live PTYs and live status do not.
-- **Real terminal sessions** — interactive xterm views over bounded WebSocket
-  streams, including resize handling, reconnect snapshots, and per-viewer flow
-  control.
-- **Reliable dispatch** — message, dispatch, and delivery records are admitted
-  atomically; a background scheduler performs finite retries and resumes pending
-  delivery after a backend restart.
-- **Visible delivery problems** — definite failures and uncertain PTY writes are
-  shown for deliberate retry instead of being silently dropped.
-- **One-click team scenarios** — Build · Review · Test, Research & Fact-check,
-  and Docs Pipeline create real persistent members and brief the Orchestrator.
-- **Worker role marketplace** — bundled English and Chinese role templates can
-  be reviewed before they are added to a Workspace.
-- **Tasks surface** — `.termestra/tasks.md` is watched and synchronized with revision
-  checks so concurrent local and browser edits produce an explicit conflict.
-- **Restart recovery** — Claude, Codex, Gemini, and OpenCode use captured native
-  sessions when available; every provider has a persisted recovery-summary
-  fallback.
-- **Workspace tools** — native folder selection, in-browser server browsing,
-  pasted absolute paths, and open-in actions for supported editors, terminals,
-  and file managers.
-- **Local demo, PWA, and bilingual UI** — explore the interface without a live
-  provider, install it as a desktop-like PWA, and switch between English and
-  Simplified Chinese.
-- **Transactional metadata deletion** — deleting a Workspace or member removes
-  its Termestra-owned database graph in one SQLite transaction; a database
-  failure rolls the graph back. The selected source directory and its files are
-  never deleted.
-
-Termestra intentionally does **not** currently provide hidden auto-spawned
-subagents, Workflow/DAG automation, scheduled runs, Team Memory, remote access,
-or multi-user authentication. It also cannot cryptographically force an
-Orchestrator model to delegate instead of working directly; delegation is a
-visible protocol and prompt contract.
-
-## Platform Targets
-
-The packaging pipeline builds, packs, and globally installs these targets in
-native CI. They remain pre-release targets until the project completes its first
-public tagged release and production-switch validation on every operating system.
-
-| Platform | Package target | Folder selection |
+| 平台 | npm 运行时包 | 目录选择方式 |
 | --- | --- | --- |
-| macOS arm64 / x64 | `@termestra/runtime-darwin-*` | native `osascript`, server browser, or pasted path |
-| Linux arm64 / x64 (glibc) | `@termestra/runtime-linux-*` | `zenity` when present, server browser, or pasted path |
-| Windows x64 | `@termestra/runtime-win32-x64` | PowerShell folder dialog, server browser, or pasted path |
+| macOS Apple Silicon | `@termestra/runtime-darwin-arm64` | 原生选择器、服务器目录浏览或粘贴路径 |
+| macOS Intel | `@termestra/runtime-darwin-x64` | 原生选择器、服务器目录浏览或粘贴路径 |
+| Linux ARM64（glibc） | `@termestra/runtime-linux-arm64` | `zenity`、服务器目录浏览或粘贴路径 |
+| Linux x64（glibc） | `@termestra/runtime-linux-x64` | `zenity`、服务器目录浏览或粘贴路径 |
+| Windows x64 | `@termestra/runtime-win32-x64` | PowerShell 目录对话框、服务器目录浏览或粘贴路径 |
 
-If `zenity` is unavailable on Linux, use **Browse Server Filesystem** or paste an
-absolute directory path.
+Linux 没有安装 `zenity` 时，请使用“浏览服务器文件系统”或粘贴绝对路径。
 
-## Safety Model
+## 安全模型
 
-- The HTTP server binds to `127.0.0.1` and rejects non-loopback Host/Origin
-  requests. UI and Agent requests use separate process/session-scoped tokens.
-- This is local application protection, not multi-user authentication and not a
-  security boundary against other processes running as the same OS user.
-- Built-in Agent presets deliberately use bypass, YOLO, force, or approve flags.
-  Managed CLIs inherit the current OS user's file and process permissions.
-- Choose only trusted Workspace directories and review every advanced custom
-  launch command. Do not expose the port through a tunnel or reverse proxy.
-- Demo mode is the safest way to inspect the interface: it starts no real Agent.
-- Workspace and member deletion permanently removes the corresponding Termestra
-  metadata, team, messages, and run history. It does **not** delete the selected
-  source directory or its files.
+- HTTP 服务只监听 `127.0.0.1`，并拒绝非 loopback 的 Host/Origin 请求。
+- 这是本地应用防护，不是多用户认证，也不能防御同一操作系统用户下的其他进程。
+- 内置 Agent 预设可能使用 bypass、YOLO、force 或 approve 参数；受管 CLI 继承
+  当前操作系统用户的文件与进程权限。
+- 只选择可信 Workspace，并检查所有高级自定义启动命令。不要通过隧道或反向
+  代理暴露 Termestra 端口。
+- 删除 Workspace 或成员会永久移除对应的 Termestra 元数据，但不会删除所选
+  源码目录及其中的文件。
 
-## Data and Workspace Files
+## 数据位置
 
-| Data | Location | Notes |
+| 数据 | 默认位置 | 说明 |
 | --- | --- | --- |
-| Runtime metadata | `~/.config/termestra/termestra.db` | SQLite; all platforms currently use this default |
-| Task document | `<workspace>/.termestra/tasks.md` | synchronized task plan and progress document |
-| Agent protocol guide | `<workspace>/.termestra/PROTOCOL.md` | generated/refreshed recovery and team guidance |
-| Packaged web UI | embedded in the Java application | served only by the local runtime |
+| 运行时元数据 | `~/.config/termestra/termestra.db` | SQLite 数据库 |
+| 任务文档 | `<workspace>/.termestra/tasks.md` | 同步任务计划与进度 |
+| Agent 协议 | `<workspace>/.termestra/PROTOCOL.md` | 团队协作与恢复指引 |
+| Web 界面 | 嵌入 npm 平台运行时 | 仅由本地服务提供 |
 
-Override the data directory with `TERMESTRA_DATA_DIRECTORY` or
-`TERMESTRA_DATA_DIR`.
+可通过 `TERMESTRA_DATA_DIRECTORY` 或 `TERMESTRA_DATA_DIR` 修改数据目录。
 
-SQLite stores Workspace and member configuration, run/session metadata,
-messages, dispatch/delivery records, settings, and application state. It does
-not store every Agent's complete terminal history in list responses or as an
-unbounded database transcript. PTY scrollback is a bounded in-memory projection
-and is lost when the backend restarts.
+## 常见问题
 
-## Troubleshooting
+### Agent 预设显示“未找到”
 
-**An Agent preset says “not found”**
-
-Termestra checks the PATH inherited by the Java backend. From the same shell that
-starts Termestra, verify the command first:
+请在启动 Termestra 的同一个 Shell 中验证对应命令：
 
 ```bash
 command -v codex
 command -v claude
 ```
 
-On Windows, use `where codex`. A desktop-only Codex installation is not enough;
-install and authenticate the corresponding CLI.
+Windows 使用 `where codex`。只安装桌面应用并不代表对应 CLI 已经加入 `PATH`。
 
-**`team` fails in a normal shell**
-
-This is expected. `team` is primarily for Termestra-managed Agent sessions,
-where `TERMESTRA_PORT`, Workspace/Agent IDs, and a session token are injected.
-
-**The default port is already in use**
+### 默认端口被占用
 
 ```bash
 termestra --port 4020
 ```
 
-For a source launch, use `TERMESTRA_PORT=4020` before the Maven command.
+### 在普通 Shell 中执行 `team` 失败
 
-**Agent startup times out while waiting for pasted input**
+这是预期行为。`team` 主要供 Termestra 管理的 Agent 会话使用；运行时会注入
+`TERMESTRA_PORT`、Workspace/Agent ID 和会话 Token。
 
-Confirm that the CLI reached an interactive prompt, completed login/setup, and
-matches the selected input profile. Retry after the prompt is ready, or use a
-reviewed custom launch command for that provider version.
+### 终端提示 IO connection closed
 
-**A terminal says its IO connection closed**
+关闭并重新打开终端以尝试重连。如果反复出现，请确认 Termestra 仍在运行。
+Worker 进程与终端查看连接是两个独立生命周期。
 
-Close and reopen the terminal to reconnect. If it repeats, verify that the
-backend is still running and inspect the backend log; the worker process and the
-viewer connection have separate lifecycles.
+### Worker 一直处于 `working`
 
-**A worker remains `working`**
+Worker 必须报告结果，或由 Orchestrator 取消尚未关闭的派单。受管 Worker 使用
+`team report "<结果>" --dispatch <id>`；Orchestrator 使用
+`team cancel --dispatch <id> "<原因>"`。
 
-The worker must report or the Orchestrator must cancel the open dispatch. From a
-managed worker session, use `team report "<result>" --dispatch <id>` (or
-`team report --stdin --dispatch <id>`); from the Orchestrator, use
-`team cancel --dispatch <id> "<reason>"`.
+## 当前状态
 
-**A Tasks conflict appears**
+Termestra `0.1.0` 已通过 npm 公开发布。macOS、Linux 和 Windows 的五个平台包
+均经过原生 CI 构建、测试、隔离安装和发布后验证。
 
-It means the Workspace file changed independently while the browser had local
-edits. Review both versions, then deliberately reload the remote version or save
-a new revision. Termestra does not silently overwrite either side.
+项目当前仍处于 Alpha 阶段。请在重要 Workspace 中使用版本控制，并在升级前
+保留必要的数据备份。
 
-## Development
+## 项目文档
 
-The Maven reactor contains `frontend`, `backend`, and `distribution` modules.
-The full verification command installs locked frontend dependencies, checks and
-tests TypeScript, builds the React UI, runs Java unit and real-boundary
-integration tests, enforces architecture rules, builds the Spring Boot app, and
-assembles the host distribution.
+- [文档导航](docs/README.md)
+- [当前架构总览](docs/architecture/overview.md)
+- [关键运行流程](docs/architecture/runtime-flows.md)
+- [契约与数据所有权](docs/architecture/contracts-and-data.md)
+- [已接受架构决策](docs/adr/README.md)
+- [npm 发布与运维](docs/release/npm.md)
+- [产品路线图](docs/product/roadmap.md)
 
-```bash
-corepack enable
-mvn clean verify
-```
+## 鸣谢与许可
 
-The distribution build invokes POSIX `sh`. On Windows, run the full reactor in
-Git Bash or another environment that provides `sh`.
+内置 Worker 角色市场快照来源于
+[agency-agents](https://github.com/msitarzewski/agency-agents) 和
+[agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh)，来源与许可记录
+保留在 `backend/src/main/resources/vendor/marketplace/`。声音素材归属保留在
+`frontend/web/public/sounds/LICENSE-KENNEY.txt`。
 
-For frontend hot reload, run the backend and Vite separately:
+源自 Hive 的部分仍按照 [Business Source License 1.1](LICENSE.BSL) 分发，依法
+需要保留的来源事实与归属记录在 [NOTICE](NOTICE)。这是源码可用许可，不是 OSI
+开源许可证。历史许可范围记录在 [LICENSE](LICENSE)，品牌来源与第三方商标说明
+见 [TRADEMARK.md](TRADEMARK.md)，第三方内容与资产授权记录见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。许可证边界的事实性审查见
+[许可审查](docs/governance/licensing-review.md)。
 
-```bash
-# terminal 1 — repository root
-TERMESTRA_PORT=4010 mvn -pl backend spring-boot:run
-```
-
-PowerShell equivalent:
-
-```powershell
-$env:TERMESTRA_PORT = "4010"
-mvn -pl backend spring-boot:run
-```
-
-```bash
-# terminal 2 — repository root
-cd frontend
-corepack enable
-pnpm install --frozen-lockfile
-pnpm exec vite --config web/vite.config.ts
-```
-
-Vite listens on `127.0.0.1:5180` and proxies to port `4010` by default. Override
-these defaults with `TERMESTRA_WEB_PORT` and `TERMESTRA_RUNTIME_PORT`.
-
-Generated release inputs are written to:
-
-- `backend/target/termestra-backend-0.1.0-SNAPSHOT.jar`
-- `distribution/target/npm-cli`
-- `distribution/target/npm/runtime-<platform>-<arch>`
-- `distribution/target/runtime-current`
-
-## Architecture
-
-Termestra is a frontend/backend monorepo and a package-by-feature modular
-monolith, not a collection of small Maven microservices.
-
-```text
-termestra/
-├── frontend/       React, TypeScript, Vite, xterm
-├── backend/        Java 21, Spring Boot/WebFlux, SQLite JDBC, pty4j
-├── distribution/   jlink images and platform npm packages
-├── docs/           current architecture, decisions, design, research, and status
-└── scripts/        repository utilities
-```
-
-The backend applies domain-driven design, hexagonal ports/adapters, and light
-CQRS inside business capabilities such as `workspace`, `team`, `execution`,
-`terminal`, and `tasks`. SQLite is authoritative: persisted state is committed
-before in-memory projections are updated. Spring wiring and technical adapters
-stay outside domain code, and ArchUnit verifies the main dependency rules.
-
-Read the documentation in this order:
-
-- [Documentation map](docs/README.md)
-- [Current architecture overview](docs/architecture/overview.md)
-- [Runtime flows](docs/architecture/runtime-flows.md)
-- [Contracts and data ownership](docs/architecture/contracts-and-data.md)
-- [Accepted architecture decisions](docs/adr/README.md)
-- [Reliable dispatch design](docs/design/reliable-dispatch.md)
-- [npm runtime package release](docs/release/npm.md)
-- [Roadmap](docs/product/roadmap.md)
-
-## Current Status
-
-Termestra is alpha software at `0.1.0-SNAPSHOT`. Core local Workspace, terminal,
-team, Tasks, scenario, recovery, and reliable-delivery paths have automated
-coverage. The platform packaging pipeline now verifies the final npm tarballs
-through isolated installs, but public-asset release gates and the first five-
-platform tagged publish still need validation.
-
-The current source of truth is Termestra's own public contracts, automated tests,
-and accepted architecture decisions.
-
-## Attribution and Licensing
-
-Bundled worker-role marketplace snapshots derive from
-[agency-agents](https://github.com/msitarzewski/agency-agents) and
-[agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh). Their source
-and license records are retained under
-`backend/src/main/resources/vendor/marketplace/`. Bundled sound attribution is
-retained in `frontend/web/public/sounds/LICENSE-KENNEY.txt`.
-
-Portions derived from Hive remain distributed under the
-[Business Source License 1.1](LICENSE.BSL), with the legally required provenance
-and attribution retained in [NOTICE](NOTICE). This is a source-available license,
-not an OSI open-source license. Historical terms are documented in
-[LICENSE](LICENSE); do not assume the current combined work is MIT- or
-Apache-licensed. Brand provenance and third-party marks are described in
-[TRADEMARK.md](TRADEMARK.md). Bundled third-party materials and unresolved asset
-permission checks are listed in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). A fact-based review of the
-repository's licensing boundary is available in
-[licensing review](docs/governance/licensing-review.md).
-
-Third-party product names and marks belong to their respective owners. Their use
-describes CLI compatibility and does not imply affiliation or endorsement.
+所有第三方产品名称与商标归各自权利人所有。本文只用于描述 CLI 兼容性，不代表
+存在关联或背书。

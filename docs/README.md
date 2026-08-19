@@ -5,7 +5,7 @@
 
 ## 新读者路线
 
-1. 先读根目录 [README](../README.zh-CN.md)，了解产品解决什么问题以及如何运行。
+1. 先读根目录 [README](../README.md)，了解产品解决什么问题以及如何运行。
 2. 再读 [架构总览](architecture/overview.md)，建立系统、上下文和代码目录的全景。
 3. 按任务选择 [后端架构](architecture/backend.md)、
    [前端架构](architecture/frontend.md) 或
