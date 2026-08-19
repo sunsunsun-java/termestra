@@ -2,9 +2,22 @@
   "name": "@termestra/runtime-PLATFORM-ARCH",
   "version": "VERSION",
   "license": "BUSL-1.1",
-  "description": "Private Termestra Java runtime for PLATFORM-ARCH",
+  "description": "Termestra embedded Java runtime for PLATFORM-ARCH",
+  "homepage": "https://github.com/sunsunsun-java/termestra#readme",
+  "bugs": {
+    "url": "https://github.com/sunsunsun-java/termestra/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sunsunsun-java/termestra.git"
+  },
   "private": false,
   "os": ["PLATFORM"],
   "cpu": ["ARCH"],
+  PLATFORM_LIBC
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "files": ["runtime/", "app/", "LICENSE.BSL", "LICENSE", "NOTICE", "TRADEMARK.md", "THIRD_PARTY_NOTICES.md"]
 }

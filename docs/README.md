@@ -13,6 +13,8 @@
 4. 修改协议或持久化前，阅读
    [契约与数据](architecture/contracts-and-data.md)。
 5. 准备提交前，按 [构建与测试](architecture/testing-and-build.md) 选择验证边界。
+6. 准备 npm 公开发布时，按 [npm 运行时包发布](release/npm.md) 完成发布门槛与
+   GitHub/npm 配置。
 
 ## 文档分类
 
@@ -22,8 +24,9 @@
 | [`adr/`](adr/README.md) | 已接受的长期决策及其理由 | 历史记录；改变决策时新增“取代”记录 |
 | [`design/`](design/reliable-dispatch.md) | 复杂机制的实现级设计 | 以当前实现为基线，算法变化时更新 |
 | [`research/`](research/pi-orchestrator-assessment.md) | 外部项目或方案评估 | 参考材料，不定义 Termestra 产品行为 |
-| [`governance/`](governance/licensing-review.md) | 带日期的许可与治理证据 | 快照材料，不替代法律意见或当前代码 |
+| [`governance/`](governance/licensing-review.md) | 带日期的许可与治理证据，例如[公开资产整改记录](governance/public-asset-remediation-2026-08-18.md) | 快照材料，不替代法律意见或当前代码 |
 | [`product/`](product/roadmap.md) | 已交付能力和发布缺口 | 产品状态，完成或改变范围时更新 |
+| [`release/`](release/npm.md) | npm 包发布、验证和运维步骤 | 与实际发布工作流、npm 元数据同步 |
 
 ## 领域语言
 

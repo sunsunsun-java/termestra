@@ -26,17 +26,21 @@ interface OpenTargetMarkProps {
 
 const OpenTargetMark = ({ option, size = 'compact' }: OpenTargetMarkProps) => {
   const isMenu = size === 'menu'
+  const { Icon } = option
+  const iconSize = isMenu ? 24 : 20
   return (
     <span
       aria-hidden
       data-testid={`open-target-mark-${option.id}`}
       className={`flex shrink-0 items-center justify-center ${isMenu ? 'h-6 w-6' : 'h-5 w-5'}`}
     >
-      <img
-        src={option.iconSrc}
-        alt=""
-        draggable={false}
-        className={`${isMenu ? 'h-6 w-6' : 'h-5 w-5'} select-none object-contain`}
+      <Icon
+        aria-hidden
+        className="select-none"
+        focusable={false}
+        size={iconSize}
+        strokeWidth={1.8}
+        style={{ color: option.tone }}
       />
     </span>
   )

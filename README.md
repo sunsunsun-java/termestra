@@ -5,7 +5,7 @@
 # Termestra
 
 <p align="center">
-  <img src="./frontend/web/public/screenshots/termestra-promo-hero-light.png" alt="Termestra local-first multi-agent coding workspace with one Orchestrator coordinating visible CLI workers" width="1120" />
+  <img src="./frontend/web/public/screenshots/termestra-promo-hero-light.png" alt="Termestra local-first workspace for coordinating visible CLI agents" width="1120" />
 </p>
 
 **Turn the AI CLIs already on your machine into a visible, persistent team.**
@@ -86,8 +86,9 @@ layout, and task progress before creating a real workspace.
 
 ## Product Tour
 
-These four screens show the path from first launch to a running multi-agent
-team.
+These four screens use the built-in anonymous demo: first launch, a recorded
+task view, the team roster, and the open-target chooser. They do not show a
+real Workspace, user account, or running external CLI.
 
 <p align="center">
   <img src="./frontend/web/public/screenshots/1.png" alt="Termestra first-run screen for creating a Workspace or opening the read-only demo" width="680" />
@@ -95,19 +96,19 @@ team.
 <p align="center"><sub>Create a trusted local Workspace, or explore the read-only demo without installing an Agent CLI.</sub></p>
 
 <p align="center">
-  <img src="./frontend/web/public/screenshots/2.png" alt="A live Termestra Workspace with Codex running as the Orchestrator and controls for adding team members or choosing a scenario" width="1120" />
+  <img src="./frontend/web/public/screenshots/2.png" alt="The read-only demo with recorded Orchestrator and worker state beside an open Tasks panel" width="1120" />
 </p>
-<p align="center"><sub>Start the Orchestrator, then add members individually or choose a built-in scenario to create a team.</sub></p>
+<p align="center"><sub>Explore recorded dispatch activity and task progress without starting an external CLI.</sub></p>
 
 <p align="center">
-  <img src="./frontend/web/public/screenshots/3.png" alt="The Build Review Test scenario with Coder, Reviewer, and Tester members visible beside the Orchestrator terminal" width="1120" />
+  <img src="./frontend/web/public/screenshots/3.png" alt="The read-only demo showing Orchestrator scrollback with a working Coder and an idle Reviewer" width="1120" />
 </p>
-<p align="center"><sub>The Build · Review · Test scenario creates three persistent members whose roles and states stay visible in the roster.</sub></p>
+<p align="center"><sub>Role, state, and pre-recorded terminal context remain visible in the same local workspace.</sub></p>
 
 <p align="center">
-  <img src="./frontend/web/public/screenshots/4.png" alt="A Coder working while the Reviewer and Tester remain idle, with task-plan updates visible in the Orchestrator terminal" width="1120" />
+  <img src="./frontend/web/public/screenshots/4.png" alt="The read-only demo's open-target menu using neutral vector glyphs for compatible tools" width="1120" />
 </p>
-<p align="center"><sub>During execution, task-plan updates, terminal activity, and each member's working or idle state remain visible together.</sub></p>
+<p align="center"><sub>Compatible tools are identified by name while the UI uses Termestra-neutral vector glyphs.</sub></p>
 
 ## Quick Start
 
@@ -131,11 +132,13 @@ mvn -pl backend spring-boot:run
 Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Termestra does not open a
 browser automatically.
 
-**Planned packaged installation**
+**npm runtime package release**
 
-The packaged installation contract is implemented, but the five target triples
-across macOS, Linux, and Windows are not yet declared stable. Once matching
-platform runtime packages are published, installation and updates use:
+The packaged-installation contract, isolated global-install verification, and
+five-platform release workflow are implemented. The public npm channel is not
+declared available until the first protected tag completes its cross-platform
+build and published-package verification. Once published, installation and
+updates use:
 
 ```bash
 npm install -g @termestra/cli
@@ -145,7 +148,8 @@ termestra update
 
 The npm launcher selects a matching optional platform runtime package, which
 contains the jlink Java runtime. Packaged users need Node.js 20+ but do not need
-to install a separate JDK. Use a different port with:
+to install a separate JDK. Linux packages require glibc. Use a different port
+with:
 
 ```bash
 termestra --port 4020
@@ -265,15 +269,15 @@ visible protocol and prompt contract.
 
 ## Platform Targets
 
-The packaging pipeline defines these targets. They remain pre-release build
-targets until the project completes tagged and production-switch validation on
-every operating system.
+The packaging pipeline builds, packs, and globally installs these targets in
+native CI. They remain pre-release targets until the project completes its first
+public tagged release and production-switch validation on every operating system.
 
 | Platform | Package target | Folder selection |
 | --- | --- | --- |
-| macOS arm64 / x64 | defined in native CI matrix | native `osascript`, server browser, or pasted path |
-| Linux arm64 / x64 | defined in native CI matrix | `zenity` when present, server browser, or pasted path |
-| Windows x64 | defined in native CI matrix | PowerShell folder dialog, server browser, or pasted path |
+| macOS arm64 / x64 | `@termestra/runtime-darwin-*` | native `osascript`, server browser, or pasted path |
+| Linux arm64 / x64 (glibc) | `@termestra/runtime-linux-*` | `zenity` when present, server browser, or pasted path |
+| Windows x64 | `@termestra/runtime-win32-x64` | PowerShell folder dialog, server browser, or pasted path |
 
 If `zenity` is unavailable on Linux, use **Browse Server Filesystem** or paste an
 absolute directory path.
@@ -440,14 +444,16 @@ Read the documentation in this order:
 - [Contracts and data ownership](docs/architecture/contracts-and-data.md)
 - [Accepted architecture decisions](docs/adr/README.md)
 - [Reliable dispatch design](docs/design/reliable-dispatch.md)
+- [npm runtime package release](docs/release/npm.md)
 - [Roadmap](docs/product/roadmap.md)
 
 ## Current Status
 
 Termestra is alpha software at `0.1.0-SNAPSHOT`. Core local Workspace, terminal,
 team, Tasks, scenario, recovery, and reliable-delivery paths have automated
-coverage. The platform packaging matrix exists, but a complete release across
-five OS/architecture target triples and production cutover still need validation.
+coverage. The platform packaging pipeline now verifies the final npm tarballs
+through isolated installs, but public-asset release gates and the first five-
+platform tagged publish still need validation.
 
 The current source of truth is Termestra's own public contracts, automated tests,
 and accepted architecture decisions.

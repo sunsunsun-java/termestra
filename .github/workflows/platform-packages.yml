@@ -1,4 +1,4 @@
-name: platform packages
+name: Publish npm packages
 
 on:
   workflow_dispatch:
@@ -42,37 +42,44 @@ jobs:
         with:
           node-version: '22.22.2'
       - run: corepack enable
+      - name: Verify release tag matches the source version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: node distribution/scripts/verify-release-tag.mjs "$GITHUB_REF_NAME"
       - name: Set release version
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: mvn --batch-mode versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false
       - run: mvn --batch-mode --no-transfer-progress clean verify
-      - name: Smoke test assembled npm runtime
-        run: node distribution/scripts/verify-npm-runtime.mjs distribution/target
-      - uses: actions/upload-artifact@v4
+      - name: Upload tested runtime tarball
+        uses: actions/upload-artifact@v4
         with:
           name: runtime-${{ matrix.platform }}-${{ matrix.arch }}
-          path: distribution/target/npm/runtime-${{ matrix.platform }}-${{ matrix.arch }}
+          path: distribution/target/npm-tarballs/termestra-runtime-${{ matrix.platform }}-${{ matrix.arch }}-*.tgz
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - name: Upload tested CLI tarball
         if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        uses: actions/upload-artifact@v4
         with:
           name: npm-cli
-          path: distribution/target/npm-cli
+          path: distribution/target/npm-tarballs/termestra-cli-*.tgz
           if-no-files-found: error
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: package
     runs-on: ubuntu-24.04
+    environment: npm-production
     permissions:
       contents: read
       id-token: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: runtime-*
           path: dist/runtimes
+          merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
           name: npm-cli
@@ -80,13 +87,44 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.22.2'
-          registry-url: https://registry.npmjs.org
+      - name: Install npm with Trusted Publishing support
+        run: npm install --global npm@11.5.1 && npm --version
+      - name: Select publish authentication
+        shell: bash
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+            echo "TERMESTRA_NPM_PUBLISH_MODE=bootstrap-token" >> "$GITHUB_ENV"
+            echo "Using the temporary bootstrap token for the initial package release."
+          else
+            echo "TERMESTRA_NPM_PUBLISH_MODE=trusted-publishing" >> "$GITHUB_ENV"
+            echo "Using npm Trusted Publishing."
+          fi
+      - name: Select npm release channel
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME#v}" == *-* ]]; then
+            echo "TERMESTRA_NPM_DIST_TAG=next" >> "$GITHUB_ENV"
+          else
+            echo "TERMESTRA_NPM_DIST_TAG=latest" >> "$GITHUB_ENV"
+          fi
       - name: Publish platform runtimes first
         shell: bash
-        run: for package in dist/runtimes/runtime-*; do npm publish "$package" --access public --provenance; done
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Publish CLI
-        run: npm publish dist/npm-cli --access public --provenance
+          TERMESTRA_NPM_REGISTRY: https://registry.npmjs.org
+        run: |
+          shopt -s nullglob
+          packages=(dist/runtimes/*.tgz)
+          test "${#packages[@]}" -eq 5
+          node distribution/scripts/publish-npm-tarballs.mjs "$TERMESTRA_NPM_DIST_TAG" "${packages[@]}"
+      - name: Publish CLI after all runtimes
+        shell: bash
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TERMESTRA_NPM_REGISTRY: https://registry.npmjs.org
+        run: |
+          shopt -s nullglob
+          packages=(dist/npm-cli/*.tgz)
+          test "${#packages[@]}" -eq 1
+          node distribution/scripts/publish-npm-tarballs.mjs "$TERMESTRA_NPM_DIST_TAG" "${packages[@]}"

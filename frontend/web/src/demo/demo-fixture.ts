@@ -3,7 +3,7 @@ import type { TeamListItem, WorkspaceSummary } from '../../../src/shared/types.j
 export const DEMO_WORKSPACE: WorkspaceSummary = {
   id: 'demo-workspace',
   name: 'demo-todo-app',
-  path: '/Users/you/demo-todo-app',
+  path: '/workspace/demo-todo-app',
 }
 
 /**

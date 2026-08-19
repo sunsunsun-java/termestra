@@ -12,15 +12,16 @@ import { RenameWorkerDialog } from '../web/src/worker/RenameWorkerDialog.js'
 afterEach(cleanup)
 
 describe('CLI agent identity', () => {
-  test('uses the selected CLI product icon for both picker marks and member avatars', () => {
+  test('uses the selected CLI identity glyph for picker marks', () => {
     const { container } = render(<CliAgentLogo commandPresetId="codex" size={24} />)
 
-    const logo = screen.getByRole('img', { name: 'Codex' }) as HTMLImageElement
-    expect(logo.getAttribute('src')).toBe('/cli-agent-icons/codex.png')
+    const logo = screen.getByRole('img', { name: 'Codex' })
+    expect(logo.tagName).toBe('svg')
+    expect(logo.getAttribute('src')).toBeNull()
     expect(container.querySelector('[data-command-preset="codex"]')).toBe(logo)
   })
 
-  test('uses the same selected CLI icon in the member picker and the created member avatar', () => {
+  test('uses the same selected CLI glyph in the member picker and the created member avatar', () => {
     const presets = [
       {
         args: [],
@@ -40,14 +41,14 @@ describe('CLI agent identity', () => {
       </I18nProvider>
     )
 
-    const pickerLogo = screen.getByRole('img', { name: 'Claude Code' }) as HTMLImageElement
-    expect(pickerLogo.getAttribute('src')).toBe('/cli-agent-icons/claude.png')
+    const pickerLogo = screen.getByRole('img', { name: 'Claude Code' })
+    expect(pickerLogo.tagName).toBe('svg')
+    expect(pickerLogo.getAttribute('src')).toBeNull()
 
     rerender(<CliAgentAvatar commandPresetId="claude" workerRole="coder" size={40} />)
     const memberAvatar = screen.getByRole('img', { name: 'Claude Code' })
-    expect(memberAvatar.querySelector('img')?.getAttribute('src')).toBe(
-      '/cli-agent-icons/claude.png'
-    )
+    expect(memberAvatar.querySelector('svg')).not.toBeNull()
+    expect(memberAvatar.querySelector('img')).toBeNull()
   })
 })
 

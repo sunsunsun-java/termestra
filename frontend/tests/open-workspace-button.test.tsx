@@ -25,21 +25,19 @@ describe('workspace launch target menu', () => {
     )
 
     const openButton = screen.getByTestId('topbar-open-workspace')
-    expect(openButton.querySelector('img')?.getAttribute('src')).toBe(
-      '/open-target-icons/finder-mac.png'
-    )
-    expect(screen.getByTestId('open-target-mark-finder')).not.toBeNull()
+    expect(openButton.querySelector('img')).toBeNull()
+    expect(screen.getByTestId('open-target-mark-finder').querySelector('svg')).not.toBeNull()
 
     fireEvent.click(screen.getByTestId('topbar-open-workspace-chevron'))
     const menu = screen.getByTestId('topbar-open-workspace-menu')
-    expect(menu.querySelectorAll('img')).toHaveLength(7)
+    expect(menu.querySelectorAll('[data-testid^="open-target-mark-"]')).toHaveLength(7)
+    expect(menu.querySelectorAll('img')).toHaveLength(0)
     expect(screen.getAllByRole('menuitemradio').length).toBe(7)
     expect(
       screen
         .getByRole('menuitemradio', { name: 'IntelliJ IDEA' })
-        .querySelector('img')
-        ?.getAttribute('src')
-    ).toBe('/open-target-icons/intellij-idea.png')
+        .querySelector('[data-testid="open-target-mark-intellij-idea"] svg')
+    ).not.toBeNull()
     expect(screen.getByRole('menuitemradio', { name: 'Finder' }).getAttribute('aria-checked')).toBe(
       'true'
     )
@@ -47,10 +45,8 @@ describe('workspace launch target menu', () => {
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'VS Code' }))
 
     expect(screen.queryByRole('menu')).toBeNull()
-    expect(screen.getByTestId('open-target-mark-vscode')).not.toBeNull()
-    expect(openButton.querySelector('img')?.getAttribute('src')).toBe(
-      '/open-target-icons/vscode.png'
-    )
+    expect(screen.getByTestId('open-target-mark-vscode').querySelector('svg')).not.toBeNull()
+    expect(openButton.querySelector('img')).toBeNull()
     expect(window.localStorage.getItem('termestra.openTarget.preferred')).toBe('vscode')
   })
 })

@@ -19,16 +19,6 @@ const STATIC_PRECACHE = [
   '/icons/icon-512-maskable.png',
   '/icons/apple-touch-icon-180.png',
   '/icons/icon-32.png',
-  '/cli-agent-icons/agy.png',
-  '/cli-agent-icons/claude.png',
-  '/cli-agent-icons/codex.png',
-  '/cli-agent-icons/cursor.png',
-  '/cli-agent-icons/gemini.png',
-  '/cli-agent-icons/grok.png',
-  '/cli-agent-icons/hermes.png',
-  '/cli-agent-icons/opencode.svg',
-  '/cli-agent-icons/pi.svg',
-  '/cli-agent-icons/qwen.png',
 ]
 
 const reportCacheFailure = (operation, error) => {
@@ -98,8 +88,6 @@ self.addEventListener('message', (event) => {
 const isHashedAsset = (pathname) => pathname.startsWith('/assets/')
 const isStaticAsset = (pathname) =>
   pathname.startsWith('/icons/') ||
-  pathname.startsWith('/cli-agent-icons/') ||
-  pathname.startsWith('/open-target-icons/') ||
   pathname.startsWith('/screenshots/') ||
   pathname.startsWith('/sounds/') ||
   pathname === '/logo.png'

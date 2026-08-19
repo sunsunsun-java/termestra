@@ -6,7 +6,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import { spawn, spawnSync } from 'node:child_process'
 
 const args = process.argv.slice(2)
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+const npmCommand = process.platform === 'win32' ? process.env.ComSpec ?? 'cmd.exe' : 'npm'
+const npmInstallArguments = process.platform === 'win32'
+  ? ['/d', '/s', '/c', 'npm.cmd', 'install', '-g', '@termestra/cli@latest']
+  : ['install', '-g', '@termestra/cli@latest']
 const usage = `Usage:
   termestra [--port <port>]
   termestra update
@@ -31,7 +34,7 @@ if (args[0] === 'update') {
     console.error('Usage: termestra update')
     process.exit(1)
   }
-  const result = spawnSync(npm, ['install', '-g', '@termestra/cli@latest'], { stdio: 'inherit' })
+  const result = spawnSync(npmCommand, npmInstallArguments, { stdio: 'inherit' })
   if (result.error) {
     console.error(`Failed to update Termestra: ${result.error.message}`)
     console.error('Run manually: npm install -g @termestra/cli@latest')

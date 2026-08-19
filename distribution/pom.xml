@@ -9,8 +9,9 @@
   </dependencies>
   <build><plugins>
     <plugin><groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.6.3</version><executions>
-      <execution><id>jlink-runtime</id><phase>prepare-package</phase><goals><goal>exec</goal></goals><configuration><executable>sh</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>scripts/build-runtime.sh</argument><argument>${project.build.directory}/runtime-current</argument></arguments></configuration></execution>
+      <execution><id>jlink-runtime</id><phase>prepare-package</phase><goals><goal>exec</goal></goals><configuration><executable>sh</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>scripts/build-runtime.sh</argument><argument>${project.build.directory}/runtime-current</argument><argument>${java.home}/bin/jlink</argument></arguments></configuration></execution>
       <execution><id>verify-npm-runtime</id><phase>verify</phase><goals><goal>exec</goal></goals><configuration><executable>node</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>scripts/verify-npm-runtime.mjs</argument><argument>${project.build.directory}</argument></arguments></configuration></execution>
+      <execution><id>verify-npm-install</id><phase>verify</phase><goals><goal>exec</goal></goals><configuration><executable>node</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>scripts/verify-npm-install.mjs</argument><argument>${project.build.directory}</argument></arguments></configuration></execution>
     </executions></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-antrun-plugin</artifactId><version>3.2.0</version><executions><execution><phase>package</phase><goals><goal>run</goal></goals><configuration><target>
       <delete dir="${project.build.directory}/npm-cli"/>
@@ -24,6 +25,8 @@
       <copy file="${project.basedir}/../NOTICE" todir="${project.build.directory}/npm-cli"/>
       <copy file="${project.basedir}/../TRADEMARK.md" todir="${project.build.directory}/npm-cli"/>
       <copy file="${project.basedir}/../THIRD_PARTY_NOTICES.md" todir="${project.build.directory}/npm-cli"/>
+      <chmod file="${project.build.directory}/npm-cli/bin/termestra.mjs" perm="755"/>
+      <chmod file="${project.build.directory}/npm-cli/bin/team.mjs" perm="755"/>
       <copy todir="${project.build.directory}/npm-cli/frontend/web/public" overwrite="true">
         <fileset dir="${project.basedir}/../frontend/web/public">
           <include name="logo.png"/>
@@ -33,7 +36,6 @@
           <include name="screenshots/3.png"/>
           <include name="screenshots/4.png"/>
           <include name="sounds/LICENSE-KENNEY.txt"/>
-          <include name="cli-agent-icons/**"/>
         </fileset>
       </copy>
       <copy todir="${project.build.directory}/npm-cli/docs">

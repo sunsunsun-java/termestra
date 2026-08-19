@@ -1,11 +1,40 @@
 {
   "name": "@termestra/cli",
   "version": "VERSION",
-  "description": "Termestra local multi-agent workspace launcher",
+  "description": "Local workspace launcher for coordinating multiple CLI agents.",
+  "keywords": ["cli-agents", "local-first", "multi-agent", "terminal", "workspace"],
+  "homepage": "https://github.com/sunsunsun-java/termestra#readme",
+  "bugs": {
+    "url": "https://github.com/sunsunsun-java/termestra/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sunsunsun-java/termestra.git"
+  },
   "license": "BUSL-1.1",
   "type": "module",
+  "preferGlobal": true,
   "bin": {"termestra": "bin/termestra.mjs", "team": "bin/team.mjs"},
   "engines": {"node": ">=20"},
+  "files": [
+    "bin/",
+    "docs/",
+    "frontend/web/public/logo.png",
+    "frontend/web/public/screenshots/",
+    "frontend/web/public/sounds/LICENSE-KENNEY.txt",
+    "backend/src/main/resources/vendor/marketplace/",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "LICENSE.BSL",
+    "NOTICE",
+    "TRADEMARK.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "optionalDependencies": {
     "@termestra/runtime-darwin-arm64": "VERSION",
     "@termestra/runtime-darwin-x64": "VERSION",

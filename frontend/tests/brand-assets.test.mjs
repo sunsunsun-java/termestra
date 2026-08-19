@@ -84,6 +84,14 @@ const decodeRgbaPng = async (relativePath) => {
   return { height, pixel, pixels, width }
 }
 
+test('product-tour screenshots are real PNG files', async () => {
+  for (const path of ['screenshots/1.png', 'screenshots/2.png', 'screenshots/3.png', 'screenshots/4.png']) {
+    const bytes = await readFile(resolve(PUBLIC_ROOT, path))
+    assert.deepEqual(bytes.subarray(0, 8), PNG_SIGNATURE, `${path} must use PNG bytes for its .png extension`)
+    assert.equal(bytes.toString('ascii', 12, 16), 'IHDR', `${path} is missing a PNG image header`)
+  }
+})
+
 test('brand assets expose the exact sizes used by browsers and installed apps', async () => {
   const expected = new Map([
     ['logo.png', 512],

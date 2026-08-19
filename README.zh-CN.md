@@ -5,7 +5,7 @@
 # Termestra
 
 <p align="center">
-  <img src="./frontend/web/public/screenshots/termestra-promo-hero-light.png" alt="Termestra 本地优先多 Agent 编程工作空间，由一个 Orchestrator 协调多个可见 CLI Worker" width="1120" />
+  <img src="./frontend/web/public/screenshots/termestra-promo-hero-light.png" alt="Termestra 本地优先 CLI Agent 协作工作空间，由一个 Orchestrator 协调多个可见 Worker" width="1120" />
 </p>
 
 **把你电脑里已经安装的 AI CLI 组成一支可见、可持续的团队。**
@@ -68,7 +68,7 @@ Termestra 把这些协作关系显式化。Orchestrator 面对的是一支持久
 
 ## 界面预览
 
-下面四张截图展示了从首次进入、启动 Orchestrator、创建团队到协同执行的完整过程。
+下面四张截图均来自内置的匿名演示：首次进入、预录任务视图、团队名单和打开目标选择器。它们不展示真实 Workspace、用户账户或正在运行的外部 CLI。
 
 <p align="center">
   <img src="./frontend/web/public/screenshots/1.png" alt="Termestra 首次进入页面，可创建 Workspace 或打开只读演示" width="680" />
@@ -76,19 +76,19 @@ Termestra 把这些协作关系显式化。Orchestrator 面对的是一支持久
 <p align="center"><sub>创建一个可信的本地 Workspace，或直接体验无需安装 Agent CLI 的只读演示。</sub></p>
 
 <p align="center">
-  <img src="./frontend/web/public/screenshots/2.png" alt="真实 Termestra Workspace，Codex 作为 Orchestrator 运行，右侧可添加团队成员或选择场景" width="1120" />
+  <img src="./frontend/web/public/screenshots/2.png" alt="只读演示中，预录的 Orchestrator 和 Worker 状态与打开的 Tasks 面板并列显示" width="1120" />
 </p>
-<p align="center"><sub>启动 Orchestrator 后，可以逐个添加成员，也可以选择内置场景一键组队。</sub></p>
+<p align="center"><sub>无需启动外部 CLI，即可体验预录派单活动和任务进度。</sub></p>
 
 <p align="center">
-  <img src="./frontend/web/public/screenshots/3.png" alt="开发审查测试场景创建的 Coder、Reviewer 和 Tester 与 Orchestrator 终端并排显示" width="1120" />
+  <img src="./frontend/web/public/screenshots/3.png" alt="只读演示中，Orchestrator 的预录输出与一名运行中的开发成员和一名空闲审查成员并列显示" width="1120" />
 </p>
-<p align="center"><sub>“开发 · 审查 · 测试”场景会创建三名持久化成员，其角色和状态始终显示在团队名单中。</sub></p>
+<p align="center"><sub>角色、状态和预录终端上下文会在同一个本地工作空间中保持可见。</sub></p>
 
 <p align="center">
-  <img src="./frontend/web/public/screenshots/4.png" alt="Coder 正在工作，Reviewer 和 Tester 保持空闲，Orchestrator 终端中可见任务计划更新" width="1120" />
+  <img src="./frontend/web/public/screenshots/4.png" alt="只读演示的打开目标菜单，兼容工具以中性矢量图形显示" width="1120" />
 </p>
-<p align="center"><sub>协同执行期间，任务计划更新、终端活动以及每名成员的运行或空闲状态会同时保持可见。</sub></p>
+<p align="center"><sub>兼容工具以名称标识，界面统一使用 Termestra 的中性矢量图形。</sub></p>
 
 ## 快速开始
 
@@ -110,9 +110,9 @@ mvn -pl backend spring-boot:run
 
 打开 [http://127.0.0.1:3000](http://127.0.0.1:3000)。Termestra 不会自动打开浏览器。
 
-**计划中的发行包安装方式**
+**npm 运行时包发布**
 
-项目已经实现发行包结构，但 macOS、Linux、Windows 上的五个 OS/架构目标尚未声明为稳定。等所有匹配的平台运行时包正式发布后，安装与更新命令为：
+项目已经实现发行包结构、隔离式全局安装验证和五平台发布工作流。公开 npm 渠道要等首个受保护 Tag 完成跨平台构建与已发布包验证后才会宣布可用。正式发布后，安装与更新命令为：
 
 ```bash
 npm install -g @termestra/cli
@@ -120,7 +120,7 @@ termestra
 termestra update
 ```
 
-npm 启动器会选择匹配的可选平台运行时包，其中包含 jlink Java 运行时。因此发行包用户只需要 Node.js 20+，无需另装 JDK。指定其他端口：
+npm 启动器会选择匹配的可选平台运行时包，其中包含 jlink Java 运行时。因此发行包用户只需要 Node.js 20+，无需另装 JDK。Linux 发行包要求 glibc。指定其他端口：
 
 ```bash
 termestra --port 4020
@@ -202,13 +202,13 @@ Termestra 当前有意**不提供**隐藏自动创建的 subagent、Workflow/DAG
 
 ## 平台构建目标
 
-发行流水线定义了以下平台目标。在所有系统完成带标签的发布与生产切换验证前，它们仍属于预发布构建目标，不能称为稳定 Tier 1 支持。
+发行流水线会在原生 CI 上构建、打包并全局安装以下目标。在首次公开 Tag 发布和所有系统的生产切换验证完成前，它们仍属于预发布目标，不能称为稳定 Tier 1 支持。
 
 | 平台 | 打包目标 | 文件夹选择 |
 | --- | --- | --- |
-| macOS arm64 / x64 | 已进入原生 CI 矩阵 | 原生 `osascript`、服务器目录浏览或粘贴路径 |
-| Linux arm64 / x64 | 已进入原生 CI 矩阵 | 存在 `zenity` 时使用原生选择器，否则使用目录浏览或粘贴路径 |
-| Windows x64 | 已进入原生 CI 矩阵 | PowerShell 文件夹对话框、服务器目录浏览或粘贴路径 |
+| macOS arm64 / x64 | `@termestra/runtime-darwin-*` | 原生 `osascript`、服务器目录浏览或粘贴路径 |
+| Linux arm64 / x64（glibc） | `@termestra/runtime-linux-*` | 存在 `zenity` 时使用原生选择器，否则使用目录浏览或粘贴路径 |
+| Windows x64 | `@termestra/runtime-win32-x64` | PowerShell 文件夹对话框、服务器目录浏览或粘贴路径 |
 
 Linux 没有安装 `zenity` 时，请使用“浏览服务器文件系统”或粘贴绝对目录路径。
 
@@ -340,11 +340,12 @@ termestra/
 - [契约与数据所有权](docs/architecture/contracts-and-data.md)
 - [已接受架构决策](docs/adr/README.md)
 - [可靠派单详细设计](docs/design/reliable-dispatch.md)
+- [npm 运行时包发布](docs/release/npm.md)
 - [路线图](docs/product/roadmap.md)
 
 ## 当前状态
 
-Termestra 目前是 `0.1.0-SNAPSHOT` Alpha 软件。核心本地 Workspace、终端、团队、Tasks、一键组队、恢复和可靠投递路径已有自动化测试覆盖。平台打包矩阵已经存在，但五个 OS/架构目标的完整 Tag 发布与生产切换仍需验证。
+Termestra 目前是 `0.1.0-SNAPSHOT` Alpha 软件。核心本地 Workspace、终端、团队、Tasks、一键组队、恢复和可靠投递路径已有自动化测试覆盖。平台打包链已经会通过隔离安装验证最终 npm tarball，但公开资源发布门槛和首个五平台 Tag 发布仍需验证。
 
 Termestra 自身的公共契约、自动化测试和已接受架构决策是当前实现的唯一事实来源。
 

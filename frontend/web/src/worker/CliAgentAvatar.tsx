@@ -34,17 +34,19 @@ export const CliAgentLogo = ({
 }: CliAgentLogoProps) => {
   const icon = getCliAgentIcon(commandPresetId)
   if (!icon) return fallback
+  const { Icon } = icon
 
   return (
-    <img
-      alt={icon.label}
-      className="shrink-0 select-none object-contain"
+    <Icon
+      aria-label={icon.label}
+      className="shrink-0 select-none"
       data-command-preset={commandPresetId}
       data-testid={testId}
-      draggable={false}
+      focusable={false}
       height={size}
-      src={icon.src}
-      style={{ height: size, width: size }}
+      role="img"
+      strokeWidth={1.8}
+      style={{ color: icon.tone, height: size, width: size }}
       width={size}
     />
   )
@@ -62,6 +64,7 @@ export const CliAgentAvatar = ({
   if (!icon) {
     return <RoleAvatar role={workerRole} size={size} statusRing={statusRing} />
   }
+  const { Icon } = icon
 
   return (
     <span
@@ -79,13 +82,16 @@ export const CliAgentAvatar = ({
         width: size,
       }}
     >
-      <img
-        alt=""
+      <Icon
         aria-hidden
-        className="select-none object-contain"
-        draggable={false}
-        src={icon.src}
-        style={{ height: Math.round(size * 0.72), width: Math.round(size * 0.72) }}
+        className="select-none"
+        focusable={false}
+        strokeWidth={1.8}
+        style={{
+          color: icon.tone,
+          height: Math.round(size * 0.72),
+          width: Math.round(size * 0.72),
+        }}
       />
     </span>
   )

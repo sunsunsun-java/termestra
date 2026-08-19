@@ -1,4 +1,15 @@
 import {
+  Code2,
+  FileCode2,
+  FolderOpen,
+  MousePointer2,
+  PanelsTopLeft,
+  SquareTerminal,
+  Terminal,
+  type LucideIcon,
+} from 'lucide-react'
+
+import {
   getDefaultOpenTargetIdForPlatform,
   isOpenTargetId,
   isOpenTargetSupported,
@@ -27,8 +38,9 @@ export interface OpenTargetOption {
     | 'openWorkspace.target.terminal'
     | 'openWorkspace.target.ghostty'
     | 'openWorkspace.target.zed'
-  /** Official product/application artwork served from Vite's public directory. */
-  iconSrc: string
+  /** A generic, non-branded glyph that identifies the target category. */
+  Icon: LucideIcon
+  tone: string
 }
 
 const FINDER_LABEL_KEY_BY_PLATFORM: Record<OpenTargetPlatform, OpenTargetOption['labelKey']> = {
@@ -41,40 +53,40 @@ const FINDER_LABEL_KEY_BY_PLATFORM: Record<OpenTargetPlatform, OpenTargetOption[
 const TARGET_DATA: Record<OpenTargetId, Omit<OpenTargetOption, 'id'>> = {
   vscode: {
     labelKey: 'openWorkspace.target.vscode',
-    iconSrc: '/open-target-icons/vscode.png',
+    Icon: PanelsTopLeft,
+    tone: 'var(--status-blue)',
   },
   'intellij-idea': {
     labelKey: 'openWorkspace.target.intellijIdea',
-    iconSrc: '/open-target-icons/intellij-idea.png',
+    Icon: FileCode2,
+    tone: 'var(--status-orange)',
   },
   cursor: {
     labelKey: 'openWorkspace.target.cursor',
-    iconSrc: '/open-target-icons/cursor.png',
+    Icon: MousePointer2,
+    tone: 'var(--accent)',
   },
   finder: {
     labelKey: 'openWorkspace.target.finder.mac',
-    iconSrc: '/open-target-icons/finder-mac.png',
+    Icon: FolderOpen,
+    tone: 'var(--status-blue)',
   },
   terminal: {
     labelKey: 'openWorkspace.target.terminal',
-    iconSrc: '/open-target-icons/terminal-mac.png',
+    Icon: Terminal,
+    tone: 'var(--text-secondary)',
   },
   ghostty: {
     labelKey: 'openWorkspace.target.ghostty',
-    iconSrc: '/open-target-icons/ghostty.png',
+    Icon: SquareTerminal,
+    tone: 'var(--status-purple)',
   },
-  zed: { labelKey: 'openWorkspace.target.zed', iconSrc: '/open-target-icons/zed.png' },
+  zed: {
+    labelKey: 'openWorkspace.target.zed',
+    Icon: Code2,
+    tone: 'var(--status-green)',
+  },
 }
-
-const FINDER_ICON_BY_PLATFORM: Record<OpenTargetPlatform, string> = {
-  mac: '/open-target-icons/finder-mac.png',
-  windows: '/open-target-icons/finder-windows.svg',
-  linux: '/open-target-icons/finder-linux.svg',
-  other: '/open-target-icons/finder-linux.svg',
-}
-
-const resolveIconSrc = (targetId: OpenTargetId, platform: OpenTargetPlatform): string =>
-  targetId === 'finder' ? FINDER_ICON_BY_PLATFORM[platform] : TARGET_DATA[targetId].iconSrc
 
 const resolveLabelKey = (
   targetId: OpenTargetId,
@@ -91,7 +103,7 @@ export const getOpenTargetOption = (
     : getDefaultOpenTargetIdForPlatform(platform)
   return {
     id: supportedId,
-    iconSrc: resolveIconSrc(supportedId, platform),
+    ...TARGET_DATA[supportedId],
     labelKey: resolveLabelKey(supportedId, platform),
   }
 }
@@ -100,7 +112,7 @@ export const getOpenTargetOptions = (platform: OpenTargetPlatform): readonly Ope
   OPEN_TARGET_IDS_BY_PLATFORM[platform].map((targetId) => {
     return {
       id: targetId,
-      iconSrc: resolveIconSrc(targetId, platform),
+      ...TARGET_DATA[targetId],
       labelKey: resolveLabelKey(targetId, platform),
     }
   })

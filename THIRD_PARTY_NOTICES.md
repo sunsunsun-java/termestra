@@ -48,31 +48,16 @@ Platform npm packages include a runtime image produced by `jlink`. The image's
 and its bundled third-party components. Those files must remain intact in every
 platform runtime package.
 
-## Third-party product names and application icons
+## Third-party product names
 
 Termestra uses third-party product names solely to identify compatible CLIs and
-applications that a user can open. Product names, icons, and trademarks belong
-to their respective owners; their presence does not imply affiliation or
-endorsement.
+applications a user may select. Product names and trademarks belong to their
+respective owners; their use does not imply affiliation or endorsement.
 
-Source provenance is recorded in:
-
-- `frontend/web/public/cli-agent-icons/SOURCES.md`
-- `frontend/web/public/open-target-icons/SOURCES.md`
-
-### Public-release action required
-
-The current source records identify where these product icons were obtained,
-but they do not establish a redistribution license for every file. In
-particular, files extracted from installed application bundles and website
-favicons must not be treated as freely redistributable merely because their
-source is official.
-
-Before a public source or npm release, each icon must have a retained license,
-brand-policy permission, or written authorization that covers repository and
-binary redistribution. Any icon without that evidence must be replaced by a
-Termestra-created neutral symbol. This unresolved item applies to the current
-contents of both icon directories.
+The product UI does not distribute third-party product icons, favicons, or
+application artwork. It renders Termestra-neutral vector glyphs for compatible
+CLI and open-target choices instead. The dated replacement record is
+[`docs/governance/public-asset-remediation-2026-08-18.md`](docs/governance/public-asset-remediation-2026-08-18.md).
 
 ## Dependency notices
 

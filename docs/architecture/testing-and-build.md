@@ -16,7 +16,8 @@ mvn clean verify
 5. **backend**：编译 Java，把 web dist 嵌入 `static/`，运行单元与集成测试，构建
    Spring Boot fat JAR；
 6. **distribution**：用 jlink 创建 host runtime，组装 npm CLI 和平台包，运行
-   真实 Java/npm smoke 验证；
+   真实 Java/npm smoke 验证，并从实际 `.tgz` 在隔离 npm registry 与全局 prefix 中
+   安装，再执行已安装的 `termestra team --help`；
 7. **root / verify**：校验品牌和许可边界文件。
 
 distribution 使用 POSIX `sh`；Windows 全 reactor 需要 Git Bash 或其他提供
@@ -33,7 +34,7 @@ distribution 使用 POSIX `sh`；Windows 全 reactor 需要 Git Bash 或其他�
 | PTY/进程 | `execution/adapter/out/pty`、`platform/process` | 输入/退出、进程树终止、Unix/Windows 差异 |
 | Terminal/Tasks stream | WebSocket integration + handler test | snapshot/live 顺序、背压、重连、清理 |
 | filesystem | Workspace/Tasks NIO adapter test | symlink 防护、大小、atomic replace、watch 恢复 |
-| CLI | `TeamCliTest`、npm smoke | 参数、stdin、环境、真实 HTTP、版本/更新路径 |
+| CLI | `TeamCliTest`、npm tarball install smoke | 参数、stdin、环境、真实 HTTP、版本/更新路径、可选 runtime 解析、bin/Java 执行权限 |
 | frontend | `frontend/tests` | stale request、single-flight、polling、UI 状态、PWA |
 | 架构 | `ArchitectureTest` | domain/application/adapter/shared 依赖方向 |
 
@@ -74,6 +75,8 @@ mvn -pl backend -Dtest=DispatchDeliveryApplicationServiceTest test
 - 修改 WebSocket：覆盖 snapshot 与 live 原子交接、slow consumer、最后连接清理。
 - 修改 Workspace 文件：覆盖 symlink、超限、外部编辑、revision conflict 和原子写。
 - 移动 README/docs/assets：更新 distribution staging 和 npm runtime verifier。
+- 修改 npm package、jlink 打包或 GitHub release workflow：检查
+  [`release/npm.md`](../release/npm.md) 的 tarball、平台、dist-tag 与 OIDC 要求。
 
 ## 失败报告
 
