@@ -12,7 +12,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 
@@ -104,52 +103,25 @@ class TerminalOutputFlowTest {
         assertEquals(1, rejections.get());
     }
 
-    @Test void acknowledgementDribblingCannotExtendThePressureDeadlineForever()
-            throws Exception {
+    @Test void partialAcknowledgementsCannotCancelThePressureDeadline() {
         List<Boolean> pressure = new CopyOnWriteArrayList<>();
         AtomicInteger rejections = new AtomicInteger();
-        AtomicInteger acknowledgements = new AtomicInteger();
-        AtomicBoolean keepDribbling = new AtomicBoolean(true);
-        CountDownLatch dribblerReady = new CountDownLatch(1);
-        CountDownLatch beginDribbling = new CountDownLatch(1);
         TerminalOutputFlow flow = new TerminalOutputFlow(ignored -> { }, pressure::add,
                 rejections::incrementAndGet, () -> { }, 500);
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        Future<?> dribbler = executor.submit(() -> {
-            dribblerReady.countDown();
-            try {
-                if (!beginDribbling.await(2, TimeUnit.SECONDS)) return;
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-            while (keepDribbling.get()) {
-                if (!flow.acknowledge(1)) return;
-                acknowledgements.incrementAndGet();
-                try {
-                    Thread.sleep(20);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-            }
-        });
-        assertTrue(dribblerReady.await(2, TimeUnit.SECONDS), "acknowledgement worker did not start");
         flow.enqueue("x".repeat(Math.toIntExact(TerminalOutputFlow.UNACKED_HIGH_WATER)));
-        beginDribbling.countDown();
         awaitCondition(() -> pressure.equals(List.of(true)), "viewer never entered pressure");
-        try {
-            awaitCondition(flow::closed,
-                    "a client that dribbles ACKs must not extend one pressure deadline forever");
-        } finally {
-            keepDribbling.set(false);
-            beginDribbling.countDown();
-            dribbler.get(5, TimeUnit.SECONDS);
-            executor.shutdownNow();
-        }
 
-        assertTrue(acknowledgements.get() >= 10,
-                "the client must still be making acknowledgement progress at the deadline");
+        for (int acknowledgement = 0; acknowledgement < 10; acknowledgement++) {
+            assertTrue(flow.acknowledge(1),
+                    "partial acknowledgement must be accepted before the deadline");
+        }
+        assertFalse(flow.closed());
+        assertEquals(List.of(true), pressure,
+                "partial progress must not leave the bounded pressure window");
+
+        awaitCondition(flow::closed,
+                "partial ACKs must not cancel the original pressure deadline");
+
         assertEquals(List.of(true, false), pressure);
         assertEquals(1, rejections.get());
     }

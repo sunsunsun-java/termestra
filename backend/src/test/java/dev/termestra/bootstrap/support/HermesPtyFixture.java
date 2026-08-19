@@ -22,23 +22,26 @@ public final class HermesPtyFixture {
         while (await(input, PASTE_START)) {
             String text = new String(readUntil(input, PASTE_END), StandardCharsets.UTF_8);
             pasteNumber++;
-            System.out.print("\r\n[Pasted text #" + pasteNumber + " +1 lines]");
-            System.out.flush();
+            write("\r\n[Pasted text #" + pasteNumber + " +1 lines]");
             if (!awaitEnter(input)) return;
             if (text.contains("<termestra-message kind=\"startup\">")) {
-                System.out.print("\r\nFIXTURE_RECEIVED_STARTUP\r\n");
+                write("\r\nFIXTURE_RECEIVED_STARTUP\r\n");
             } else if (text.contains("HERMES_DELIVERY_TOKEN")) {
-                System.out.print("\r\nFIXTURE_RECEIVED_TASK\r\n");
+                write("\r\nFIXTURE_RECEIVED_TASK\r\n");
             } else {
-                System.out.print("\r\nFIXTURE_RECEIVED_OTHER\r\n");
+                write("\r\nFIXTURE_RECEIVED_OTHER\r\n");
             }
             prompt();
         }
     }
 
-    private static void prompt() {
-        System.out.print("Welcome to Hermes Agent! Type your message or /help for commands.\r\n"
+    private static void prompt() throws IOException {
+        write("Welcome to Hermes Agent! Type your message or /help for commands.\r\n"
                 + "❯\r\n────────────────────────────────\r\n");
+    }
+
+    private static void write(String text) throws IOException {
+        System.out.write(text.getBytes(StandardCharsets.UTF_8));
         System.out.flush();
     }
 

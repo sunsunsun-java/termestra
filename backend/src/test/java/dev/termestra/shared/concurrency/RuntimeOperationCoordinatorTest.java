@@ -9,7 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -158,66 +158,21 @@ class RuntimeOperationCoordinatorTest {
     }
 
     @Test
-    void agentAcquisitionUsesOneDeadlineAcrossWorkspaceAndAgentLocks() throws Exception {
+    void agentAcquisitionUsesOneDeadlineAcrossWorkspaceAndAgentLocks() {
         Duration acquisitionTimeout = Duration.ofMillis(600);
-        RuntimeOperationCoordinator coordinator = new RuntimeOperationCoordinator(acquisitionTimeout);
-        CountDownLatch writerEntered = new CountDownLatch(1);
-        CountDownLatch releaseWriter = new CountDownLatch(1);
-        CountDownLatch firstAgentCalling = new CountDownLatch(1);
-        CountDownLatch firstAgentEntered = new CountDownLatch(1);
-        CountDownLatch releaseFirstAgent = new CountDownLatch(1);
-        CountDownLatch contenderCalling = new CountDownLatch(1);
-        AtomicLong contenderStartedAt = new AtomicLong();
+        long budgetNanos = acquisitionTimeout.toNanos();
+        AtomicInteger clockReads = new AtomicInteger();
+        RuntimeOperationCoordinator coordinator = new RuntimeOperationCoordinator(
+                acquisitionTimeout,
+                () -> clockReads.getAndIncrement() < 2 ? 0 : budgetNanos);
 
-        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            Future<?> writer = executor.submit(() -> coordinator.exclusivelyWithWorkspace(
-                    "workspace-1", () -> {
-                        writerEntered.countDown();
-                        await(releaseWriter);
-                    }));
-            assertTrue(writerEntered.await(FAST_OPERATION_DEADLINE.toMillis(), TimeUnit.MILLISECONDS));
+        RuntimeOperationBusyException busy = assertThrows(RuntimeOperationBusyException.class,
+                () -> coordinator.withAgent(
+                        "workspace-1", "agent-1", () -> "unreachable"));
 
-            Future<?> firstAgent = executor.submit(() -> {
-                firstAgentCalling.countDown();
-                coordinator.withAgent("workspace-1", "agent-1", () -> {
-                    firstAgentEntered.countDown();
-                    await(releaseFirstAgent);
-                });
-            });
-
-            assertTrue(firstAgentCalling.await(
-                    FAST_OPERATION_DEADLINE.toMillis(), TimeUnit.MILLISECONDS));
-            Thread.sleep(25);
-            Future<RuntimeOperationBusyException> contender = executor.submit(() -> {
-                contenderStartedAt.set(System.nanoTime());
-                contenderCalling.countDown();
-                return assertThrows(RuntimeOperationBusyException.class,
-                        () -> coordinator.withAgent(
-                                "workspace-1", "agent-1", () -> "unreachable"));
-            });
-
-            assertTrue(contenderCalling.await(
-                    FAST_OPERATION_DEADLINE.toMillis(), TimeUnit.MILLISECONDS));
-            Thread.sleep(350);
-            releaseWriter.countDown();
-            assertTrue(firstAgentEntered.await(FAST_OPERATION_DEADLINE.toMillis(), TimeUnit.MILLISECONDS));
-
-            try {
-                RuntimeOperationBusyException busy = contender.get(
-                        FAST_OPERATION_DEADLINE.toMillis(), TimeUnit.MILLISECONDS);
-                long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(
-                        System.nanoTime() - contenderStartedAt.get());
-                assertEquals("agent", busy.resourceType());
-                assertTrue(elapsedMillis < 800,
-                        () -> "workspace and agent waits used separate deadlines: "
-                                + elapsedMillis + " ms");
-            } finally {
-                releaseFirstAgent.countDown();
-                firstAgent.get(FAST_OPERATION_DEADLINE.toMillis(), TimeUnit.MILLISECONDS);
-                writer.get(FAST_OPERATION_DEADLINE.toMillis(), TimeUnit.MILLISECONDS);
-            }
-        }
-
+        assertEquals("agent", busy.resourceType());
+        assertEquals(3, clockReads.get(),
+                "one clock origin and one remaining-budget read per lock are expected");
         assertEquals(0, coordinator.retainedWorkspaceKeyCount());
         assertEquals(0, coordinator.retainedAgentKeyCount());
     }

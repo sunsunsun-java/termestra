@@ -7,6 +7,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -20,24 +21,30 @@ public final class RuntimeOperationCoordinator {
     private static final Duration DEFAULT_ACQUISITION_TIMEOUT = Duration.ofSeconds(2);
 
     private final Duration acquisitionTimeout;
+    private final LongSupplier nanoTime;
     private final KeyedLockRegistry<String, ReentrantReadWriteLock> workspaces =
             new KeyedLockRegistry<>(ignored -> new ReentrantReadWriteLock(true));
     private final KeyedLockRegistry<AgentKey, ReentrantLock> agents =
             new KeyedLockRegistry<>(ignored -> new ReentrantLock(true));
 
     public RuntimeOperationCoordinator() {
-        this(DEFAULT_ACQUISITION_TIMEOUT);
+        this(DEFAULT_ACQUISITION_TIMEOUT, System::nanoTime);
     }
 
     public RuntimeOperationCoordinator(Duration acquisitionTimeout) {
+        this(acquisitionTimeout, System::nanoTime);
+    }
+
+    RuntimeOperationCoordinator(Duration acquisitionTimeout, LongSupplier nanoTime) {
         this.acquisitionTimeout = requirePositive(acquisitionTimeout);
+        this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
     }
 
     public <T> T withAgent(String workspaceId, String agentId, Supplier<T> operation) {
         String workspace = requireIdentifier(workspaceId, "workspaceId");
         String agent = requireIdentifier(agentId, "agentId");
         Objects.requireNonNull(operation, "operation");
-        AcquisitionDeadline deadline = AcquisitionDeadline.start(acquisitionTimeout);
+        AcquisitionDeadline deadline = deadline();
         return withWorkspaceLock(workspace, false, deadline, () ->
                 withAgentLock(new AgentKey(workspace, agent), deadline, operation));
     }
@@ -53,7 +60,7 @@ public final class RuntimeOperationCoordinator {
     public <T> T withWorkspace(String workspaceId, Supplier<T> operation) {
         String workspace = requireIdentifier(workspaceId, "workspaceId");
         Objects.requireNonNull(operation, "operation");
-        return withWorkspaceLock(workspace, false, AcquisitionDeadline.start(acquisitionTimeout), operation);
+        return withWorkspaceLock(workspace, false, deadline(), operation);
     }
 
     public void withWorkspace(String workspaceId, Runnable operation) {
@@ -68,7 +75,7 @@ public final class RuntimeOperationCoordinator {
     public <T> T exclusivelyWithWorkspace(String workspaceId, Supplier<T> operation) {
         String workspace = requireIdentifier(workspaceId, "workspaceId");
         Objects.requireNonNull(operation, "operation");
-        return withWorkspaceLock(workspace, true, AcquisitionDeadline.start(acquisitionTimeout), operation);
+        return withWorkspaceLock(workspace, true, deadline(), operation);
     }
 
     public void exclusivelyWithWorkspace(String workspaceId, Runnable operation) {
@@ -139,6 +146,10 @@ public final class RuntimeOperationCoordinator {
         return agents.size();
     }
 
+    private AcquisitionDeadline deadline() {
+        return AcquisitionDeadline.start(acquisitionTimeout, nanoTime);
+    }
+
     private static Duration requirePositive(Duration timeout) {
         Objects.requireNonNull(timeout, "acquisitionTimeout");
         if (timeout.isZero() || timeout.isNegative()) {
@@ -160,16 +171,16 @@ public final class RuntimeOperationCoordinator {
 
     private record AgentKey(String workspaceId, String agentId) { }
 
-    private record AcquisitionDeadline(long startedAt, long budgetNanos) {
-        static AcquisitionDeadline start(Duration timeout) {
-            return new AcquisitionDeadline(System.nanoTime(), timeout.toNanos());
+    private record AcquisitionDeadline(long startedAt, long budgetNanos, LongSupplier nanoTime) {
+        static AcquisitionDeadline start(Duration timeout, LongSupplier nanoTime) {
+            return new AcquisitionDeadline(nanoTime.getAsLong(), timeout.toNanos(), nanoTime);
         }
 
         long remainingNanos() {
             // nanoTime is an elapsed-time source whose absolute value may be negative and
             // may wrap. Subtraction remains correct for every supported positive budget;
             // a negative elapsed value means more than Long.MAX_VALUE nanos have passed.
-            long elapsed = System.nanoTime() - startedAt;
+            long elapsed = nanoTime.getAsLong() - startedAt;
             if (elapsed < 0 || elapsed >= budgetNanos) return 0;
             return budgetNanos - elapsed;
         }
