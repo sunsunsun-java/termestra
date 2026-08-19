@@ -15,7 +15,7 @@ public final class VersionController {
     private final VersionService versions;
 
     @Autowired
-    public VersionController(@Value("${termestra.version:0.1.0-SNAPSHOT}") String version,
+    public VersionController(@Value("${termestra.version}") String version,
                              ObjectMapper objectMapper) {
         this.versions = VersionService.npm(version, objectMapper);
     }

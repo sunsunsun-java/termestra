@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const CHECK_OPTIONS = { encoding: 'utf8', timeout: 15_000, maxBuffer: 1024 * 1024, killSignal: 'SIGKILL' }
@@ -63,7 +64,9 @@ for (const entry of ['bin/', 'docs/', 'frontend/web/public/screenshots/']) {
   assert.ok(cliManifest.files.includes(entry), `npm CLI files allowlist is missing: ${entry}`)
 }
 
-assert.ok(existsSync(join(runtime, 'app', 'termestra.jar')), 'application jar is missing')
+const applicationJar = join(runtime, 'app', 'termestra.jar')
+assert.ok(existsSync(applicationJar), 'application jar is missing')
+assertEmbeddedApplicationVersion(applicationJar, manifest.version)
 assert.ok(existsSync(join(runtime, 'LICENSE.BSL')), 'runtime source license is missing')
 assert.ok(existsSync(join(runtime, 'LICENSE')), 'runtime historical license notice is missing')
 assert.ok(existsSync(join(runtime, 'NOTICE')), 'runtime NOTICE is missing')
@@ -124,3 +127,28 @@ for (const retiredDirectory of ['cli-agent-icons', 'open-target-icons']) {
 }
 
 console.log(`Verified ${manifest.name}@${manifest.version}`)
+
+function assertEmbeddedApplicationVersion(applicationJar, expectedVersion) {
+  const workspace = mkdtempSync(join(tmpdir(), 'termestra-version-contract-'))
+  const propertiesEntry = 'BOOT-INF/classes/application.properties'
+  try {
+    const jarExecutable = process.platform === 'win32' ? 'jar.exe' : 'jar'
+    const jar = process.env.JAVA_HOME ? join(process.env.JAVA_HOME, 'bin', jarExecutable) : jarExecutable
+    const extraction = spawnSync(
+      jar,
+      ['--extract', '--file', resolve(applicationJar), propertiesEntry],
+      { ...CHECK_OPTIONS, cwd: workspace },
+    )
+    assert.ifError(extraction.error)
+    assert.equal(extraction.status, 0, extraction.stderr || extraction.stdout)
+    const properties = readFileSync(join(workspace, propertiesEntry), 'utf8')
+    const packagedVersion = properties.match(/^termestra\.version=(.+)$/m)?.[1]?.trim()
+    assert.equal(
+      packagedVersion,
+      expectedVersion,
+      `embedded application version must match npm runtime version ${expectedVersion}`,
+    )
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
+}

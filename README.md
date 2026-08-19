@@ -292,7 +292,7 @@ Worker 必须报告结果，或由 Orchestrator 取消尚未关闭的派单。�
 
 ## 当前状态
 
-Termestra `0.1.0` 已通过 npm 公开发布。macOS、Linux 和 Windows 的五个平台包
+Termestra `0.1.1` 已通过 npm 公开发布。macOS、Linux 和 Windows 的五个平台包
 均经过原生 CI 构建、测试、隔离安装和发布后验证。
 
 项目当前仍处于 Alpha 阶段。请在重要 Workspace 中使用版本控制，并在升级前
