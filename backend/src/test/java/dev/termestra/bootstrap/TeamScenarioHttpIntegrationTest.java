@@ -53,11 +53,12 @@ class TeamScenarioHttpIntegrationTest {
         String cookie = uiCookie(client);
         usePtyFixtureForClaude();
         String workspaceId = activeWorkspace(client, cookie);
+        String goal = "SCENARIO_GOAL_HANDOFF_TOKEN";
 
         Map<?,?> response = client.post()
                 .uri("/api/workspaces/" + workspaceId + "/scenarios/build_review_test/apply")
                 .header(HttpHeaders.COOKIE, cookie)
-                .bodyValue(Map.of("goal", "实现一键组队并验证真实链路", "locale", "zh"))
+                .bodyValue(Map.of("goal", goal, "locale", "zh"))
                 .exchange().expectStatus().isCreated().expectBody(Map.class)
                 .returnResult().getResponseBody();
         List<?> created = (List<?>) Objects.requireNonNull(response).get("created_workers");
@@ -77,7 +78,7 @@ class TeamScenarioHttpIntegrationTest {
         String orchestratorRun = execution.listActiveSummaries(workspaceId).stream()
                 .filter(run -> run.agentId().equals(workspaceId + ":orchestrator"))
                 .findFirst().orElseThrow().runId();
-        awaitOutput(client, cookie, orchestratorRun, "实现一键组队并验证真实链路");
+        awaitOutput(client, cookie, orchestratorRun, goal);
         awaitOutput(client, cookie, orchestratorRun, "team list");
         assertEquals("zh", appState("workspace." + workspaceId + ".ui_language"));
     }
