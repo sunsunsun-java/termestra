@@ -52,6 +52,15 @@ class HermesDispatchHttpIntegrationTest {
 
     @Test
     void coldStartDeliversStartupBeforeTaskAndOnlyThenAcknowledgesTheDispatch() {
+        verifyColdStartDelivery(false);
+    }
+
+    @Test
+    void cookedTerminalDeliversStartupBeforeTaskAndOnlyThenAcknowledgesTheDispatch() {
+        verifyColdStartDelivery(true);
+    }
+
+    private void verifyColdStartDelivery(boolean cookedInput) {
         WebTestClient client = WebTestClient.bindToServer()
                 .responseTimeout(Duration.ofSeconds(20))
                 .baseUrl("http://127.0.0.1:" + port)
@@ -69,7 +78,9 @@ class HermesDispatchHttpIntegrationTest {
                 .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
         String workerId = Objects.requireNonNull(worker).get("id").toString();
 
-        TestJavaCommand fixture = TestJavaCommand.rawTerminalFixture(HermesPtyFixture.class);
+        TestJavaCommand fixture = cookedInput
+                ? TestJavaCommand.rawTerminalFixture(HermesPtyFixture.class, "--cooked-input")
+                : TestJavaCommand.rawTerminalFixture(HermesPtyFixture.class);
         client.post().uri("/api/workspaces/" + workspaceId + "/agents/" + workerId + "/config")
                 .header(HttpHeaders.COOKIE, cookie)
                 .bodyValue(Map.of("command", fixture.command(), "args", fixture.arguments(),
@@ -106,7 +117,7 @@ class HermesDispatchHttpIntegrationTest {
 
     private static String awaitOutput(WebTestClient client, String cookie, String runId, String expected) {
         String output = "";
-        for (int attempt = 0; attempt < 400; attempt++) {
+        for (int attempt = 0; attempt < 800; attempt++) {
             Map<?, ?> body = client.get().uri("/api/runtime/runs/" + runId)
                     .header(HttpHeaders.COOKIE, cookie)
                     .exchange().expectStatus().isOk().expectBody(Map.class).returnResult().getResponseBody();

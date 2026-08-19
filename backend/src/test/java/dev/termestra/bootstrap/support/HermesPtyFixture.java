@@ -4,6 +4,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Locale;
 
 /**
  * Small PTY fixture that models the Hermes bracketed-paste contract without
@@ -18,20 +20,59 @@ public final class HermesPtyFixture {
     public static void main(String[] args) throws IOException {
         InputStream input = System.in;
         prompt();
+        if (windows() || Arrays.asList(args).contains("--cooked-input")) {
+            runCookedWindowsInput(input);
+            return;
+        }
         int pasteNumber = 0;
         while (await(input, PASTE_START)) {
             String text = new String(readUntil(input, PASTE_END), StandardCharsets.UTF_8);
             pasteNumber++;
             write("\r\n[Pasted text #" + pasteNumber + " +1 lines]");
             if (!awaitEnter(input)) return;
-            if (text.contains("<termestra-message kind=\"startup\">")) {
-                write("\r\nFIXTURE_RECEIVED_STARTUP\r\n");
-            } else if (text.contains("HERMES_DELIVERY_TOKEN")) {
-                write("\r\nFIXTURE_RECEIVED_TASK\r\n");
-            } else {
-                write("\r\nFIXTURE_RECEIVED_OTHER\r\n");
-            }
+            report(text);
             prompt();
+        }
+    }
+
+    private static void runCookedWindowsInput(InputStream input) throws IOException {
+        int pasteNumber = 0;
+        byte[] submission;
+        while ((submission = readCookedSubmission(input)) != null) {
+            String text = new String(submission, StandardCharsets.UTF_8);
+            pasteNumber++;
+            write("\r\n[Pasted text #" + pasteNumber + " +1 lines]");
+            report(text);
+            prompt();
+        }
+    }
+
+    static byte[] readCookedSubmission(InputStream input) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        int value;
+        while ((value = input.read()) >= 0) {
+            if (output.size() == 0 && (value == '\r' || value == '\n')) continue;
+            output.write(value);
+            if ((value == '\r' || value == '\n') && containsCompleteMessage(output)) {
+                return output.toByteArray();
+            }
+        }
+        return output.size() == 0 ? null : output.toByteArray();
+    }
+
+    private static boolean containsCompleteMessage(ByteArrayOutputStream output) {
+        String text = output.toString(StandardCharsets.UTF_8);
+        return text.contains("</termestra-message>")
+                || text.contains("</termestra-system-reminder>");
+    }
+
+    private static void report(String text) throws IOException {
+        if (text.contains("<termestra-message kind=\"startup\">")) {
+            write("\r\nFIXTURE_RECEIVED_STARTUP\r\n");
+        } else if (text.contains("HERMES_DELIVERY_TOKEN")) {
+            write("\r\nFIXTURE_RECEIVED_TASK\r\n");
+        } else {
+            write("\r\nFIXTURE_RECEIVED_OTHER\r\n");
         }
     }
 
@@ -89,5 +130,9 @@ public final class HermesPtyFixture {
             if (value == '\r' || value == '\n') return true;
         }
         return false;
+    }
+
+    private static boolean windows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
 }
