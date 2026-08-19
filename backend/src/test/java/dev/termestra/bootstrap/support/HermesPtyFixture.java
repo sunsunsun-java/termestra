@@ -37,7 +37,7 @@ public final class HermesPtyFixture {
 
     private static void prompt() throws IOException {
         write("Welcome to Hermes Agent! Type your message or /help for commands.\r\n"
-                + "❯\r\n────────────────────────────────\r\n");
+                + ">\r\n--------------------------------\r\n");
     }
 
     private static void write(String text) throws IOException {

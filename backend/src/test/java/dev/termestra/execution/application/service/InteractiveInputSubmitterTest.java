@@ -94,6 +94,12 @@ class InteractiveInputSubmitterTest {
         assertTrue(InteractiveInputSubmitter.promptReadyForTest(realStyleTail, "hermes"));
     }
 
+    @Test void recognizesAsciiHermesPromptFromAWindowsTerminal() {
+        String windowsStyleTail = "Welcome to Hermes Agent!\r\n>\r\n--------------------------------\r\n";
+
+        assertTrue(InteractiveInputSubmitter.promptReadyForTest(windowsStyleTail, "hermes"));
+    }
+
     @Test void waitsForAPromptProducedAfterTheRequestedOutputPosition() throws Exception {
         List<String> writes = new CopyOnWriteArrayList<>();
         InteractiveOutputTail output = new InteractiveOutputTail();

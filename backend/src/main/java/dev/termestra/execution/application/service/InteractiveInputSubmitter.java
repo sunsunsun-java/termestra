@@ -23,7 +23,7 @@ final class InteractiveInputSubmitter {
     private static final Pattern PASTE_ACK = Pattern.compile(
             "(?is).*\\[(?:Pasted\\s+text(?:\\s+#\\d+)?[^]]*|Pasted\\s+Content\\s+[\\d,]+\\s+chars?)].*");
     private static final Pattern HERMES_PROMPT = Pattern.compile(
-            "^(?:[\\p{L}\\p{N}_.-]+\\s+)?[❯›](?:\\s*[─━═╌╍┄┅┈┉-]+)?\\s*$");
+            "^(?:[\\p{L}\\p{N}_.-]+\\s+)?[❯›>](?:\\s*[─━═╌╍┄┅┈┉-]+)?\\s*$");
     private static final Pattern DECORATION_LINE = Pattern.compile("^[─━═╌╍┄┅┈┉-]{6,}$");
     private static final long READY_TIMEOUT_MS = 3_000;
     private static final long HARD_READY_TIMEOUT_MS = 30_000;

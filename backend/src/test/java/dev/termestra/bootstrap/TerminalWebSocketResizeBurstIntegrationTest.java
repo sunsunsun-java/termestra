@@ -130,11 +130,15 @@ class TerminalWebSocketResizeBurstIntegrationTest {
                 new ConcurrentLinkedQueue<>();
         private final Object monitor = new Object();
         private volatile WebSocket control;
+        private CompletableFuture<WebSocket> acknowledgementTail;
         private boolean closed;
         private Throwable failure;
 
         void acknowledgeThrough(WebSocket value) {
-            control = Objects.requireNonNull(value);
+            synchronized (monitor) {
+                control = Objects.requireNonNull(value);
+                acknowledgementTail = CompletableFuture.completedFuture(value);
+            }
         }
 
         @Override
@@ -160,8 +164,7 @@ class TerminalWebSocketResizeBurstIntegrationTest {
                     recordFailure(new AssertionError("Output arrived before the ACK channel was installed"));
                 } else {
                     int bytes = complete.getBytes(StandardCharsets.UTF_8).length;
-                    acknowledgements.add(controlSocket.sendText(
-                            "{\"type\":\"output_ack\",\"bytes\":" + bytes + "}", true));
+                    enqueueAcknowledgement(controlSocket, bytes);
                 }
                 synchronized (monitor) {
                     monitor.notifyAll();
@@ -169,6 +172,15 @@ class TerminalWebSocketResizeBurstIntegrationTest {
             }
             webSocket.request(1);
             return null;
+        }
+
+        private void enqueueAcknowledgement(WebSocket controlSocket, int bytes) {
+            synchronized (monitor) {
+                acknowledgementTail = acknowledgementTail.thenCompose(ignored ->
+                        controlSocket.sendText(
+                                "{\"type\":\"output_ack\",\"bytes\":" + bytes + "}", true));
+                acknowledgements.add(acknowledgementTail);
+            }
         }
 
         @Override
