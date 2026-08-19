@@ -111,6 +111,19 @@
               <arguments><argument>scripts/verify-brand-boundary.mjs</argument></arguments>
             </configuration>
           </execution>
+          <execution>
+            <id>test-brand-boundary</id>
+            <phase>verify</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>node</executable>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <arguments>
+                <argument>--test</argument>
+                <argument>scripts/verify-brand-boundary.test.mjs</argument>
+              </arguments>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
       <plugin>

@@ -27,6 +27,8 @@ const legacyBrandPatterns = [
   /(?:^|[^A-Za-z])(?:hive|Hive|HIVE)(?=[A-Z_])/,
 ]
 
+export const normalizeRepositoryPath = (path) => path.replaceAll('\\', '/')
+
 const discoverTextMatches = async (directory, matches) => {
   const entries = await readdir(directory, { withFileTypes: true })
   for (const entry of entries) {
@@ -40,7 +42,7 @@ const discoverTextMatches = async (directory, matches) => {
     if (!entry.isFile()) continue
 
     const absolutePath = resolve(directory, entry.name)
-    const path = relative(repositoryRoot, absolutePath)
+    const path = normalizeRepositoryPath(relative(repositoryRoot, absolutePath))
     if (path === 'scripts/verify-brand-boundary.mjs') continue
     const content = await readFile(absolutePath)
     if (content.includes(0)) continue
@@ -49,20 +51,26 @@ const discoverTextMatches = async (directory, matches) => {
   }
 }
 
-const matches = []
-await discoverTextMatches(repositoryRoot, matches)
-matches.sort()
-const unexpected = matches.filter(
-  (path) =>
-    !legalFiles.has(path) &&
-    !attributionFiles.has(path) &&
-    !negativeContractTests.has(path),
-)
-assert.deepEqual(
-  unexpected,
-  [],
-  `non-attribution legacy brand references remain:\n${unexpected.join('\n')}`,
-)
-console.log(
-  `Verified Termestra brand boundary (${matches.length} legal-attribution or rejection-test files)`,
-)
+const verifyBrandBoundary = async () => {
+  const matches = []
+  await discoverTextMatches(repositoryRoot, matches)
+  matches.sort()
+  const unexpected = matches.filter(
+    (path) =>
+      !legalFiles.has(path) &&
+      !attributionFiles.has(path) &&
+      !negativeContractTests.has(path),
+  )
+  assert.deepEqual(
+    unexpected,
+    [],
+    `non-attribution legacy brand references remain:\n${unexpected.join('\n')}`,
+  )
+  console.log(
+    `Verified Termestra brand boundary (${matches.length} legal-attribution or rejection-test files)`,
+  )
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await verifyBrandBoundary()
+}
