@@ -110,13 +110,19 @@ class TerminalOutputFlowTest {
         AtomicInteger rejections = new AtomicInteger();
         AtomicInteger acknowledgements = new AtomicInteger();
         AtomicBoolean keepDribbling = new AtomicBoolean(true);
+        CountDownLatch dribblerReady = new CountDownLatch(1);
+        CountDownLatch beginDribbling = new CountDownLatch(1);
         TerminalOutputFlow flow = new TerminalOutputFlow(ignored -> { }, pressure::add,
                 rejections::incrementAndGet, () -> { }, 500);
-        flow.enqueue("x".repeat(Math.toIntExact(TerminalOutputFlow.UNACKED_HIGH_WATER)));
-        awaitCondition(() -> pressure.equals(List.of(true)), "viewer never entered pressure");
-
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> dribbler = executor.submit(() -> {
+            dribblerReady.countDown();
+            try {
+                if (!beginDribbling.await(2, TimeUnit.SECONDS)) return;
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
             while (keepDribbling.get()) {
                 if (!flow.acknowledge(1)) return;
                 acknowledgements.incrementAndGet();
@@ -128,11 +134,16 @@ class TerminalOutputFlowTest {
                 }
             }
         });
+        assertTrue(dribblerReady.await(2, TimeUnit.SECONDS), "acknowledgement worker did not start");
+        flow.enqueue("x".repeat(Math.toIntExact(TerminalOutputFlow.UNACKED_HIGH_WATER)));
+        beginDribbling.countDown();
+        awaitCondition(() -> pressure.equals(List.of(true)), "viewer never entered pressure");
         try {
             awaitCondition(flow::closed,
                     "a client that dribbles ACKs must not extend one pressure deadline forever");
         } finally {
             keepDribbling.set(false);
+            beginDribbling.countDown();
             dribbler.get(5, TimeUnit.SECONDS);
             executor.shutdownNow();
         }

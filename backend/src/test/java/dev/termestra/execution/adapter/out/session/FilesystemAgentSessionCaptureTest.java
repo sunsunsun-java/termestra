@@ -216,6 +216,23 @@ class FilesystemAgentSessionCaptureTest {
     }
 
     @Test
+    void capturesGeminiSessionWhenItsHomeParentContainsATmpSegment() throws Exception {
+        Path geminiHome = Files.createDirectories(
+                temporaryDirectory.resolve("tmp/parent/gemini-home")).toRealPath();
+        Path project = Files.createDirectories(geminiHome.resolve("tmp/project"));
+        Path chats = Files.createDirectory(project.resolve("chats"));
+        Files.writeString(project.resolve(".project_root"), workspace.toString());
+        String config = config("gemini_session_json_dir",
+                geminiHome + "/tmp/*/chats/session-*.json");
+        AgentSessionCapture.CaptureSnapshot snapshot = capture.snapshot(agent, config).orElseThrow();
+
+        Files.writeString(chats.resolve("session-current.json"),
+                geminiSession("gemini-current", agent));
+
+        assertEquals("gemini-current", capture.findNew(snapshot).orElseThrow());
+    }
+
+    @Test
     void ignoresOversizedGeminiSessionIdsBeforeRetainingThem() throws Exception {
         Path geminiHome = Files.createDirectory(temporaryDirectory.resolve("oversized-gemini-home")).toRealPath();
         Path project = Files.createDirectories(geminiHome.resolve("tmp/project"));

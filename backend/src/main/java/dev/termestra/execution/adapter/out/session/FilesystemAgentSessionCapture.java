@@ -510,7 +510,7 @@ public final class FilesystemAgentSessionCapture implements AgentSessionCapture 
             case "codex_session_jsonl_dir" -> firstEnvironment("TERMESTRA_CODEX_HOME",
                     expand(before(pattern, "/sessions/"), Path.of(home, ".codex").toString()));
             case "gemini_session_json_dir" -> firstEnvironment("TERMESTRA_GEMINI_HOME",
-                    expand(before(pattern, "/tmp/"), Path.of(home, ".gemini").toString()));
+                    expand(beforeLast(pattern, "/tmp/"), Path.of(home, ".gemini").toString()));
             case "opencode_session_db" -> firstEnvironment("TERMESTRA_OPENCODE_DB_PATH",
                     expand(pattern, Path.of(home, ".local", "share", "opencode", "opencode.db").toString()));
             default -> home;
@@ -534,6 +534,11 @@ public final class FilesystemAgentSessionCapture implements AgentSessionCapture 
 
     private String before(String value, String marker) {
         int index = value.indexOf(marker);
+        return index < 0 ? "" : value.substring(0, index);
+    }
+
+    private String beforeLast(String value, String marker) {
+        int index = value.lastIndexOf(marker);
         return index < 0 ? "" : value.substring(0, index);
     }
 

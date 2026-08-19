@@ -305,7 +305,8 @@ class AgentExecutionTerminationSafetyTest {
 
     private static AgentDescriptor descriptor(String workspaceId,String agentId){
         String role=agentId.endsWith(":shell")?"shell":"coder";
-        return new AgentDescriptor(workspaceId,"Workspace","/tmp",agentId,"Worker","Tasks",role);
+        return new AgentDescriptor(workspaceId,"Workspace",System.getProperty("java.io.tmpdir"),
+                agentId,"Worker","Tasks",role);
     }
 
     private static AgentSessionCapture noCapture(){

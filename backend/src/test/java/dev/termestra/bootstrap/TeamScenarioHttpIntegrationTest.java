@@ -151,17 +151,25 @@ class TeamScenarioHttpIntegrationTest {
         String cookie = uiCookie(client);
         usePtyFixtureForClaude();
         String workspaceId = activeWorkspace(client, cookie);
-        database.write("make scenario CLIs unavailable", connection -> {
+        database.write("block scenario run persistence", connection -> {
             try (var statement = connection.createStatement()) {
-                statement.executeUpdate("UPDATE command_presets SET env='{\"PATH\":\"\"}' WHERE is_builtin=1");
-                statement.executeUpdate("UPDATE command_presets SET command='/definitely/missing/termestra-agent' WHERE id='claude'");
+                statement.execute("CREATE TRIGGER block_scenario_runs BEFORE INSERT ON agent_runs "
+                        + "BEGIN SELECT RAISE(ABORT, 'blocked scenario run'); END");
             }
             return null;
         });
-
-        client.post().uri("/api/workspaces/" + workspaceId + "/scenarios/build_review_test/apply")
-                .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of("goal", "保留部分成功语义"))
-                .exchange().expectStatus().is5xxServerError();
+        try {
+            client.post().uri("/api/workspaces/" + workspaceId + "/scenarios/build_review_test/apply")
+                    .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of("goal", "保留部分成功语义"))
+                    .exchange().expectStatus().is5xxServerError();
+        } finally {
+            database.write("unblock scenario run persistence", connection -> {
+                try (var statement = connection.createStatement()) {
+                    statement.execute("DROP TRIGGER block_scenario_runs");
+                }
+                return null;
+            });
+        }
         client.get().uri("/api/ui/workspaces/" + workspaceId + "/team")
                 .header(HttpHeaders.COOKIE, cookie).exchange().expectStatus().isOk().expectBody()
                 .jsonPath("$.length()").isEqualTo(3);

@@ -92,17 +92,7 @@ class HermesDispatchHttpIntegrationTest {
         assertTrue(startup >= 0, output);
         assertTrue(task > startup, output);
 
-        Map<String, Object> stored = database.read("read Hermes dispatch acknowledgement", connection -> {
-            try (var statement = connection.prepareStatement(
-                    "SELECT status,submitted_at,delivered_at FROM dispatches WHERE id=?")) {
-                statement.setString(1, dispatchId);
-                try (var rows = statement.executeQuery()) {
-                    assertTrue(rows.next());
-                    return Map.of("status", rows.getString(1), "submitted_at", rows.getLong(2),
-                            "delivered_at", rows.getLong(3));
-                }
-            }
-        });
+        Map<String, Object> stored = awaitSubmitted(database, dispatchId);
         assertEquals("submitted", stored.get("status"));
         assertTrue((long) stored.get("submitted_at") > 0);
         assertTrue((long) stored.get("delivered_at") > 0);
@@ -116,7 +106,7 @@ class HermesDispatchHttpIntegrationTest {
 
     private static String awaitOutput(WebTestClient client, String cookie, String runId, String expected) {
         String output = "";
-        for (int attempt = 0; attempt < 100; attempt++) {
+        for (int attempt = 0; attempt < 400; attempt++) {
             Map<?, ?> body = client.get().uri("/api/runtime/runs/" + runId)
                     .header(HttpHeaders.COOKIE, cookie)
                     .exchange().expectStatus().isOk().expectBody(Map.class).returnResult().getResponseBody();
@@ -130,6 +120,32 @@ class HermesDispatchHttpIntegrationTest {
             }
         }
         throw new AssertionError("Missing " + expected + " in PTY output: " + output);
+    }
+
+    private static Map<String, Object> awaitSubmitted(SqliteDatabase database, String dispatchId) {
+        Map<String, Object> stored = Map.of();
+        for (int attempt = 0; attempt < 400; attempt++) {
+            stored = database.read("read Hermes dispatch acknowledgement", connection -> {
+                try (var statement = connection.prepareStatement(
+                        "SELECT status,submitted_at,delivered_at FROM dispatches WHERE id=?")) {
+                    statement.setString(1, dispatchId);
+                    try (var rows = statement.executeQuery()) {
+                        assertTrue(rows.next());
+                        return Map.of("status", rows.getString(1),
+                                "submitted_at", rows.getLong(2),
+                                "delivered_at", rows.getLong(3));
+                    }
+                }
+            });
+            if ("submitted".equals(stored.get("status"))) return stored;
+            try {
+                Thread.sleep(25);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+        }
+        throw new AssertionError("Dispatch was not submitted: " + stored);
     }
 
     private static String awaitRun(WebTestClient client, String cookie, String workspaceId) {
