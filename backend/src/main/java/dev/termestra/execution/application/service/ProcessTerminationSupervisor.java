@@ -31,7 +31,7 @@ final class ProcessTerminationSupervisor {
     static final int MAX_PENDING=128;
     private static final long INITIAL_DELAY_MILLIS=100;
     private static final long MAX_DELAY_MILLIS=5_000;
-    private static final int MAX_CONCURRENT_ATTEMPTS=8;
+    static final int MAX_CONCURRENT_ATTEMPTS=8;
     // Unix tree, process-group, and output-drain phases can legitimately take about ten seconds.
     // Leave scheduler headroom so a normal bounded teardown is not mistaken for a stuck native call.
     private static final Duration DEFAULT_ATTEMPT_TIMEOUT=Duration.ofSeconds(12);

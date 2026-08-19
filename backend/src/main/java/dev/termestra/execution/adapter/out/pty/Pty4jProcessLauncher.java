@@ -90,7 +90,10 @@ public final class Pty4jProcessLauncher implements PseudoTerminalLauncher {
                 if(stopRequested)throw new IllegalStateException("PTY handle was stopped before activation");
                 if(activated)throw new IllegalStateException("PTY handle already activated");
                 activated=true;
-                Thread.ofVirtual().name("termestra-pty-output-"+pid()).start(
+                // pty4j's native-backed InputStream can pin a Java 21 carrier while it blocks.
+                // One daemon platform reader per active run is bounded by Agent Execution's
+                // global live-run budget and keeps the virtual scheduler available for input.
+                Thread.ofPlatform().daemon(true).name("termestra-pty-output-"+pid()).start(
                         ()->read(output,failure));
                 // waitFor() itself can park, but its exit path owns native process-tree cleanup.
                 // Keep that boundary off a virtual thread so a native call cannot pin a carrier

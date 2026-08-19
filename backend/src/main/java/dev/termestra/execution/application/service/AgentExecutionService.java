@@ -477,7 +477,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
 
     private void runConcurrently(List<LiveRun> selected,Consumer<LiveRun> action,String description){
         if(selected.isEmpty())return;
-        try(ExecutorService executor=Executors.newVirtualThreadPerTaskExecutor()){
+        try(ExecutorService executor=newLifecycleCleanupExecutor(selected.size())){
             List<Future<?>> futures=new ArrayList<>(selected.size());
             for(LiveRun run:selected)futures.add(executor.submit(()->action.accept(run)));
             boolean interrupted=false;
@@ -493,6 +493,16 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
             }
             if(interrupted)Thread.currentThread().interrupt();
         }
+    }
+
+    static ExecutorService newLifecycleCleanupExecutor(int taskCount){
+        if(taskCount<1||taskCount>MAX_ACTIVE_RUNS)throw new IllegalArgumentException(
+                "Lifecycle cleanup task count must be between 1 and "+MAX_ACTIVE_RUNS);
+        int workers=Math.min(taskCount,ProcessTerminationSupervisor.MAX_CONCURRENT_ATTEMPTS);
+        return new ThreadPoolExecutor(workers,workers,0,TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(MAX_ACTIVE_RUNS),
+                Thread.ofPlatform().daemon(true).name("termestra-lifecycle-cleanup-",0).factory(),
+                new ThreadPoolExecutor.AbortPolicy());
     }
 
     private final class LiveRun {

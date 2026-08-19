@@ -20,9 +20,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 
@@ -266,6 +269,19 @@ class AgentExecutionTerminationSafetyTest {
         assertEquals(0,fixture.allStopCallsEntered.getCount(),
                 "service shutdown must aggregate bounded stop deadlines concurrently");
         assertTrue(fixture.processes.stream().noneMatch(PseudoTerminalHandle::alive));
+    }
+
+    @Test void lifecycleCleanupDoesNotDependOnVirtualThreadCarriers() throws Exception{
+        AtomicReference<Thread> executedBy=new AtomicReference<>();
+        try(ExecutorService executor=AgentExecutionService.newLifecycleCleanupExecutor(1)){
+            Future<?> completed=executor.submit(()->executedBy.set(Thread.currentThread()));
+            completed.get(1,TimeUnit.SECONDS);
+        }
+
+        Thread worker=executedBy.get();
+        assertFalse(worker.isVirtual());
+        assertTrue(worker.isDaemon());
+        assertTrue(worker.getName().startsWith("termestra-lifecycle-cleanup-"));
     }
 
     private static AgentExecutionService service(RecordingRepository repository,

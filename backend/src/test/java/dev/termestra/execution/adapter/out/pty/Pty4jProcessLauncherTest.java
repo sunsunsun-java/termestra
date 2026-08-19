@@ -50,6 +50,26 @@ class Pty4jProcessLauncherTest {
         }
     }
 
+    @Test void blockingPtyOutputIsReadOnAPlatformThread() throws Exception {
+        PseudoTerminalHandle handle = new Pty4jProcessLauncher().start(new ProcessLaunchRequest(
+                List.of("/bin/sh", "-c", "printf 'READY'; sleep 30"),
+                Path.of("/tmp").toString(), Map.of(), 80, 24));
+        AtomicReference<Boolean> virtualThread = new AtomicReference<>();
+        CountDownLatch output = new CountDownLatch(1);
+        try {
+            handle.activate(ignored -> {
+                virtualThread.compareAndSet(null, Thread.currentThread().isVirtual());
+                output.countDown();
+            }, ignored -> { });
+
+            assertTrue(output.await(5, TimeUnit.SECONDS), "fixture did not publish PTY output");
+            assertFalse(virtualThread.get(),
+                    "a native PTY read must not pin the virtual-thread carrier pool");
+        } finally {
+            handle.stopAndConfirm();
+        }
+    }
+
     @Test void stopBeforeActivationDoesNotWaitForANonexistentReaderAndForbidsLateActivation(){
         PseudoTerminalHandle handle=new Pty4jProcessLauncher().start(new ProcessLaunchRequest(
                 List.of("/bin/sh","-c","sleep 30"),Path.of("/tmp").toString(),Map.of(),80,24));
