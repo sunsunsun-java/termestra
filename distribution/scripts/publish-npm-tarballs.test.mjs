@@ -47,3 +47,19 @@ test('rejects an already-published version with different bytes', async () => {
     /published with different bytes/,
   )
 })
+
+test('accepts only the exact recorded integrity for an earlier partial publication', async () => {
+  const publishedIntegrity = await verifyPublishedPackage({
+    name: '@termestra/runtime-test',
+    version: '0.1.0',
+    integrity: 'sha512-current',
+    acceptedIntegrity: 'sha512-earlier',
+    distTag: 'latest',
+    readVersion: async () => ({ dist: { integrity: 'sha512-earlier' } }),
+    readDistTags: async () => ({ latest: '0.1.0' }),
+    timeoutMs: 100,
+    retryDelayMs: 10,
+  })
+
+  assert.equal(publishedIntegrity, 'sha512-earlier')
+})

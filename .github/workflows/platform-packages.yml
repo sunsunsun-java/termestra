@@ -114,6 +114,8 @@ jobs:
         shell: bash
         env:
           TERMESTRA_NPM_REGISTRY: https://registry.npmjs.org
+          TERMESTRA_NPM_ACCEPTED_EXISTING_INTEGRITIES: >-
+            {"@termestra/runtime-darwin-arm64@0.1.0":"sha512-myO26mkPLxVQK9p+P27LxgFXAzN+UrEyweBnse1W+blBzOItf+HpJnakxBqSIM3QfOfsSPwl8EoW8zMpKtwBhw=="}
         run: |
           shopt -s nullglob
           packages=(dist/runtimes/*.tgz)

@@ -26,6 +26,7 @@ async function main(arguments_) {
   const registry = (process.env.TERMESTRA_NPM_REGISTRY ?? 'https://registry.npmjs.org').replace(/\/+$/, '')
   const npmCommand = process.platform === 'win32' ? process.env.ComSpec ?? 'cmd.exe' : 'npm'
   const withProvenance = process.env.TERMESTRA_NPM_PUBLISH_MODE === 'bootstrap-token'
+  const acceptedExistingIntegrities = acceptedExistingIntegritiesFromEnvironment()
   const verificationTimeoutMs = durationFromEnvironment(
     'TERMESTRA_NPM_VERIFICATION_TIMEOUT_MS', DEFAULT_VERIFICATION_TIMEOUT_MS)
   const verificationRetryDelayMs = durationFromEnvironment(
@@ -50,17 +51,22 @@ async function main(arguments_) {
       assert.equal(result.status, 0, `npm publish failed for ${tarball}`)
     }
 
-    await verifyPublishedPackage({
+    const publishedIntegrity = await verifyPublishedPackage({
       name: manifest.name,
       version: manifest.version,
       integrity,
+      acceptedIntegrity: acceptedExistingIntegrities[`${manifest.name}@${manifest.version}`],
       distTag,
       readVersion: () => packageVersion(registry, manifest.name, manifest.version),
       readDistTags: () => packageDistTags(registry, manifest.name),
       timeoutMs: verificationTimeoutMs,
       retryDelayMs: verificationRetryDelayMs,
     })
-    console.log(`${existing ? 'Verified already-published' : 'Published'} ${manifest.name}@${manifest.version}`)
+    if (publishedIntegrity === integrity) {
+      console.log(`${existing ? 'Verified already-published' : 'Published'} ${manifest.name}@${manifest.version}`)
+    } else {
+      console.log(`Verified accepted earlier publication ${manifest.name}@${manifest.version}`)
+    }
   }
 }
 
@@ -68,6 +74,7 @@ export async function verifyPublishedPackage({
   name,
   version,
   integrity,
+  acceptedIntegrity,
   distTag,
   readVersion,
   readDistTags,
@@ -91,11 +98,14 @@ export async function verifyPublishedPackage({
     }
 
     if (published) {
-      assert.equal(published.dist?.integrity, integrity,
-        `${name}@${version} is published with different bytes; use a new version`)
+      const publishedIntegrity = published.dist?.integrity
+      if (publishedIntegrity !== integrity) {
+        assert.equal(publishedIntegrity, acceptedIntegrity,
+          `${name}@${version} is published with different bytes; use a new version or record the exact earlier publication for recovery`)
+      }
       try {
         const distTags = await readDistTags()
-        if (distTags?.[distTag] === version) return
+        if (distTags?.[distTag] === version) return publishedIntegrity
         lastObservation = `dist-tag ${distTag} points to ${distTags?.[distTag] ?? 'nothing'}`
       } catch (error) {
         lastObservation = error instanceof Error ? error.message : String(error)
@@ -161,4 +171,19 @@ function durationFromEnvironment(name, fallback) {
   const duration = Number(value)
   assert.ok(Number.isSafeInteger(duration) && duration > 0, `${name} must be a positive integer`)
   return duration
+}
+
+function acceptedExistingIntegritiesFromEnvironment() {
+  const value = process.env.TERMESTRA_NPM_ACCEPTED_EXISTING_INTEGRITIES
+  if (value === undefined || value === '') return {}
+  const entries = JSON.parse(value)
+  assert.ok(entries && typeof entries === 'object' && !Array.isArray(entries),
+    'TERMESTRA_NPM_ACCEPTED_EXISTING_INTEGRITIES must be a JSON object')
+  for (const [packageVersion, integrity] of Object.entries(entries)) {
+    assert.match(packageVersion, /^@[^/]+\/.+@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/,
+      `Invalid accepted npm package version: ${packageVersion}`)
+    assert.match(integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/,
+      `Invalid accepted npm integrity for ${packageVersion}`)
+  }
+  return entries
 }
