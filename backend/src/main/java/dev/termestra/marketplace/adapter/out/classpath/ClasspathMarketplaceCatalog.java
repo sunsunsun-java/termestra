@@ -75,20 +75,21 @@ public final class ClasspathMarketplaceCatalog implements MarketplaceCatalog {
         }
     }
 
-    private static AgentDetail parse(String path, String raw) {
+    static AgentDetail parse(String path, String raw) {
         Map<String, Object> frontmatter = new LinkedHashMap<>();
-        String body = raw;
-        if (raw.startsWith("---\n")) {
-            int end = raw.indexOf("\n---\n", 4);
+        String normalized = raw.replace("\r\n", "\n").replace('\r', '\n');
+        String body = normalized;
+        if (normalized.startsWith("---\n")) {
+            int end = normalized.indexOf("\n---\n", 4);
             if (end >= 0) {
-                for (String line : raw.substring(4, end).split("\n")) {
+                for (String line : normalized.substring(4, end).split("\n")) {
                     int separator = line.indexOf(':');
                     if (separator <= 0) continue;
                     String key = line.substring(0, separator).trim();
                     String value = line.substring(separator + 1).trim();
                     frontmatter.put(key, "null".equals(value) ? null : value);
                 }
-                body = raw.substring(end + 5);
+                body = normalized.substring(end + 5);
             }
         }
         return new AgentDetail(path, frontmatter, body);

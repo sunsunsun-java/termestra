@@ -1,6 +1,8 @@
 package dev.termestra.bootstrap;
 
 import dev.termestra.auth.application.AgentCredentialService;
+import dev.termestra.bootstrap.support.PtyTestFixture;
+import dev.termestra.bootstrap.support.TestJavaCommand;
 import dev.termestra.execution.application.port.in.AgentExecutionUseCase;
 import dev.termestra.platform.persistence.sqlite.SqliteDatabase;
 import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
@@ -232,8 +234,10 @@ class AgentExecutionHttpIntegrationTest {
                 .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
         String workspaceId=Objects.requireNonNull(workspace).get("id").toString();
         String shellAgentId=workspaceId+":shell";
+        TestJavaCommand command = TestJavaCommand.fixture(PtyTestFixture.class, "exit");
         client.post().uri("/api/workspaces/"+workspaceId+"/agents/"+shellAgentId+"/config")
-                .header(HttpHeaders.COOKIE,cookie).bodyValue(Map.of("command","/bin/sh","args",List.of("-c","exit 0")))
+                .header(HttpHeaders.COOKIE,cookie).bodyValue(Map.of(
+                        "command", command.command(), "args", command.arguments()))
                 .exchange().expectStatus().isNoContent();
 
         List<String> completed=new java.util.ArrayList<>();
@@ -250,8 +254,10 @@ class AgentExecutionHttpIntegrationTest {
     }
 
     private static void configure(WebTestClient client, String cookie, String workspace, String agent) {
+        TestJavaCommand command = TestJavaCommand.fixture(PtyTestFixture.class, "echo");
         client.post().uri("/api/workspaces/" + workspace + "/agents/" + agent + "/config")
-                .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of("command", "/bin/cat", "args", java.util.List.of()))
+                .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of(
+                        "command", command.command(), "args", command.arguments()))
                 .exchange().expectStatus().isNoContent();
     }
 
@@ -287,10 +293,10 @@ class AgentExecutionHttpIntegrationTest {
     }
 
     private static void configureEnvironmentProbe(WebTestClient client,String cookie,String workspace,String agent){
-        String probe="printf 'port=%s\\n' \"$TERMESTRA_PORT\"; cat";
+        TestJavaCommand command = TestJavaCommand.fixture(PtyTestFixture.class, "runtime-port");
         client.post().uri("/api/workspaces/"+workspace+"/agents/"+agent+"/config")
                 .header(HttpHeaders.COOKIE,cookie)
-                .bodyValue(Map.of("command","/bin/sh","args",List.of("-c",probe)))
+                .bodyValue(Map.of("command", command.command(), "args", command.arguments()))
                 .exchange().expectStatus().isNoContent();
     }
 

@@ -1,6 +1,8 @@
 package dev.termestra.bootstrap;
 
 import dev.termestra.auth.application.AgentCredentialService;
+import dev.termestra.bootstrap.support.PtyTestFixture;
+import dev.termestra.bootstrap.support.TestJavaCommand;
 import dev.termestra.platform.persistence.sqlite.SqliteDatabase;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,8 +39,9 @@ class TeamProtocolHttpIntegrationTest {
                 .bodyValue(Map.of("name","Alice","role","coder","description","Implement tasks")).exchange()
                 .expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
         String workerId=Objects.requireNonNull(worker).get("id").toString();
+        TestJavaCommand command=TestJavaCommand.fixture(PtyTestFixture.class,"echo");
         client.post().uri("/api/workspaces/"+workspaceId+"/agents/"+workerId+"/config").header(HttpHeaders.COOKIE,cookie)
-                .bodyValue(Map.of("command","/bin/cat","args",List.of())).exchange().expectStatus().isNoContent();
+                .bodyValue(Map.of("command",command.command(),"args",command.arguments())).exchange().expectStatus().isNoContent();
         String orchestratorId=workspaceId+":orchestrator";
         String orchestratorToken=credentials.issue(orchestratorId);
 

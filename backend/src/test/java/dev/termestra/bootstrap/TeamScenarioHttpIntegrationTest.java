@@ -1,5 +1,9 @@
 package dev.termestra.bootstrap;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.termestra.bootstrap.support.PtyTestFixture;
+import dev.termestra.bootstrap.support.TestJavaCommand;
 import dev.termestra.execution.application.port.in.AgentExecutionUseCase;
 import dev.termestra.platform.persistence.sqlite.SqliteDatabase;
 import org.junit.jupiter.api.*;
@@ -47,7 +51,7 @@ class TeamScenarioHttpIntegrationTest {
     @Test void assemblesStartsAndHandsGoalToTheOrchestrator() {
         WebTestClient client = client();
         String cookie = uiCookie(client);
-        useCatForClaude();
+        usePtyFixtureForClaude();
         String workspaceId = activeWorkspace(client, cookie);
 
         Map<?,?> response = client.post()
@@ -117,7 +121,7 @@ class TeamScenarioHttpIntegrationTest {
     @Test void rollsBackTheCurrentMemberWhenItsLaunchConfigurationCannotPersist() {
         WebTestClient client = client();
         String cookie = uiCookie(client);
-        useCatForClaude();
+        usePtyFixtureForClaude();
         String workspaceId = activeWorkspace(client, cookie);
         database.write("block scenario launch", connection -> {
             try (var statement = connection.createStatement()) {
@@ -145,7 +149,7 @@ class TeamScenarioHttpIntegrationTest {
     @Test void keepsCreatedMembersWhenStartingTheScenarioFails() {
         WebTestClient client = client();
         String cookie = uiCookie(client);
-        useCatForClaude();
+        usePtyFixtureForClaude();
         String workspaceId = activeWorkspace(client, cookie);
         database.write("make scenario CLIs unavailable", connection -> {
             try (var statement = connection.createStatement()) {
@@ -166,10 +170,11 @@ class TeamScenarioHttpIntegrationTest {
     private String activeWorkspace(WebTestClient client, String cookie) {
         String workspaceId = createWorkspace(client, cookie);
         String orchestratorId = workspaceId + ":orchestrator";
+        TestJavaCommand command = TestJavaCommand.fixture(PtyTestFixture.class, "echo");
         client.post().uri("/api/workspaces/" + workspaceId + "/agents/" + orchestratorId + "/config")
                 .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of(
-                        "command", "/bin/cat", "args", List.of(),
-                        "command_preset_id", "claude", "interactive_command", "/bin/cat"))
+                        "command", command.command(), "args", command.arguments(),
+                        "command_preset_id", "claude", "interactive_command", command.command()))
                 .exchange().expectStatus().isNoContent();
         client.post().uri("/api/workspaces/" + workspaceId + "/agents/" + orchestratorId + "/start")
                 .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of())
@@ -188,10 +193,13 @@ class TeamScenarioHttpIntegrationTest {
         return id;
     }
 
-    private void useCatForClaude() {
+    private void usePtyFixtureForClaude() {
+        TestJavaCommand command = TestJavaCommand.fixture(PtyTestFixture.class, "echo");
         database.write("configure test scenario CLI", connection -> {
             try (var statement = connection.prepareStatement(
-                    "UPDATE command_presets SET command='/bin/cat',args_json='[]',env='{}',yolo_args_json='[]' WHERE id='claude'")) {
+                    "UPDATE command_presets SET command=?,args_json=?,env='{}',yolo_args_json='[]' WHERE id='claude'")) {
+                statement.setString(1, command.command());
+                statement.setString(2, argumentsJson(command.arguments()));
                 statement.executeUpdate();
             }
             return null;
@@ -201,7 +209,7 @@ class TeamScenarioHttpIntegrationTest {
     private void restorePresets() {
         database.write("restore built-in scenario CLIs", connection -> {
             try (var statement = connection.prepareStatement(
-                    "UPDATE command_presets SET command=?,env='{}' WHERE id=?")) {
+                    "UPDATE command_presets SET command=?,args_json='[]',env='{}' WHERE id=?")) {
                 for (Map.Entry<String,String> preset : BUILTIN_COMMANDS.entrySet()) {
                     statement.setString(1, preset.getValue());
                     statement.setString(2, preset.getKey());
@@ -211,6 +219,14 @@ class TeamScenarioHttpIntegrationTest {
             }
             return null;
         });
+    }
+
+    private static String argumentsJson(List<String> arguments) {
+        try {
+            return new ObjectMapper().writeValueAsString(arguments);
+        } catch (JsonProcessingException failure) {
+            throw new IllegalStateException("Could not serialize test fixture arguments", failure);
+        }
     }
 
     private String appState(String key) {

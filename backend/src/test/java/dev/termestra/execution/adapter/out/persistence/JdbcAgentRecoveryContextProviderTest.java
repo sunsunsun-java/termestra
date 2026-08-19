@@ -76,8 +76,10 @@ class JdbcAgentRecoveryContextProviderTest {
         SqliteDatabase database = new SqliteDatabase(temporaryDirectory.resolve("worker-candidates.db"));
         new SqliteSchemaMigrator(database, Clock.systemUTC()).migrate();
         database.write("large worker candidate fixture", connection -> {
-            try (var statement = connection.createStatement()) {
-                statement.executeUpdate("INSERT INTO workspaces(id,name,path,created_at) VALUES('workspace','Workspace','/tmp',1)");
+            try (var workspace = connection.prepareStatement(
+                    "INSERT INTO workspaces(id,name,path,created_at) VALUES('workspace','Workspace',?,1)")) {
+                workspace.setString(1, temporaryDirectory.toAbsolutePath().toString());
+                workspace.executeUpdate();
             }
             try (PreparedStatement worker = connection.prepareStatement(
                     "INSERT INTO workers(id,workspace_id,name,role,created_at) VALUES(?,'workspace',?,?,?)")) {
@@ -164,8 +166,11 @@ class JdbcAgentRecoveryContextProviderTest {
         SqliteDatabase database = new SqliteDatabase(temporaryDirectory.resolve("delete-race.db"));
         new SqliteSchemaMigrator(database, Clock.systemUTC()).migrate();
         database.write("deleted recovery fixture", connection -> {
-            try (var statement = connection.createStatement()) {
-                statement.executeUpdate("INSERT INTO workspaces(id,name,path,created_at) VALUES('workspace','Workspace','/tmp',1)");
+            try (var statement = connection.createStatement();
+                 var workspace = connection.prepareStatement(
+                         "INSERT INTO workspaces(id,name,path,created_at) VALUES('workspace','Workspace',?,1)")) {
+                workspace.setString(1, temporaryDirectory.toAbsolutePath().toString());
+                workspace.executeUpdate();
                 statement.executeUpdate("INSERT INTO workers(id,workspace_id,name,role,created_at) VALUES('worker','workspace','Worker','coder',1)");
                 statement.executeUpdate("DELETE FROM workers WHERE id='worker'");
             }

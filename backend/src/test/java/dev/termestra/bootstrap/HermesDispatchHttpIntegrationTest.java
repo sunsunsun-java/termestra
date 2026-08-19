@@ -1,6 +1,8 @@
 package dev.termestra.bootstrap;
 
 import dev.termestra.auth.application.AgentCredentialService;
+import dev.termestra.bootstrap.support.HermesPtyFixture;
+import dev.termestra.bootstrap.support.TestJavaCommand;
 import dev.termestra.platform.persistence.sqlite.SqliteDatabase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,13 +56,10 @@ class HermesDispatchHttpIntegrationTest {
                 .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
         String workerId = Objects.requireNonNull(worker).get("id").toString();
 
-        String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
-        String classPath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
-        String fixture = "stty raw -echo; exec \"" + java + "\" -cp \"" + classPath
-                + "\" dev.termestra.bootstrap.support.HermesPtyFixture";
+        TestJavaCommand fixture = TestJavaCommand.rawTerminalFixture(HermesPtyFixture.class);
         client.post().uri("/api/workspaces/" + workspaceId + "/agents/" + workerId + "/config")
                 .header(HttpHeaders.COOKIE, cookie)
-                .bodyValue(Map.of("command", "/bin/sh", "args", List.of("-c", fixture),
+                .bodyValue(Map.of("command", fixture.command(), "args", fixture.arguments(),
                         "interactive_command", "hermes"))
                 .exchange().expectStatus().isNoContent();
 

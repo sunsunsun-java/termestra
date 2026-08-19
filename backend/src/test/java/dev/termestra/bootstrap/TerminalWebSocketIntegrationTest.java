@@ -1,5 +1,7 @@
 package dev.termestra.bootstrap;
 
+import dev.termestra.bootstrap.support.PtyTestFixture;
+import dev.termestra.bootstrap.support.TestJavaCommand;
 import dev.termestra.terminal.adapter.in.http.TerminalWebSocketConfiguration;
 
 import org.junit.jupiter.api.Test;
@@ -41,9 +43,10 @@ class TerminalWebSocketIntegrationTest {
                 .bodyValue(Map.of("name", "Terminal Agent", "role", "coder"))
                 .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
         String workerId = Objects.requireNonNull(worker).get("id").toString();
+        TestJavaCommand fixture = TestJavaCommand.rawTerminalFixture(PtyTestFixture.class, "echo");
         http.post().uri("/api/workspaces/" + workspaceId + "/agents/" + workerId + "/config")
-                .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of("command", "/bin/sh",
-                        "args", java.util.List.of("-c", "stty -echo; exec cat")))
+                .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of(
+                        "command", fixture.command(), "args", fixture.arguments()))
                 .exchange().expectStatus().isNoContent();
         Map<?, ?> started = http.post().uri("/api/workspaces/" + workspaceId + "/agents/" + workerId + "/start")
                 .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of()).exchange().expectStatus().isCreated()

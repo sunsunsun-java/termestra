@@ -3,6 +3,8 @@ package dev.termestra.execution.application.service;
 import dev.termestra.execution.application.exception.ExecutionConflict;
 import dev.termestra.execution.application.exception.RunNotFound;
 import dev.termestra.execution.adapter.out.pty.Pty4jProcessLauncher;
+import dev.termestra.bootstrap.support.PtyTestFixture;
+import dev.termestra.bootstrap.support.TestJavaCommand;
 import dev.termestra.execution.application.port.in.AgentRunView;
 import dev.termestra.execution.application.port.in.StartAgentCommand;
 import dev.termestra.execution.application.port.out.*;
@@ -28,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class AgentExecutionTerminationSafetyTest {
     private static final String WORKSPACE="workspace-termination";
     private static final String AGENT="worker-termination";
+    private static final TestJavaCommand PTY_FIXTURE=TestJavaCommand.fixture(PtyTestFixture.class,"echo");
 
     @Test void failedStopRetainsDurableStatusCredentialAndCapacityUntilRetryConfirmsTermination()
             throws Exception{
@@ -413,7 +416,7 @@ class AgentExecutionTerminationSafetyTest {
 
     private static final class RecordingRepository implements AgentExecutionRepository{
         private final AgentLaunchConfiguration configuration=new AgentLaunchConfiguration(
-                "cat",List.of(),"cat",null,false,null,null);
+                PTY_FIXTURE.command(),PTY_FIXTURE.arguments(),"cat",null,false,null,null);
         private final AtomicBoolean rejectNextInsert=new AtomicBoolean();
         @Override public boolean saveConfiguration(String workspaceId,String agentId,
                                                    AgentLaunchConfiguration configuration,Instant at){return true;}

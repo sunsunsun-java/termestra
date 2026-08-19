@@ -20,10 +20,11 @@ class JdbcAgentDirectoryTest {
         new SqliteSchemaMigrator(database, Clock.systemUTC()).migrate();
         database.write("seed oversized directory fields", connection -> {
             try (var workspace = connection.prepareStatement(
-                    "INSERT INTO workspaces(id,name,path,created_at) VALUES('workspace',?, '/tmp',1)");
+                    "INSERT INTO workspaces(id,name,path,created_at) VALUES('workspace',?,?,1)");
                  var worker = connection.prepareStatement(
                          "INSERT INTO workers(id,workspace_id,name,description,role,created_at) VALUES('worker','workspace',?,?,?,1)")) {
                 workspace.setString(1, "w".repeat(2_000_000));
+                workspace.setString(2, workspacePath());
                 workspace.executeUpdate();
                 worker.setString(1, "Worker");
                 worker.setString(2, "d".repeat(2_000_000));
@@ -46,10 +47,12 @@ class JdbcAgentDirectoryTest {
         SqliteDatabase database = new SqliteDatabase(temporaryDirectory.resolve("invalid-worker.db"));
         new SqliteSchemaMigrator(database, Clock.systemUTC()).migrate();
         database.write("seed invalid worker identity", connection -> {
-            try (var statement = connection.createStatement();
+            try (var workspace = connection.prepareStatement(
+                         "INSERT INTO workspaces(id,name,path,created_at) VALUES('workspace','Workspace',?,1)");
                  var worker = connection.prepareStatement(
                          "INSERT INTO workers(id,workspace_id,name,description,role,created_at) VALUES('worker','workspace',?,'','coder',1)")) {
-                statement.executeUpdate("INSERT INTO workspaces(id,name,path,created_at) VALUES('workspace','Workspace','/tmp',1)");
+                workspace.setString(1, workspacePath());
+                workspace.executeUpdate();
                 worker.setString(1, "target" + "x".repeat(2_000_000));
                 worker.executeUpdate();
             }
@@ -83,8 +86,9 @@ class JdbcAgentDirectoryTest {
         new SqliteSchemaMigrator(database, Clock.systemUTC()).migrate();
         database.write("seed unicode directory fields", connection -> {
             try (var workspace = connection.prepareStatement(
-                    "INSERT INTO workspaces(id,name,path,created_at) VALUES('workspace',?,'/tmp',1)")) {
+                    "INSERT INTO workspaces(id,name,path,created_at) VALUES('workspace',?,?,1)")) {
                 workspace.setString(1, "w".repeat(255) + "😀tail");
+                workspace.setString(2, workspacePath());
                 workspace.executeUpdate();
             }
             return null;
@@ -95,5 +99,9 @@ class JdbcAgentDirectoryTest {
 
         assertEquals(255,name.length());
         assertEquals(false,Character.isHighSurrogate(name.charAt(name.length()-1)));
+    }
+
+    private String workspacePath() {
+        return temporaryDirectory.toAbsolutePath().toString();
     }
 }
