@@ -9,7 +9,6 @@ import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
 
 import java.time.*;
 import java.util.*;
-import java.util.concurrent.*;
 
 public final class TeamScenarioApplicationService implements ApplyTeamScenarioUseCase {
     private final TeamMemberRepository members;
@@ -85,30 +84,26 @@ public final class TeamScenarioApplicationService implements ApplyTeamScenarioUs
 
     private List<AppliedTeamScenario.StartedMember> startAll(String workspaceId, String runtimePort,
                                                               List<TeamMemberSummary> created) {
-        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            List<Future<MemberStart>> futures = created.stream().map(worker ->
-                    executor.submit(() -> operations.withAgent(workspaceId,worker.id(),()->new MemberStart(worker,
-                            runtime.startWorker(workspaceId, worker.id(), runtimePort))))).toList();
-            List<AppliedTeamScenario.StartedMember> started = new ArrayList<>();
-            for (Future<MemberStart> future : futures) {
-                try {
-                    MemberStart value = future.get();
-                    if ("error".equals(value.run().status())) {
-                        throw new TeamConflict("Failed to start scenario member: " + value.worker().name());
+        List<AppliedTeamScenario.StartedMember> started = new ArrayList<>();
+        RuntimeException firstFailure = null;
+        for (TeamMemberSummary worker : created) {
+            try {
+                MemberStart value = operations.withAgent(workspaceId, worker.id(), () -> new MemberStart(worker,
+                        runtime.startWorker(workspaceId, worker.id(), runtimePort)));
+                if ("error".equals(value.run().status())) {
+                    if (firstFailure == null) {
+                        firstFailure = new TeamConflict("Failed to start scenario member: " + value.worker().name());
                     }
-                    started.add(new AppliedTeamScenario.StartedMember(value.worker().id(),
-                            value.worker().name(), value.worker().role(), value.run().runId()));
+                    continue;
                 }
-                catch (ExecutionException failure) {
-                    if (failure.getCause() instanceof RuntimeException runtimeFailure) throw runtimeFailure;
-                    throw new IllegalStateException("Failed to start scenario member", failure.getCause());
-                }
+                started.add(new AppliedTeamScenario.StartedMember(value.worker().id(),
+                        value.worker().name(), value.worker().role(), value.run().runId()));
+            } catch (RuntimeException failure) {
+                if (firstFailure == null) firstFailure = failure;
             }
-            return List.copyOf(started);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw new TeamConflict("Scenario team start was interrupted", interrupted);
         }
+        if (firstFailure != null) throw firstFailure;
+        return List.copyOf(started);
     }
 
     private static String kickoff(String scenarioId, String goal, String locale,
