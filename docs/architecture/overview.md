@@ -1,6 +1,6 @@
 # Termestra 架构总览
 
-> 当前实现基线：2026-08-20，schema v29，版本 `0.1.3-SNAPSHOT`。
+> 当前实现基线：2026-08-20，schema v29，版本 `0.1.4-SNAPSHOT`。
 
 Termestra 是本地优先的 CLI Agent 团队工作台。浏览器只连接绑定在
 `127.0.0.1` 的 Java 运行时；每个 Orchestrator、Worker 和 Workspace Shell 都是

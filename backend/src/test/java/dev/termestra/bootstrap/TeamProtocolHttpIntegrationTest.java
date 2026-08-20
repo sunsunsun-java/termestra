@@ -58,7 +58,7 @@ class TeamProtocolHttpIntegrationTest {
 
         String first=send(client,workspaceId,orchestratorId,orchestratorToken,"First task");
         String second=send(client,workspaceId,orchestratorId,orchestratorToken,"Second task");
-        String workerToken=credentials.currentToken(workerId).orElseThrow();
+        String workerToken=awaitCurrentToken(workerId);
 
         client.post().uri("/api/team/report").bodyValue(Map.of("project_id",workspaceId,"from_agent_id",workerId,
                         "token",workerToken,"dispatch_id",second,"result","Second done","artifacts",List.of("src/Done.java")))
@@ -74,7 +74,7 @@ class TeamProtocolHttpIntegrationTest {
 
         String third=send(client,workspaceId,orchestratorId,orchestratorToken,"Third task");
         String fourth=send(client,workspaceId,orchestratorId,orchestratorToken,"Fourth task");
-        workerToken=credentials.currentToken(workerId).orElseThrow();
+        workerToken=awaitCurrentToken(workerId);
         client.post().uri("/api/team/report").bodyValue(Map.of("project_id",workspaceId,"from_agent_id",workerId,
                         "token",workerToken,"result","All remaining work done","status","success","artifacts",List.of()))
                 .exchange().expectStatus().isAccepted().expectBody().jsonPath("$.dispatch_id").isEqualTo(third);
@@ -277,5 +277,6 @@ class TeamProtocolHttpIntegrationTest {
         });
     }
     private void awaitDeliveryState(String dispatchId,Set<String> states){for(int attempt=0;attempt<100;attempt++){String state=database.read("read delivery state",connection->{try(var statement=connection.prepareStatement("SELECT state FROM dispatch_deliveries WHERE dispatch_id=?")){statement.setString(1,dispatchId);try(var rows=statement.executeQuery()){return rows.next()?rows.getString(1):null;}}});if(states.contains(state))return;try{Thread.sleep(25);}catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw new IllegalStateException(interrupted);}}throw new AssertionError("Delivery did not reach "+states);}
+    private String awaitCurrentToken(String workerId){for(int attempt=0;attempt<200;attempt++){Optional<String> token=credentials.currentToken(workerId);if(token.isPresent())return token.orElseThrow();try{Thread.sleep(50);}catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw new IllegalStateException(interrupted);}}throw new AssertionError("Worker did not receive a runtime token: "+workerId);}
     private int count(String table,String workspace,String worker){return database.read("count "+table,connection->{String condition=switch(table){case "agent_runs"->"agent_id=?";case "workers","messages"->"workspace_id=? AND "+(table.equals("workers")?"id":"worker_id")+"=?";case "dispatches","dispatch_deliveries"->"workspace_id=? AND to_agent_id=?";default->"workspace_id=? AND agent_id=?";};try(var statement=connection.prepareStatement("SELECT COUNT(*) FROM "+table+" WHERE "+condition)){if(table.equals("agent_runs")){statement.setString(1,worker);}else{statement.setString(1,workspace);statement.setString(2,worker);}try(var result=statement.executeQuery()){result.next();return result.getInt(1);}}});}
 }

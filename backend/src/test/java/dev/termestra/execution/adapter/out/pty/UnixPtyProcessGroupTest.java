@@ -42,6 +42,26 @@ class UnixPtyProcessGroupTest {
         assertTrue(group.terminate(SHORT,SHORT));
     }
 
+    @Test void epermSignalWaitsForBoundedDisappearanceInsteadOfFailingBeforeReaping(){
+        AtomicInteger calls=new AtomicInteger();
+        AtomicInteger error=new AtomicInteger();
+        UnixPtyProcessGroup group=new UnixPtyProcessGroup(123,facade((ignoredGroup,signal)->{
+            int call=calls.incrementAndGet();
+            if(call==1)return 0;                  // presence probe
+            if(call==2){error.set(1);return -1;} // SIGTERM: no signalable member yet
+            error.set(3);return -1;              // bounded presence poll: group was reaped
+        },error::get));
+
+        assertTrue(group.terminate(SHORT,SHORT));
+    }
+
+    @Test void persistentEpermExhaustsBothDeadlinesAndFailsClosed(){
+        UnixPtyProcessGroup group=new UnixPtyProcessGroup(123,
+                facade((ignoredGroup,ignoredSignal)->-1,()->1));
+
+        assertFalse(group.terminate(SHORT,SHORT));
+    }
+
     @Test void anIncomingInterruptIsRestoredAfterBoundedTermination(){
         AtomicInteger calls=new AtomicInteger();
         UnixPtyProcessGroup group=new UnixPtyProcessGroup(123,facade((ignoredGroup,signal)->{

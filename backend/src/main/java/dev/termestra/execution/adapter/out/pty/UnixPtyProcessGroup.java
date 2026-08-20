@@ -70,6 +70,15 @@ final class UnixPtyProcessGroup {
         if(os.killpg(groupId,signal)==0)return true;
         int error=os.errno();
         if(error==ESRCH){gone=true;return false;}
+        if(error==EPERM){
+            // macOS can report EPERM when an owned group contains only processes that are no
+            // longer signalable (for example a short-lived child awaiting reaping). Keep polling
+            // for bounded ESRCH confirmation. Persistent EPERM still exhausts the deadline and
+            // fails closed, so an unrelated or inaccessible group is never treated as terminated.
+            LOG.debug("Could not signal owned Unix PTY process group {} (signal {}, errno {}); awaiting bounded disappearance",
+                    groupId,signal,error);
+            return true;
+        }
         LOG.warn("Could not signal owned Unix PTY process group {} (signal {}, errno {})",
                 groupId,signal,error);
         return false;

@@ -96,7 +96,9 @@ Agent Execution 另外使用每 Run 的公平 `ptyInputLock` 串行浏览器输�
 pty4j 的输出流读取可能阻塞在原生调用，因此每个受全局 Run 容量约束的 PTY 使用一个
 守护平台线程读取输出，退出等待也使用守护平台线程。Workspace 删除和服务关闭的批量
 生命周期清理由有界平台线程池编排，并与最多八个并发原生终止尝试对齐；这些路径不依赖
-全局虚拟线程 carrier。自动输入 mailbox 和 provider session capture 等不进入阻塞原生
+全局虚拟线程 carrier。macOS 进程组若在退出回收窗口内对信号返回 `EPERM`，adapter 会在
+固定期限内继续等待 `ESRCH` 消失确认；持续不可访问仍失败关闭，不会提前释放 Run 所有权。
+自动输入 mailbox 和 provider session capture 等不进入阻塞原生
 边界的任务仍可使用虚拟线程。
 
 Team Scenario 在持久化完整 roster 后，按 catalog 顺序逐个启动成员；一个成员的 PTY
