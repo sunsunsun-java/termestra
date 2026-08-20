@@ -57,7 +57,9 @@ Claude Code、Codex、Gemini 或其他 CLI Agent 执行任务的编码 Agent，�
    因此 macOS 的 Java 执行权限不会在 Artifact ZIP 过程中丢失。
 5. `publish` job 先发布两个 runtime tarball，全部成功后才发布 CLI。每个包只有在
    版本与 dist-tag 可见、完整 tarball 可下载且 SHA-512 与本地候选包一致后才算发布成功。
-   若重试遇到已发布版本，工作流只会接受相同字节；不一致时必须发新版本。
+   完整 tarball 校验若遭遇 CDN 中途断连，会在固定时间和请求次数内使用严格核对过的
+   HTTP Range 续传；CDN 忽略 Range 时会清空旧摘要并从完整 `200` 响应重新校验。若重试
+   遇到已发布版本，工作流只会接受相同字节；不一致时必须发新版本。
 
 稳定 tag 发布到 npm `latest`；带 prerelease 标识的 tag 发布到 `next`。`termestra
 update` 始终追踪 `latest`，预发布用户应显式安装 `@next`。

@@ -10,6 +10,7 @@ import { gunzipSync } from 'node:zlib'
 
 const DEFAULT_VERIFICATION_TIMEOUT_MS = 5 * 60 * 1000
 const DEFAULT_VERIFICATION_RETRY_DELAY_MS = 5 * 1000
+const MAX_TARBALL_REQUESTS = 24
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   await main(process.argv.slice(2))
@@ -176,18 +177,88 @@ export async function packageTarballMatches(
   const parsedTarballUrl = new URL(tarballUrl)
   assert.equal(parsedTarballUrl.origin, registryOrigin,
     `npm tarball URL must use the configured registry origin: ${tarballUrl}`)
-  const response = await fetch(parsedTarballUrl, {
-    cache: 'no-store',
-    headers: {
+  const deadline = Date.now() + timeoutMs
+  let digest = createHash('sha512')
+  let offset = 0
+  let totalSize
+  let lastError
+
+  for (let attempt = 0; attempt < MAX_TARBALL_REQUESTS; attempt++) {
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) throw lastError ?? new Error(`npm tarball download timed out: ${tarballUrl}`)
+    const requestOffset = offset
+    const headers = {
       accept: 'application/octet-stream',
+      'accept-encoding': 'identity',
       'cache-control': 'no-cache',
-    },
-    signal: AbortSignal.timeout(timeoutMs),
-  })
-  if (!response.ok || !response.body) return false
-  const digest = createHash('sha512')
-  for await (const chunk of response.body) digest.update(chunk)
-  return `sha512-${digest.digest('base64')}` === expectedIntegrity
+    }
+    if (requestOffset > 0) headers.range = `bytes=${requestOffset}-`
+
+    const response = await fetch(parsedTarballUrl, {
+      cache: 'no-store',
+      headers,
+      signal: AbortSignal.timeout(Math.max(1, remainingMs)),
+    })
+    assert.equal(new URL(response.url).origin, registryOrigin,
+      `npm tarball redirect must stay on the configured registry origin: ${response.url}`)
+    if (!response.body) return false
+
+    if (requestOffset === 0) {
+      if (response.status !== 200) return false
+      totalSize = contentLength(response)
+    } else if (response.status === 200) {
+      // A registry or CDN may ignore Range. Restart the digest so a full 200 response can still
+      // be validated without ever combining overlapping bytes.
+      digest = createHash('sha512')
+      offset = 0
+      totalSize = contentLength(response)
+    } else if (response.status === 206) {
+      const range = parsedContentRange(response.headers.get('content-range'))
+      if (!range || range.start !== requestOffset || range.end >= range.total) return false
+      const length = contentLength(response)
+      if (length !== undefined && length !== range.end - range.start + 1) return false
+      if (totalSize !== undefined && totalSize !== range.total) return false
+      totalSize = range.total
+    } else {
+      return false
+    }
+
+    const beforeRead = offset
+    try {
+      for await (const chunk of response.body) {
+        digest.update(chunk)
+        offset += chunk.length
+        if (totalSize !== undefined && offset > totalSize) return false
+      }
+    } catch (error) {
+      lastError = error
+      if (offset === beforeRead || Date.now() >= deadline) throw error
+      continue
+    }
+
+    if (totalSize !== undefined && offset < totalSize) continue
+    if (totalSize !== undefined && offset !== totalSize) return false
+    return `sha512-${digest.digest('base64')}` === expectedIntegrity
+  }
+  throw lastError ?? new Error(`npm tarball download exceeded ${MAX_TARBALL_REQUESTS} requests: ${tarballUrl}`)
+}
+
+function contentLength(response) {
+  const value = response.headers.get('content-length')
+  if (value === null || !/^\d+$/.test(value)) return undefined
+  const length = Number(value)
+  return Number.isSafeInteger(length) ? length : undefined
+}
+
+function parsedContentRange(value) {
+  const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(value ?? '')
+  if (!match) return undefined
+  const [, rawStart, rawEnd, rawTotal] = match
+  const start = Number(rawStart)
+  const end = Number(rawEnd)
+  const total = Number(rawTotal)
+  if (![start, end, total].every(Number.isSafeInteger) || start < 0 || end < start || total <= 0) return undefined
+  return { start, end, total }
 }
 
 async function fetchJson(url, allowNotFound) {

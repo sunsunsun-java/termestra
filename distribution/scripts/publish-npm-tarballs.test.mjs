@@ -150,3 +150,137 @@ test('downloads the real tarball body with origin, integrity, status, and timeou
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
   }
 })
+
+test('resumes an interrupted tarball response before checking its published integrity', async () => {
+  const body = Buffer.alloc(1024 * 1024, 0x5a)
+  const integrity = `sha512-${createHash('sha512').update(body).digest('base64')}`
+  const cutoff = Math.floor(body.length / 2)
+  const ranges = []
+  let requests = 0
+  const server = createServer((request, response) => {
+    if (request.url !== '/resume.tgz') {
+      response.writeHead(404).end()
+      return
+    }
+    requests++
+    const range = request.headers.range
+    if (!range) {
+      response.writeHead(200, {
+        'accept-ranges': 'bytes',
+        'content-length': body.length,
+        'content-type': 'application/octet-stream',
+      })
+      response.flushHeaders()
+      response.write(body.subarray(0, cutoff))
+      setTimeout(() => response.destroy(), 10)
+      return
+    }
+    const match = /^bytes=(\d+)-$/.exec(range)
+    if (!match) {
+      response.writeHead(416).end()
+      return
+    }
+    const start = Number(match[1])
+    ranges.push(start)
+    response.writeHead(206, {
+      'accept-ranges': 'bytes',
+      'content-length': body.length - start,
+      'content-range': `bytes ${start}-${body.length - 1}/${body.length}`,
+      'content-type': 'application/octet-stream',
+    })
+    response.end(body.subarray(start))
+  })
+  const address = await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server.address()))
+  })
+  assert.ok(address && typeof address === 'object')
+  const registry = `http://127.0.0.1:${address.port}`
+  try {
+    assert.equal(await packageTarballMatches(registry, `${registry}/resume.tgz`, integrity), true)
+    assert.equal(requests, 2)
+    assert.deepEqual(ranges, [cutoff])
+  } finally {
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
+})
+
+test('restarts the digest when a CDN ignores Range and returns a complete 200 response', async () => {
+  const body = Buffer.alloc(1024 * 1024, 0x6b)
+  const integrity = `sha512-${createHash('sha512').update(body).digest('base64')}`
+  const cutoff = Math.floor(body.length / 2)
+  const ranges = []
+  let requests = 0
+  const server = createServer((request, response) => {
+    requests++
+    if (!request.headers.range) {
+      response.writeHead(200, {
+        'content-length': body.length,
+        'content-type': 'application/octet-stream',
+      })
+      response.flushHeaders()
+      response.write(body.subarray(0, cutoff))
+      setTimeout(() => response.destroy(), 10)
+      return
+    }
+    ranges.push(request.headers.range)
+    response.writeHead(200, {
+      'content-length': body.length,
+      'content-type': 'application/octet-stream',
+    })
+    response.end(body)
+  })
+  const address = await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server.address()))
+  })
+  assert.ok(address && typeof address === 'object')
+  const registry = `http://127.0.0.1:${address.port}`
+  try {
+    assert.equal(await packageTarballMatches(registry, `${registry}/ignored-range.tgz`, integrity), true)
+    assert.equal(requests, 2)
+    assert.deepEqual(ranges, [`bytes=${cutoff}-`])
+  } finally {
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
+})
+
+test('rejects a same-origin tarball URL that redirects to another origin', async () => {
+  const body = Buffer.from('cross-origin tarball bytes')
+  const integrity = `sha512-${createHash('sha512').update(body).digest('base64')}`
+  const target = createServer((_request, response) => {
+    response.writeHead(200, {
+      'content-length': body.length,
+      'content-type': 'application/octet-stream',
+    })
+    response.end(body)
+  })
+  const targetAddress = await new Promise((resolve, reject) => {
+    target.once('error', reject)
+    target.listen(0, '127.0.0.1', () => resolve(target.address()))
+  })
+  assert.ok(targetAddress && typeof targetAddress === 'object')
+  const registryServer = createServer((_request, response) => {
+    response.writeHead(302, {
+      location: `http://127.0.0.1:${targetAddress.port}/redirected.tgz`,
+    })
+    response.end()
+  })
+  const registryAddress = await new Promise((resolve, reject) => {
+    registryServer.once('error', reject)
+    registryServer.listen(0, '127.0.0.1', () => resolve(registryServer.address()))
+  })
+  assert.ok(registryAddress && typeof registryAddress === 'object')
+  const registry = `http://127.0.0.1:${registryAddress.port}`
+  try {
+    await assert.rejects(
+      packageTarballMatches(registry, `${registry}/redirect.tgz`, integrity),
+      /redirect must stay on the configured registry origin/,
+    )
+  } finally {
+    await Promise.all([
+      new Promise((resolve, reject) => registryServer.close(error => error ? reject(error) : resolve())),
+      new Promise((resolve, reject) => target.close(error => error ? reject(error) : resolve())),
+    ])
+  }
+})
