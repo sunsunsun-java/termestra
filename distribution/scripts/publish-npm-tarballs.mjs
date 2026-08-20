@@ -8,9 +8,17 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
-const DEFAULT_VERIFICATION_TIMEOUT_MS = 5 * 60 * 1000
+const DEFAULT_VERIFICATION_TIMEOUT_MS = 10 * 60 * 1000
 const DEFAULT_VERIFICATION_RETRY_DELAY_MS = 5 * 1000
-const MAX_TARBALL_REQUESTS = 24
+const DEFAULT_TARBALL_RETRY_DELAY_MS = 1000
+const MAX_TARBALL_REQUESTS = 48
+
+class TarballRequestCapacityError extends Error {
+  constructor(tarballUrl, cause) {
+    super(`npm tarball download exceeded ${MAX_TARBALL_REQUESTS} requests: ${tarballUrl}`, { cause })
+    this.name = 'TarballRequestCapacityError'
+  }
+}
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   await main(process.argv.slice(2))
@@ -56,8 +64,8 @@ async function main(arguments_) {
       distTag,
       readVersion: () => packageVersion(registry, manifest.name, manifest.version),
       readDistTags: () => packageDistTags(registry, manifest.name),
-      readTarball: (tarballUrl, publishedIntegrity) =>
-        packageTarballMatches(registry, tarballUrl, publishedIntegrity),
+      readTarball: (tarballUrl, publishedIntegrity, timeoutMs, requestBudget) =>
+        packageTarballMatches(registry, tarballUrl, publishedIntegrity, timeoutMs, { requestBudget }),
       timeoutMs: verificationTimeoutMs,
       retryDelayMs: verificationRetryDelayMs,
     })
@@ -88,6 +96,7 @@ export async function verifyPublishedPackage({
   assert.equal(typeof readTarball, 'function', 'readTarball must be a function')
 
   const startedAt = clock()
+  const tarballRequestBudget = { requests: 0 }
   let lastObservation = 'the version is not visible'
   while (true) {
     let published
@@ -110,15 +119,29 @@ export async function verifyPublishedPackage({
           const tarballUrl = published.dist?.tarball
           if (!tarballUrl) {
             lastObservation = 'the version metadata has no tarball URL'
-          } else if (await readTarball(tarballUrl, publishedIntegrity)) {
-            return publishedIntegrity
           } else {
-            lastObservation = `tarball is not fully downloadable with published integrity: ${tarballUrl}`
+            const remainingMs = timeoutMs - Math.max(0, clock() - startedAt)
+            if (remainingMs <= 0) {
+              lastObservation = `tarball verification did not start before the ${timeoutMs} ms deadline`
+            } else if (await readTarball(
+              tarballUrl,
+              publishedIntegrity,
+              remainingMs,
+              tarballRequestBudget,
+            )) {
+              return publishedIntegrity
+            } else {
+              lastObservation = `tarball is not fully downloadable with published integrity: ${tarballUrl}`
+              if (tarballRequestBudget.requests >= MAX_TARBALL_REQUESTS) {
+                throw new TarballRequestCapacityError(tarballUrl)
+              }
+            }
           }
         } else {
           lastObservation = `dist-tag ${distTag} points to ${distTags?.[distTag] ?? 'nothing'}`
         }
       } catch (error) {
+        if (error instanceof TarballRequestCapacityError) throw error
         lastObservation = error instanceof Error ? error.message : String(error)
       }
     }
@@ -171,21 +194,38 @@ export async function packageTarballMatches(
   tarballUrl,
   expectedIntegrity,
   timeoutMs = 2 * 60 * 1000,
+  {
+    clock = Date.now,
+    wait = sleep,
+    retryDelayMs = DEFAULT_TARBALL_RETRY_DELAY_MS,
+    requestBudget = { requests: 0 },
+  } = {},
 ) {
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0, 'tarball timeout must be a positive integer')
+  assert.ok(Number.isSafeInteger(retryDelayMs) && retryDelayMs > 0,
+    'tarball retry delay must be a positive integer')
+  assert.ok(
+    requestBudget && typeof requestBudget === 'object'
+      && Number.isSafeInteger(requestBudget.requests) && requestBudget.requests >= 0,
+    'tarball request budget must track a non-negative safe integer',
+  )
   const registryOrigin = new URL(registry).origin
   const parsedTarballUrl = new URL(tarballUrl)
   assert.equal(parsedTarballUrl.origin, registryOrigin,
     `npm tarball URL must use the configured registry origin: ${tarballUrl}`)
-  const deadline = Date.now() + timeoutMs
+  const deadline = clock() + timeoutMs
   let digest = createHash('sha512')
   let offset = 0
   let totalSize
   let lastError
 
   for (let attempt = 0; attempt < MAX_TARBALL_REQUESTS; attempt++) {
-    const remainingMs = deadline - Date.now()
+    if (requestBudget.requests >= MAX_TARBALL_REQUESTS) {
+      throw new TarballRequestCapacityError(tarballUrl, lastError)
+    }
+    const remainingMs = deadline - clock()
     if (remainingMs <= 0) throw lastError ?? new Error(`npm tarball download timed out: ${tarballUrl}`)
+    requestBudget.requests++
     const requestOffset = offset
     const headers = {
       accept: 'application/octet-stream',
@@ -194,11 +234,18 @@ export async function packageTarballMatches(
     }
     if (requestOffset > 0) headers.range = `bytes=${requestOffset}-`
 
-    const response = await fetch(parsedTarballUrl, {
-      cache: 'no-store',
-      headers,
-      signal: AbortSignal.timeout(Math.max(1, remainingMs)),
-    })
+    let response
+    try {
+      response = await fetch(parsedTarballUrl, {
+        cache: 'no-store',
+        headers,
+        signal: AbortSignal.timeout(Math.max(1, remainingMs)),
+      })
+    } catch (error) {
+      lastError = error
+      await waitForTarballRetry({ deadline, clock, wait, retryDelayMs, requestBudget, tarballUrl, error })
+      continue
+    }
     assert.equal(new URL(response.url).origin, registryOrigin,
       `npm tarball redirect must stay on the configured registry origin: ${response.url}`)
     if (!response.body) return false
@@ -232,7 +279,11 @@ export async function packageTarballMatches(
       }
     } catch (error) {
       lastError = error
-      if (offset === beforeRead || Date.now() >= deadline) throw error
+      if (offset === beforeRead) {
+        await waitForTarballRetry({ deadline, clock, wait, retryDelayMs, requestBudget, tarballUrl, error })
+      } else if (clock() >= deadline) {
+        throw error
+      }
       continue
     }
 
@@ -240,7 +291,16 @@ export async function packageTarballMatches(
     if (totalSize !== undefined && offset !== totalSize) return false
     return `sha512-${digest.digest('base64')}` === expectedIntegrity
   }
-  throw lastError ?? new Error(`npm tarball download exceeded ${MAX_TARBALL_REQUESTS} requests: ${tarballUrl}`)
+  throw new TarballRequestCapacityError(tarballUrl, lastError)
+}
+
+async function waitForTarballRetry({ deadline, clock, wait, retryDelayMs, requestBudget, tarballUrl, error }) {
+  const remainingMs = deadline - clock()
+  if (remainingMs <= 0) throw error
+  if (requestBudget.requests >= MAX_TARBALL_REQUESTS) {
+    throw new TarballRequestCapacityError(tarballUrl, error)
+  }
+  await wait(Math.min(retryDelayMs, remainingMs))
 }
 
 function contentLength(response) {

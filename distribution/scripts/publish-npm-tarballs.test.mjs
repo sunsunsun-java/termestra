@@ -56,9 +56,10 @@ test('retries while published tarball is still unavailable', async () => {
       },
     }),
     readDistTags: async () => ({ latest: '0.1.0' }),
-    readTarball: async (tarballUrl, expectedIntegrity) => {
+    readTarball: async (tarballUrl, expectedIntegrity, remainingMs) => {
       assert.equal(tarballUrl, 'https://registry.example/runtime-test-0.1.0.tgz')
       assert.equal(expectedIntegrity, 'sha512-release')
+      assert.equal(remainingMs, tarballReads === 0 ? 100 : 90)
       tarballReads++
       return tarballReads > 1
     },
@@ -70,6 +71,100 @@ test('retries while published tarball is still unavailable', async () => {
 
   assert.equal(tarballReads, 2)
   assert.equal(now, 10)
+})
+
+test('does not restart tarball verification after its request capacity is exhausted', async () => {
+  let requests = 0
+  const server = createServer(request => {
+    requests++
+    request.socket.destroy()
+  })
+  const address = await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server.address()))
+  })
+  assert.ok(address && typeof address === 'object')
+  const registry = `http://127.0.0.1:${address.port}`
+  let now = 0
+  try {
+    await assert.rejects(
+      verifyPublishedPackage({
+        name: '@termestra/runtime-test',
+        version: '0.1.0',
+        integrity: 'sha512-release',
+        distTag: 'latest',
+        readVersion: async () => ({
+          dist: {
+            integrity: 'sha512-release',
+            tarball: `${registry}/capacity.tgz`,
+          },
+        }),
+        readDistTags: async () => ({ latest: '0.1.0' }),
+        readTarball: (tarballUrl, expectedIntegrity, _timeoutMs, requestBudget) => packageTarballMatches(
+          registry,
+          tarballUrl,
+          expectedIntegrity,
+          10 * 1000,
+          { requestBudget, retryDelayMs: 1, wait: async () => {} },
+        ),
+        timeoutMs: 3,
+        retryDelayMs: 1,
+        clock: () => now,
+        wait: async delayMs => { now += delayMs },
+      }),
+      /exceeded 48 requests/,
+    )
+    assert.equal(requests, 48)
+  } finally {
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
+})
+
+test('shares the tarball request capacity across repeated unavailable responses', async () => {
+  let requests = 0
+  const server = createServer((_request, response) => {
+    requests++
+    response.writeHead(404).end()
+  })
+  const address = await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server.address()))
+  })
+  assert.ok(address && typeof address === 'object')
+  const registry = `http://127.0.0.1:${address.port}`
+  let now = 0
+  try {
+    await assert.rejects(
+      verifyPublishedPackage({
+        name: '@termestra/runtime-test',
+        version: '0.1.0',
+        integrity: 'sha512-release',
+        distTag: 'latest',
+        readVersion: async () => ({
+          dist: {
+            integrity: 'sha512-release',
+            tarball: `${registry}/unavailable.tgz`,
+          },
+        }),
+        readDistTags: async () => ({ latest: '0.1.0' }),
+        readTarball: (tarballUrl, expectedIntegrity, _timeoutMs, requestBudget) => packageTarballMatches(
+          registry,
+          tarballUrl,
+          expectedIntegrity,
+          10 * 1000,
+          { requestBudget },
+        ),
+        timeoutMs: 60,
+        retryDelayMs: 1,
+        clock: () => now,
+        wait: async delayMs => { now += delayMs },
+      }),
+      /exceeded 48 requests/,
+    )
+    assert.equal(requests, 48)
+  } finally {
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
 })
 
 test('rejects an already-published version with different bytes', async () => {
@@ -200,6 +295,60 @@ test('resumes an interrupted tarball response before checking its published inte
     assert.equal(await packageTarballMatches(registry, `${registry}/resume.tgz`, integrity), true)
     assert.equal(requests, 2)
     assert.deepEqual(ranges, [cutoff])
+  } finally {
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
+})
+
+test('keeps its resume offset when a reconnect fails before response headers arrive', async () => {
+  const body = Buffer.alloc(1024 * 1024, 0x4d)
+  const integrity = `sha512-${createHash('sha512').update(body).digest('base64')}`
+  const cutoff = Math.floor(body.length / 2)
+  const ranges = []
+  let requests = 0
+  const server = createServer((request, response) => {
+    requests++
+    if (!request.headers.range) {
+      response.writeHead(200, {
+        'accept-ranges': 'bytes',
+        'content-length': body.length,
+        'content-type': 'application/octet-stream',
+      })
+      response.flushHeaders()
+      response.write(body.subarray(0, cutoff))
+      setTimeout(() => response.destroy(), 10)
+      return
+    }
+    ranges.push(request.headers.range)
+    if (ranges.length === 1) {
+      request.socket.destroy()
+      return
+    }
+    const start = Number(/^bytes=(\d+)-$/.exec(request.headers.range)?.[1])
+    response.writeHead(206, {
+      'accept-ranges': 'bytes',
+      'content-length': body.length - start,
+      'content-range': `bytes ${start}-${body.length - 1}/${body.length}`,
+      'content-type': 'application/octet-stream',
+    })
+    response.end(body.subarray(start))
+  })
+  const address = await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server.address()))
+  })
+  assert.ok(address && typeof address === 'object')
+  const registry = `http://127.0.0.1:${address.port}`
+  try {
+    assert.equal(await packageTarballMatches(
+      registry,
+      `${registry}/reconnect.tgz`,
+      integrity,
+      2 * 60 * 1000,
+      { retryDelayMs: 1, wait: async () => {} },
+    ), true)
+    assert.equal(requests, 3)
+    assert.deepEqual(ranges, [`bytes=${cutoff}-`, `bytes=${cutoff}-`])
   } finally {
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
   }
