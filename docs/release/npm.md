@@ -11,8 +11,9 @@ termestra
 CLI 通过 `optionalDependencies` 选择与本机匹配的平台 runtime，并在 `postinstall`
 阶段确认对应 runtime 确实存在；如果 npm 因连接重置而跳过 runtime，postinstall 会用
 macOS 自带的 `curl` 续传固定版本 tarball、核对 npm SHA-512 后解压到 CLI 自有的
-`.runtime/` 恢复目录。有限次数恢复仍失败时，整个安装会明确失败，不再留下一个无法
-启动却显示安装成功的 CLI。Termestra 不是一个会替代
+`.runtime/` 恢复目录。恢复共享 10 分钟截止时间和最多 96 次请求：收到新字节后立即
+续传，TLS 连接失败等没有进度的请求则等待 15 秒再试。边界耗尽时整个安装会明确失败，
+不再留下一个无法启动却显示安装成功的 CLI。Termestra 不是一个会替代
 Claude Code、Codex、Gemini 或其他 CLI Agent 执行任务的编码 Agent，只在本机展示、
 协调和监控这些外部 CLI 产品。
 

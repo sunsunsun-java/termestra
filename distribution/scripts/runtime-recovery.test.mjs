@@ -5,7 +5,147 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { gzipSync } from 'node:zlib'
 
-import { assertSafeRuntimeArchive } from '../npm/cli/bin/runtime-recovery.mjs'
+import {
+  assertSafeRuntimeArchive,
+  downloadWithResume,
+} from '../npm/cli/bin/runtime-recovery.mjs'
+
+test('continues resumable recovery after more than 24 interrupted downloads with progress', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'termestra-runtime-download-test-'))
+  const archive = join(workspace, 'runtime.tgz')
+  let attempts = 0
+  const delays = []
+  try {
+    assert.doesNotThrow(() => downloadWithResume('https://registry.npmjs.org/runtime.tgz', archive, {
+      runCurl: () => {
+        attempts += 1
+        writeFileSync(archive, Buffer.alloc(attempts))
+        return attempts === 25
+          ? { status: 0, stderr: '' }
+          : { status: 18, stderr: 'curl: (18) transfer closed with outstanding read data remaining' }
+      },
+      sleep: milliseconds => delays.push(milliseconds),
+    }))
+    assert.equal(attempts, 25)
+    assert.deepEqual(delays, [], 'forward progress should resume immediately')
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+test('backs off after interrupted downloads that make no progress', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'termestra-runtime-download-test-'))
+  const archive = join(workspace, 'runtime.tgz')
+  let attempts = 0
+  let clock = 0
+  const delays = []
+  try {
+    downloadWithResume('https://registry.npmjs.org/runtime.tgz', archive, {
+      runCurl: () => {
+        attempts += 1
+        if (attempts === 3) writeFileSync(archive, 'complete')
+        return attempts === 3
+          ? { status: 0, stderr: '' }
+          : { status: 35, stderr: 'curl: (35) SSL_ERROR_SYSCALL' }
+      },
+      now: () => clock,
+      sleep: milliseconds => {
+        delays.push(milliseconds)
+        clock += milliseconds
+      },
+    })
+    assert.deepEqual(delays, [15_000, 15_000])
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+test('bounds interrupted downloads by one overall deadline', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'termestra-runtime-download-test-'))
+  const archive = join(workspace, 'runtime.tgz')
+  let requests = 0
+  let clock = 0
+  try {
+    assert.throws(() => downloadWithResume('https://registry.npmjs.org/runtime.tgz', archive, {
+      runCurl: () => {
+        requests += 1
+        return { status: 35, stderr: 'curl: (35) SSL_ERROR_SYSCALL' }
+      },
+      now: () => clock,
+      sleep: milliseconds => { clock += milliseconds },
+    }), /limit: 96 requests or 10 minutes/)
+    assert.equal(requests, 40)
+    assert.equal(clock, 10 * 60 * 1000)
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+test('bounds rapid interrupted downloads that keep making progress', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'termestra-runtime-download-test-'))
+  const archive = join(workspace, 'runtime.tgz')
+  let requests = 0
+  try {
+    assert.throws(() => downloadWithResume('https://registry.npmjs.org/runtime.tgz', archive, {
+      runCurl: () => {
+        requests += 1
+        writeFileSync(archive, Buffer.alloc(requests))
+        return { status: 18, stderr: 'curl: (18) transfer interrupted' }
+      },
+      sleep: () => assert.fail('forward progress must not be delayed'),
+    }), /failed after 96 resumable requests/)
+    assert.equal(requests, 96)
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+test('shrinks the curl timeout to the remaining overall deadline', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'termestra-runtime-download-test-'))
+  const archive = join(workspace, 'runtime.tgz')
+  let clock = 0
+  const requestTimeouts = []
+  try {
+    assert.throws(() => downloadWithResume('https://registry.npmjs.org/runtime.tgz', archive, {
+      runCurl: (_url, _archive, timeout) => {
+        requestTimeouts.push(timeout)
+        clock += timeout
+        writeFileSync(archive, Buffer.alloc(requestTimeouts.length))
+        return { status: 18, stderr: 'curl: (18) transfer interrupted' }
+      },
+      now: () => clock,
+      sleep: () => assert.fail('forward progress must not be delayed'),
+    }), /10 minutes/)
+    assert.deepEqual(requestTimeouts, [180_000, 180_000, 180_000, 60_000])
+    assert.equal(clock, 10 * 60 * 1000)
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+test('passes an integer curl timeout when the monotonic clock has fractional milliseconds', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'termestra-runtime-download-test-'))
+  const archive = join(workspace, 'runtime.tgz')
+  let clock = 0
+  let requestTimeout
+  try {
+    downloadWithResume('https://registry.npmjs.org/runtime.tgz', archive, {
+      runCurl: (_url, _archive, timeout) => {
+        requestTimeout = timeout
+        writeFileSync(archive, 'complete')
+        return { status: 0, stderr: '' }
+      },
+      now: () => {
+        clock += 0.25
+        return clock
+      },
+    })
+    assert.equal(requestTimeout, 180_000)
+    assert.ok(Number.isInteger(requestTimeout))
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
+})
 
 test('accepts regular files and directories rooted below package/', () => {
   withArchive([

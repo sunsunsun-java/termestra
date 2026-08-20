@@ -23,6 +23,8 @@ mvn clean verify
    [`verify-npm-install.mjs`](../../distribution/scripts/verify-npm-install.mjs) 把 runtime
    tarball 限制在 75,000,000 bytes，并模拟可选 runtime 下载中断，验证 postinstall
    能续传、校验 SHA-512 并从恢复目录启动；
+   [`runtime-recovery.test.mjs`](../../distribution/scripts/runtime-recovery.test.mjs) 进一步
+   断言无进度重试退避、统一下载截止时间、请求容量与归档安全边界；
 7. **root / verify**：校验品牌和许可边界文件。
 
 完整 reactor 与 runtime 组装只支持 macOS；CI 分别在 Apple Silicon 与 Intel runner

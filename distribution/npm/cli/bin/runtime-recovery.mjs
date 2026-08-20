@@ -11,10 +11,13 @@ import {
   statSync,
 } from 'node:fs'
 import { basename, join } from 'node:path'
+import { performance } from 'node:perf_hooks'
 import { gunzipSync } from 'node:zlib'
 
-const DOWNLOAD_ATTEMPTS = 24
-const DOWNLOAD_TIMEOUT_MS = 3 * 60 * 1000
+const MAX_DOWNLOAD_REQUESTS = 96
+const DOWNLOAD_DEADLINE_MS = 10 * 60 * 1000
+const DOWNLOAD_REQUEST_TIMEOUT_MS = 3 * 60 * 1000
+const DOWNLOAD_RETRY_DELAY_MS = 15 * 1000
 const MAX_RUNTIME_TARBALL_BYTES = 75_000_000
 const MAX_RUNTIME_ARCHIVE_BYTES = 128_000_000
 
@@ -98,30 +101,65 @@ function assertSafeTarballUrl(url) {
     `runtime tarball URL must use HTTPS: ${url.href}`)
 }
 
-function downloadWithResume(url, archive) {
+export function downloadWithResume(url, archive, {
+  runCurl = curlDownload,
+  now = monotonicNow,
+  sleep = sleepSync,
+} = {}) {
+  const startedAt = now()
+  const deadline = startedAt + DOWNLOAD_DEADLINE_MS
   let lastFailure = 'download did not start'
-  for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
-    const result = spawnSync('/usr/bin/curl', [
-      '--continue-at', '-',
-      '--fail',
-      '--location',
-      '--max-filesize', String(MAX_RUNTIME_TARBALL_BYTES),
-      '--output', archive,
-      '--silent',
-      '--show-error',
-      url,
-    ], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'ignore', 'pipe'],
-      timeout: DOWNLOAD_TIMEOUT_MS,
-    })
+  let requests = 0
+  while (requests < MAX_DOWNLOAD_REQUESTS) {
+    const remaining = Math.floor(deadline - now())
+    if (remaining <= 0) break
+    const sizeBefore = archiveSize(archive)
+    const requestTimeout = Math.min(DOWNLOAD_REQUEST_TIMEOUT_MS, remaining)
+    requests += 1
+    const result = runCurl(url, archive, requestTimeout)
     if (existsSync(archive) && statSync(archive).size > MAX_RUNTIME_TARBALL_BYTES) {
       throw new Error(`runtime tarball exceeds ${MAX_RUNTIME_TARBALL_BYTES} bytes`)
     }
     if (result.status === 0) return
     lastFailure = result.error?.message || result.stderr?.trim() || `curl exited with ${result.status}`
+    const retryWindow = Math.floor(deadline - now())
+    if (archiveSize(archive) <= sizeBefore && requests < MAX_DOWNLOAD_REQUESTS && retryWindow > 0) {
+      sleep(Math.min(DOWNLOAD_RETRY_DELAY_MS, retryWindow))
+    }
   }
-  throw new Error(`runtime download failed after ${DOWNLOAD_ATTEMPTS} resumable attempts: ${lastFailure}`)
+  throw new Error(
+    `runtime download failed after ${requests} resumable requests `
+    + `(limit: ${MAX_DOWNLOAD_REQUESTS} requests or ${DOWNLOAD_DEADLINE_MS / 60_000} minutes): ${lastFailure}`,
+  )
+}
+
+function curlDownload(url, archive, timeout) {
+  return spawnSync('/usr/bin/curl', [
+    '--continue-at', '-',
+    '--fail',
+    '--location',
+    '--max-filesize', String(MAX_RUNTIME_TARBALL_BYTES),
+    '--output', archive,
+    '--silent',
+    '--show-error',
+    url,
+  ], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'ignore', 'pipe'],
+    timeout,
+  })
+}
+
+function archiveSize(archive) {
+  return existsSync(archive) ? statSync(archive).size : 0
+}
+
+function sleepSync(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
+}
+
+function monotonicNow() {
+  return performance.now()
 }
 
 function fileIntegrity(path) {
