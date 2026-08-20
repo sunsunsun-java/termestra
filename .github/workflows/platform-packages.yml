@@ -21,15 +21,6 @@ jobs:
           - runner: macos-15
             platform: darwin
             arch: arm64
-          - runner: ubuntu-24.04
-            platform: linux
-            arch: x64
-          - runner: ubuntu-24.04-arm
-            platform: linux
-            arch: arm64
-          - runner: windows-2022
-            platform: win32
-            arch: x64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -58,7 +49,7 @@ jobs:
           path: distribution/target/npm-tarballs/termestra-runtime-${{ matrix.platform }}-${{ matrix.arch }}-*.tgz
           if-no-files-found: error
       - name: Upload tested CLI tarball
-        if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
         uses: actions/upload-artifact@v4
         with:
           name: npm-cli
@@ -119,7 +110,7 @@ jobs:
         run: |
           shopt -s nullglob
           packages=(dist/runtimes/*.tgz)
-          test "${#packages[@]}" -eq 5
+          test "${#packages[@]}" -eq 2
           node distribution/scripts/publish-npm-tarballs.mjs "$TERMESTRA_NPM_DIST_TAG" "${packages[@]}"
       - name: Publish CLI after all runtimes
         shell: bash

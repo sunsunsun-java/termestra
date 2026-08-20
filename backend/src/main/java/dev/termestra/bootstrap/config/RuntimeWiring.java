@@ -104,7 +104,6 @@ public class RuntimeWiring {
                 Map<String,String> environment = Map.of();
                 boolean augmentationDisabled = false;
                 if (startupCommand != null && !startupCommand.isBlank()) {
-                    boolean windows = System.getProperty("os.name", "").toLowerCase().contains("win");
                     var selected = commandPresetId == null ? java.util.Optional.<dev.termestra.configuration.domain.model.CommandPreset>empty()
                             : presets.stream().filter(value -> value.id().equals(commandPresetId)).findFirst();
                     if(commandPresetId!=null&&selected.isEmpty())throw new IllegalArgumentException("Command preset not found: "+commandPresetId);
@@ -115,14 +114,9 @@ public class RuntimeWiring {
                             .filter(Objects::nonNull).map(value->{try{return json.writeValueAsString(value);}catch(com.fasterxml.jackson.core.JsonProcessingException error){throw new IllegalStateException("Invalid session capture configuration",error);}}).orElse(null);
                     augmentationDisabled = true;
                     environment = selected.map(dev.termestra.configuration.domain.model.CommandPreset::environment).orElse(Map.of());
-                    if (windows) {
-                        command = System.getenv().getOrDefault("ComSpec", "cmd.exe");
-                        arguments = List.of("/d", "/s", "/c", startupCommand.trim());
-                    } else {
-                        command = System.getenv().getOrDefault("SHELL", "/bin/sh");
-                        String shellName = Path.of(command).getFileName().toString().toLowerCase();
-                        arguments = List.of(shellName.contains("bash") || shellName.contains("zsh") || shellName.contains("ksh") ? "-lic" : "-ic", startupCommand.trim());
-                    }
+                    command = System.getenv().getOrDefault("SHELL", "/bin/sh");
+                    String shellName = Path.of(command).getFileName().toString().toLowerCase();
+                    arguments = List.of(shellName.contains("bash") || shellName.contains("zsh") || shellName.contains("ksh") ? "-lic" : "-ic", startupCommand.trim());
                 } else if (commandPresetId != null && !commandPresetId.isBlank()) {
                     var preset = presets.stream().filter(value -> value.id().equals(commandPresetId)).findFirst()
                             .orElseThrow(() -> new IllegalArgumentException("Command preset not found: " + commandPresetId));

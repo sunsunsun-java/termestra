@@ -4,9 +4,6 @@ output="$1"
 jlink_binary="${2:-jlink}"
 runtime="$output/runtime"
 
-if [ ! -x "$jlink_binary" ] && [ -x "$jlink_binary.exe" ]; then
-  jlink_binary="$jlink_binary.exe"
-fi
 if [ ! -x "$jlink_binary" ]; then
   echo "jlink executable is unavailable: $jlink_binary" >&2
   exit 1

@@ -16,8 +16,8 @@ const pathLabel = (path: string): string => {
 const separatorFor = (path: string): '/' | '\\' =>
   path.includes('\\') && !path.includes('/') ? '\\' : '/'
 
-const pathEquals = (left: string, right: string, windows: boolean): boolean =>
-  windows ? left.toLocaleLowerCase() === right.toLocaleLowerCase() : left === right
+const pathEquals = (left: string, right: string, caseInsensitive: boolean): boolean =>
+  caseInsensitive ? left.toLocaleLowerCase() === right.toLocaleLowerCase() : left === right
 
 const appendPath = (base: string, segment: string, separator: '/' | '\\'): string =>
   `${base}${base.endsWith(separator) ? '' : separator}${segment}`
@@ -28,13 +28,13 @@ export const buildBreadcrumbs = (currentPath: string, rootPath: string): Breadcr
   const root = trimTrailingSeparators(rootPath)
   const current = trimTrailingSeparators(currentPath)
   const separator = separatorFor(rootPath)
-  const isWindowsPath = separator === '\\'
+  const caseInsensitive = separator === '\\'
   const breadcrumbs: BreadcrumbSegment[] = [{ label: pathLabel(root), path: rootPath }]
-  if (pathEquals(current, root, isWindowsPath)) return breadcrumbs
+  if (pathEquals(current, root, caseInsensitive)) return breadcrumbs
 
   const boundary = root.endsWith(separator) ? root : `${root}${separator}`
-  const comparableCurrent = isWindowsPath ? current.toLocaleLowerCase() : current
-  const comparableBoundary = isWindowsPath ? boundary.toLocaleLowerCase() : boundary
+  const comparableCurrent = caseInsensitive ? current.toLocaleLowerCase() : current
+  const comparableBoundary = caseInsensitive ? boundary.toLocaleLowerCase() : boundary
   if (!comparableCurrent.startsWith(comparableBoundary)) return breadcrumbs
 
   let accumulated = root

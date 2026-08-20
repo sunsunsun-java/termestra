@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-@EnabledOnOs({OS.LINUX,OS.MAC})
+@EnabledOnOs(OS.MAC)
 class Pty4jProcessLauncherTest {
     @Test void requestedEnvironmentOverridesInheritedValues(){
         Map<String,String> environment=Pty4jProcessLauncher.launchEnvironment(
@@ -161,7 +161,7 @@ class Pty4jProcessLauncherTest {
     }
 
     @Test
-    @EnabledOnOs({OS.LINUX,OS.MAC})
+    @EnabledOnOs(OS.MAC)
     void naturalRootExitReapsAnOwnedBackgroundChildBeforePublishingExit() throws Exception{
         PseudoTerminalHandle handle=new Pty4jProcessLauncher().start(new ProcessLaunchRequest(
                 List.of("/bin/sh","-c","sleep 30 & child=$!; printf '%s\\n' $child; exit 0"),

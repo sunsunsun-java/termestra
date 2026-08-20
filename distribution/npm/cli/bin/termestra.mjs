@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync } from 'node:fs'
 import { spawn, spawnSync } from 'node:child_process'
 
+import { runtimePackageName, runtimePlatform } from './runtime-package.mjs'
+
 const args = process.argv.slice(2)
-const npmCommand = process.platform === 'win32' ? process.env.ComSpec ?? 'cmd.exe' : 'npm'
-const npmInstallArguments = process.platform === 'win32'
-  ? ['/d', '/s', '/c', 'npm.cmd', 'install', '-g', '@termestra/cli@latest']
-  : ['install', '-g', '@termestra/cli@latest']
+const npmCommand = 'npm'
+const npmInstallArguments = ['install', '-g', '@termestra/cli@latest']
 const usage = `Usage:
   termestra [--port <port>]
   termestra update
@@ -74,8 +74,12 @@ if (args[0] === 'team') {
   }
 }
 
-const platform = `${process.platform}-${process.arch}`
-const packageName = `@termestra/runtime-${platform}`
+const platform = runtimePlatform()
+const packageName = runtimePackageName()
+if (!packageName) {
+  console.error(`Termestra supports macOS only; detected ${platform}.`)
+  process.exit(1)
+}
 const require = createRequire(import.meta.url)
 let root
 try { root = dirname(require.resolve(`${packageName}/package.json`)) }
@@ -84,10 +88,10 @@ catch {
   if (existsSync(local)) root = local
 }
 if (!root) {
-  console.error(`Termestra runtime package is missing for ${platform}. Reinstall with: npm install -g @termestra/cli`)
+  console.error(`Termestra runtime package ${packageName} is missing. npm may have skipped a failed optional download; retry: npm install -g @termestra/cli`)
   process.exit(1)
 }
-const java = join(root, 'runtime', 'bin', process.platform === 'win32' ? 'java.exe' : 'java')
+const java = join(root, 'runtime', 'bin', 'java')
 const jar = join(root, 'app', 'termestra.jar')
 const child = spawn(java, ['-jar', jar, ...javaArgs], { stdio: 'inherit', env: process.env })
 let forwardedSignal = null

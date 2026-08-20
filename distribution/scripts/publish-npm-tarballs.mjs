@@ -24,7 +24,6 @@ async function main(arguments_) {
 
   assert.match(distTag, /^[a-z][a-z0-9._-]*$/, `Invalid npm dist-tag: ${distTag}`)
   const registry = (process.env.TERMESTRA_NPM_REGISTRY ?? 'https://registry.npmjs.org').replace(/\/+$/, '')
-  const npmCommand = process.platform === 'win32' ? process.env.ComSpec ?? 'cmd.exe' : 'npm'
   const withProvenance = process.env.TERMESTRA_NPM_PUBLISH_MODE === 'bootstrap-token'
   const acceptedExistingIntegrities = acceptedExistingIntegritiesFromEnvironment()
   const verificationTimeoutMs = durationFromEnvironment(
@@ -43,10 +42,7 @@ async function main(arguments_) {
     if (!existing) {
       const publishArguments = ['publish', tarball, '--access', 'public', '--tag', distTag]
       if (withProvenance) publishArguments.push('--provenance')
-      const npmArguments = process.platform === 'win32'
-        ? ['/d', '/s', '/c', 'npm.cmd', ...publishArguments]
-        : publishArguments
-      const result = spawnSync(npmCommand, npmArguments, { stdio: 'inherit', env: process.env })
+      const result = spawnSync('npm', publishArguments, { stdio: 'inherit', env: process.env })
       assert.ifError(result.error)
       assert.equal(result.status, 0, `npm publish failed for ${tarball}`)
     }

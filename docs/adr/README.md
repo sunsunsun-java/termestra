@@ -11,5 +11,6 @@ ADR 记录难以逆转且不从代码表面自然显现的架构取舍。`Accept
 | [0004](0004-team-owned-dispatch-delivery-outbox.md) | Accepted | Team 自有 Delivery outbox 与 uncertain 隔离 |
 | [0005](0005-exact-key-bounded-runtime-coordination.md) | Accepted | 精确键、限时、引用计数的 runtime coordination |
 | [0006](0006-context-ownership-and-lifecycle-deletion.md) | Accepted | 明确 context 数据所有权和单事务 lifecycle deletion 例外 |
+| [0007](0007-macos-only-distribution.md) | Accepted | 发行与运行时支持收缩为 macOS arm64/x64，并裁剪非目标平台内容 |
 
 当前架构的解释性文档位于 [`../architecture/`](../architecture/README.md)。

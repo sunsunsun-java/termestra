@@ -1,6 +1,6 @@
 # Product delivery status
 
-> Last reconciled with the current source tree: 2026-08-19.
+> Last reconciled with the current source tree: 2026-08-20.
 
 Termestra now has an executable vertical slice through every core product
 surface. Checked items have automated coverage in the Maven reactor unless a
@@ -49,15 +49,17 @@ platform validation item explicitly says otherwise.
 - [x] React/xterm.js UI integrated with the Java runtime.
 - [x] Host jlink runtime and npm optional platform-package assembly.
 - [x] `termestra`, `team`, `update`, port/help/version, and package smoke paths.
-- [x] Native CI/package/publish matrix for macOS arm64/x64, Linux arm64/x64, and Windows x64.
+- [x] Native CI/package/publish matrix for macOS arm64/x64.
+- [x] macOS runtime trimming removes non-target SQLite, pty4j, JNA, and Netty content and enforces a 75 MB tarball budget.
+- [x] CLI postinstall fails closed when npm skips a missing host runtime after an optional download failure.
 - [x] `.tgz` transport, isolated global-install smoke coverage, public package metadata, and runtime-first npm release ordering.
 - [x] Replace third-party product/app imagery with neutral vectors and regenerate the README tour from the anonymous built-in Demo; retain the dated public-asset remediation record.
-- [ ] Observe one successful five-platform tag build before the first production publish.
+- [ ] Observe one successful two-architecture macOS tag build after the distribution contraction.
 
 ## Phase 6: Release readiness
 
 - [x] Pin destructive deletion and failed-delivery rollback through SQLite fault injection and real HTTP boundaries.
 - [x] Add terminal stress, recovery, and assembled npm-runtime tests to Maven and CI.
 - [x] Keep list and polling endpoints bounded independently of retained terminal history.
-- [ ] Verify macOS, Linux, and Windows behavior from published packages before a production cutover.
-- [ ] Complete one successful five-platform tagged build and published-package install smoke test.
+- [ ] Verify Apple Silicon and Intel behavior from published packages before a production cutover.
+- [ ] Complete one successful two-architecture tagged build and published-package install smoke test.

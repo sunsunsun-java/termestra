@@ -94,10 +94,10 @@ class InteractiveInputSubmitterTest {
         assertTrue(InteractiveInputSubmitter.promptReadyForTest(realStyleTail, "hermes"));
     }
 
-    @Test void recognizesAsciiHermesPromptFromAWindowsTerminal() {
-        String windowsStyleTail = "Welcome to Hermes Agent!\r\n>\r\n--------------------------------\r\n";
+    @Test void recognizesAsciiHermesPromptWithCrLfLineEndings() {
+        String crlfTail = "Welcome to Hermes Agent!\r\n>\r\n--------------------------------\r\n";
 
-        assertTrue(InteractiveInputSubmitter.promptReadyForTest(windowsStyleTail, "hermes"));
+        assertTrue(InteractiveInputSubmitter.promptReadyForTest(crlfTail, "hermes"));
     }
 
     @Test void waitsForAPromptProducedAfterTheRequestedOutputPosition() throws Exception {
@@ -190,7 +190,7 @@ class InteractiveInputSubmitterTest {
         assertEquals(List.of("hello\n"), writes);
     }
 
-    @Test void recognizesQuotedAndWindowsInteractiveExecutables() {
+    @Test void recognizesQuotedAndPlatformQualifiedInteractiveExecutables() {
         assertEquals("claude", InteractiveInputSubmitter.commandName("\"/Applications/Claude Code/claude\" --flag"));
         assertEquals("codex", InteractiveInputSubmitter.commandName("C:\\tools\\codex.exe"));
         assertEquals("cursor-agent", InteractiveInputSubmitter.commandName("/usr/local/bin/cursor-agent"));

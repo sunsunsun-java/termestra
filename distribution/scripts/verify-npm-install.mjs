@@ -18,12 +18,10 @@ import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
 const TIMEOUT_MS = 120_000
+const MAX_RUNTIME_TARBALL_BYTES = 75_000_000
 const RUNTIME_VARIANTS = [
   { platform: 'darwin', architecture: 'arm64' },
   { platform: 'darwin', architecture: 'x64' },
-  { platform: 'linux', architecture: 'arm64' },
-  { platform: 'linux', architecture: 'x64' },
-  { platform: 'win32', architecture: 'x64' },
 ]
 const targetArgument = process.argv[2]
 if (!targetArgument) {
@@ -62,8 +60,11 @@ try {
   assert.equal(runtimePackage.name, currentRuntimeName)
   assert.equal(cliPackage.name, '@termestra/cli')
   assert.equal(runtimePackage.version, cliPackage.version)
-  assertExecutableEntry(runtimePackage, `runtime/bin/${process.platform === 'win32' ? 'java.exe' : 'java'}`)
+  assert.ok(runtimePackage.size <= MAX_RUNTIME_TARBALL_BYTES,
+    `${runtimePackage.name} tarball is ${runtimePackage.size} bytes; macOS runtime packages must stay within ${MAX_RUNTIME_TARBALL_BYTES} bytes`)
+  assertExecutableEntry(runtimePackage, 'runtime/bin/java')
   assertExecutableEntry(cliPackage, 'bin/termestra.mjs')
+  assertExecutableEntry(cliPackage, 'bin/postinstall.mjs')
   assertExecutableEntry(cliPackage, 'bin/team.mjs')
   assertPackagedFiles(cliPackage)
 
@@ -74,6 +75,41 @@ try {
   assert.equal(cliManifest.name, cliPackage.name)
   assert.equal(cliManifest.version, cliPackage.version)
   assertRuntimeDependencySet(cliManifest, runtimePackage.version)
+
+  const missingRuntimeRegistry = await startRegistry({
+    cliManifest,
+    cliPackage,
+    runtimeManifest,
+    runtimePackage,
+    runtimeAvailable: false,
+  })
+  const missingRuntimePrefix = join(workspace, 'missing-runtime-prefix')
+  const missingRuntimeNpmrc = [
+    `registry=${missingRuntimeRegistry.url}`,
+    `@termestra:registry=${missingRuntimeRegistry.url}`,
+    'audit=false',
+    'fund=false',
+    'update-notifier=false',
+    '',
+  ].join('\n')
+  mkdirSync(join(missingRuntimePrefix, 'etc'), { recursive: true })
+  writeFileSync(join(missingRuntimePrefix, 'etc', 'npmrc'), missingRuntimeNpmrc)
+  try {
+    await assert.rejects(
+      runNpm([
+        'install',
+        '--global',
+        '--prefix', missingRuntimePrefix,
+        '--registry', missingRuntimeRegistry.url,
+        '--no-audit',
+        '--no-fund',
+        '@termestra/cli',
+      ], { env: { ...npmEnvironment, npm_config_cache: join(workspace, 'missing-runtime-cache') } }),
+      /runtime package @termestra\/runtime-darwin-(?:arm64|x64) is missing/,
+    )
+  } finally {
+    await missingRuntimeRegistry.close()
+  }
 
   registry = await startRegistry({ cliManifest, cliPackage, runtimeManifest, runtimePackage })
   const npmrc = [
@@ -101,15 +137,13 @@ try {
   assert.ok(existsSync(installedCli), 'global npm install did not install @termestra/cli')
   const installedRequire = createRequire(join(installedCli, 'bin', 'termestra.mjs'))
   const installedRuntime = dirname(installedRequire.resolve(`${currentRuntimeName}/package.json`))
-  if (process.platform !== 'win32') {
-    assert.ok(statSync(join(installedRuntime, 'runtime', 'bin', 'java')).mode & 0o111, 'installed embedded Java lost its executable mode')
-  }
+  assert.ok(statSync(join(installedRuntime, 'runtime', 'bin', 'java')).mode & 0o111,
+    'installed embedded Java lost its executable mode')
 
-  const termestra = process.platform === 'win32' ? 'termestra.cmd' : join(prefix, 'bin', 'termestra')
-  const launcherOptions = process.platform === 'win32' ? { cwd: prefix } : {}
-  const version = await runCommand(termestra, ['--version'], launcherOptions)
+  const termestra = join(prefix, 'bin', 'termestra')
+  const version = await runCommand(termestra, ['--version'])
   assert.equal(version.stdout.trim(), cliPackage.version)
-  const teamHelp = await runCommand(termestra, ['team', '--help'], launcherOptions)
+  const teamHelp = await runCommand(termestra, ['team', '--help'])
   assert.match(teamHelp.stdout, /Usage: team/)
 
   mkdirSync(artifactDirectory, { recursive: true })
@@ -141,14 +175,19 @@ async function pack(packageDirectory, packedDirectory, environment) {
 function assertExecutableEntry(packageResult, path) {
   const entry = packageResult.files.find(file => file.path === path)
   assert.ok(entry, `${packageResult.name} tarball is missing ${path}`)
-  if (process.platform !== 'win32') {
-    assert.ok(entry.mode & 0o111, `${packageResult.name} tarball lost the executable mode for ${path}`)
-  }
+  assert.ok(entry.mode & 0o111, `${packageResult.name} tarball lost the executable mode for ${path}`)
 }
 
 function assertPackagedFiles(packageResult) {
   const paths = packageResult.files.map(file => file.path)
-  for (const required of ['package.json', 'README.md', 'bin/termestra.mjs', 'docs/release/npm.md']) {
+  for (const required of [
+    'package.json',
+    'README.md',
+    'bin/postinstall.mjs',
+    'bin/runtime-package.mjs',
+    'bin/termestra.mjs',
+    'docs/release/npm.md',
+  ]) {
     assert.ok(paths.includes(required), `${packageResult.name} tarball is missing ${required}`)
   }
   for (const retiredDirectory of [
@@ -173,7 +212,7 @@ function assertRuntimeDependencySet(cliManifest, version) {
   for (const dependencyVersion of Object.values(dependencies)) assert.equal(dependencyVersion, version)
 }
 
-async function startRegistry({ cliManifest, cliPackage, runtimeManifest, runtimePackage }) {
+async function startRegistry({ cliManifest, cliPackage, runtimeManifest, runtimePackage, runtimeAvailable = true }) {
   const tarballs = new Map([
     [`/tarballs/${cliPackage.filename}`, cliPackage.path],
     [`/tarballs/${runtimePackage.filename}`, runtimePackage.path],
@@ -195,6 +234,10 @@ async function startRegistry({ cliManifest, cliPackage, runtimeManifest, runtime
     }
     const variant = RUNTIME_VARIANTS.find(candidate => runtimeName(candidate) === packageName)
     if (variant) {
+      if (!runtimeAvailable && packageName === runtimeManifest.name) {
+        response.writeHead(404).end()
+        return
+      }
       const manifest = packageName === runtimeManifest.name
         ? runtimeManifest
         : syntheticRuntimeManifest(variant, cliManifest.version)
@@ -226,7 +269,6 @@ function syntheticRuntimeManifest(variant, version) {
     version,
     os: [variant.platform],
     cpu: [variant.architecture],
-    ...(variant.platform === 'linux' ? { libc: 'glibc' } : {}),
   }
 }
 
@@ -253,13 +295,10 @@ function sendJson(response, body) {
 }
 
 function runNpm(args, options = {}) {
-  return runCommand(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, options)
+  return runCommand('npm', args, options)
 }
 
 function runCommand(command, args, options = {}) {
-  if (process.platform === 'win32' && command.toLowerCase().endsWith('.cmd')) {
-    return run(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', command, ...args], options)
-  }
   return run(command, args, options)
 }
 
@@ -270,7 +309,6 @@ function run(command, args, options = {}) {
       env: options.env,
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
     })
     let stdout = ''
     let stderr = ''

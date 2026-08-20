@@ -49,7 +49,7 @@ class ProcessNativeFolderPickerTest {
             entered.countDown();
             release.await();
             return new BoundedProcessRunner.Result(0, "/workspace/\n", false, false);
-        }, "Mac OS X");
+        });
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var first = executor.submit(picker::pick);
@@ -67,6 +67,6 @@ class ProcessNativeFolderPickerTest {
     }
 
     private static ProcessNativeFolderPicker picker(BoundedProcessRunner.Result result) {
-        return new ProcessNativeFolderPicker((command, timeout, maximum) -> result, "Mac OS X");
+        return new ProcessNativeFolderPicker((command, timeout, maximum) -> result);
     }
 }

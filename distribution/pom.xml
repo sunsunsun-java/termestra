@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
-  <parent><groupId>dev.termestra</groupId><artifactId>termestra-parent</artifactId><version>0.1.1-SNAPSHOT</version></parent>
+  <parent><groupId>dev.termestra</groupId><artifactId>termestra-parent</artifactId><version>0.1.2-SNAPSHOT</version></parent>
   <artifactId>termestra-distribution</artifactId>
   <packaging>pom</packaging>
   <dependencies>
@@ -27,6 +27,7 @@
       <copy file="${project.basedir}/../TRADEMARK.md" todir="${project.build.directory}/npm-cli"/>
       <copy file="${project.basedir}/../THIRD_PARTY_NOTICES.md" todir="${project.build.directory}/npm-cli"/>
       <chmod file="${project.build.directory}/npm-cli/bin/termestra.mjs" perm="755"/>
+      <chmod file="${project.build.directory}/npm-cli/bin/postinstall.mjs" perm="755"/>
       <chmod file="${project.build.directory}/npm-cli/bin/team.mjs" perm="755"/>
       <copy todir="${project.build.directory}/npm-cli/frontend/web/public" overwrite="true">
         <fileset dir="${project.basedir}/../frontend/web/public">

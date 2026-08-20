@@ -1,6 +1,6 @@
 # Termestra 架构总览
 
-> 当前实现基线：2026-08-19，schema v29，版本 `0.1.1-SNAPSHOT`。
+> 当前实现基线：2026-08-20，schema v29，版本 `0.1.2-SNAPSHOT`。
 
 Termestra 是本地优先的 CLI Agent 团队工作台。浏览器只连接绑定在
 `127.0.0.1` 的 Java 运行时；每个 Orchestrator、Worker 和 Workspace Shell 都是
@@ -40,7 +40,7 @@ flowchart TB
 termestra/
 ├── frontend/       React 19、TypeScript、Vite、xterm.js
 ├── backend/        Java 21、Spring Boot 4、SQLite JDBC、pty4j
-├── distribution/   jlink 运行时、npm CLI 与平台可选包
+├── distribution/   macOS jlink 运行时、npm CLI 与架构可选包
 ├── docs/           当前架构、ADR、设计、调研、治理、路线图
 └── scripts/        仓库级校验
 ```
@@ -48,6 +48,12 @@ termestra/
 `backend` 是一个部署单元，不是由细碎 Maven 模块拼成的微服务集合。业务隔离
 主要由包所有权、应用端口和 ArchUnit 保证。这个选择的历史理由见
 [ADR-0002](../adr/0002-package-by-feature-modular-monolith.md)。
+
+公开发行仅支持 macOS Apple Silicon 与 Intel。平台包由
+[`trim-macos-application.sh`](../../distribution/scripts/trim-macos-application.sh) 在组装时
+删除 SQLite、pty4j、JNA 和 Netty 中非目标操作系统/架构的原生内容，并由
+[`verify-npm-runtime.mjs`](../../distribution/scripts/verify-npm-runtime.mjs) 检查成品内容；
+平台收缩及恢复门槛见 [ADR-0007](../adr/0007-macos-only-distribution.md)。
 
 ## 后端上下文
 

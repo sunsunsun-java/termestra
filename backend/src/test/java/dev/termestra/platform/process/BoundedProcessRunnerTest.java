@@ -111,8 +111,7 @@ class BoundedProcessRunnerTest {
     }
 
     private static List<String> childCommand(String... arguments) {
-        Path executable = Path.of(System.getProperty("java.home"), "bin",
-                System.getProperty("os.name", "").toLowerCase().contains("win") ? "java.exe" : "java");
+        Path executable = Path.of(System.getProperty("java.home"), "bin", "java");
         List<String> command = new ArrayList<>(List.of(executable.toString(), "-cp",
                 System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
                 Child.class.getName()));

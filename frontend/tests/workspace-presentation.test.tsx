@@ -22,7 +22,7 @@ describe('workspace presentation', () => {
     expect(first.token).not.toContain('status-red')
   })
 
-  test('keeps Windows breadcrumb paths native instead of mixing separators', () => {
+  test('keeps backslash-delimited breadcrumb paths internally consistent', () => {
     expect(buildBreadcrumbs('C:\\Users\\sun\\Termestra', 'C:\\Users\\sun')).toEqual([
       { label: '~ (sun)', path: 'C:\\Users\\sun' },
       { label: 'Termestra', path: 'C:\\Users\\sun\\Termestra' },

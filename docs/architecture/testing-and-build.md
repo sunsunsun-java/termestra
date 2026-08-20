@@ -18,10 +18,14 @@ mvn clean verify
 6. **distribution**：用 jlink 创建 host runtime，组装 npm CLI 和平台包，运行
    真实 Java/npm smoke 验证，并从实际 `.tgz` 在隔离 npm registry 与全局 prefix 中
    安装，再执行已安装的 `termestra team --help`；
+   [`verify-npm-runtime.mjs`](../../distribution/scripts/verify-npm-runtime.mjs) 断言 macOS
+   应用 JAR 不含 Linux/Windows 或错误架构的原生内容，并核验 pty4j Mach-O slice，
+   [`verify-npm-install.mjs`](../../distribution/scripts/verify-npm-install.mjs) 把 runtime
+   tarball 限制在 75,000,000 bytes；
 7. **root / verify**：校验品牌和许可边界文件。
 
-distribution 使用 POSIX `sh`；Windows 全 reactor 需要 Git Bash 或其他提供
-`sh` 的环境。
+完整 reactor 与 runtime 组装只支持 macOS；CI 分别在 Apple Silicon 与 Intel runner
+构建原生包。
 
 ## 测试分层
 
@@ -31,7 +35,7 @@ distribution 使用 POSIX `sh`；Windows 全 reactor 需要 Git Bash 或其他�
 | application 编排 | `*/application/service/*Test` | port 调用顺序、补偿、并发、typed failure |
 | SQLite | `*/adapter/out/persistence/*Test`、migration test | 事务原子性、索引/claim、legacy 数据、回滚 |
 | HTTP/认证/JSON | `backend/.../bootstrap/*IntegrationTest` | 真实 WebFlux status、字段、大小、cookie/token |
-| PTY/进程 | `execution/adapter/out/pty`、`platform/process` | 输入/退出、进程树终止、Unix/Windows 差异 |
+| PTY/进程 | `execution/adapter/out/pty`、`platform/process` | macOS PTY 输入/退出、进程组与进程树终止 |
 | Terminal/Tasks stream | WebSocket integration + handler test | snapshot/live 顺序、背压、重连、清理 |
 | filesystem | Workspace/Tasks NIO adapter test | symlink 防护、大小、atomic replace、watch 恢复 |
 | CLI | `TeamCliTest`、npm tarball install smoke | 参数、stdin、环境、真实 HTTP、版本/更新路径、可选 runtime 解析、bin/Java 执行权限 |

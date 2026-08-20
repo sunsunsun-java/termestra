@@ -21,28 +21,20 @@ public final class Pty4jProcessLauncher implements PseudoTerminalLauncher {
     private static final int MAX_DESCENDANTS=1_024;
     @Override public PseudoTerminalHandle start(ProcessLaunchRequest request){
         Map<String,String> environment=launchEnvironment(System.getenv(),request.environment());
-        Optional<WindowsPtyProcessJob> windowsJob=Optional.empty();
         PtyProcess process=null;
         try{
-            windowsJob=WindowsPtyProcessJob.prepareForCurrentPlatform();
             PtyProcessBuilder builder=new PtyProcessBuilder(request.command().toArray(String[]::new))
                     .setDirectory(request.directory()).setEnvironment(environment)
                     .setConsole(false).setRedirectErrorStream(true)
                     .setInitialColumns(request.columns()).setInitialRows(request.rows());
-            if(windowsJob.isPresent()){
-                WindowsPtyProcessJob preparedJob=windowsJob.get();
-                builder.setUseWinConPty(true)
-                        .setWindowsSuspendedProcessCallback(preparedJob::claimSuspended);
-            }
             process=builder.start();
-            if(windowsJob.isPresent())windowsJob.get().requireClaimed(process.pid());
-            return new Handle(process,windowsJob);
+            return new Handle(process);
         }catch(IOException error){
-            cleanupFailedStart(process,windowsJob);
+            cleanupFailedStart(process);
             throw new IllegalStateException(
                     "Failed to start PTY command: "+request.command().getFirst(),error);
         }catch(RuntimeException|LinkageError error){
-            cleanupFailedStart(process,windowsJob);
+            cleanupFailedStart(process);
             throw new IllegalStateException(
                     "Failed to establish PTY process ownership: "+request.command().getFirst(),error);
         }
@@ -53,14 +45,9 @@ public final class Pty4jProcessLauncher implements PseudoTerminalLauncher {
         return environment;
     }
 
-    private static void cleanupFailedStart(PtyProcess process,
-                                           Optional<WindowsPtyProcessJob> windowsJob){
+    private static void cleanupFailedStart(PtyProcess process){
         if(process!=null)ProcessTreeTerminator.track(process).terminate(
                 TERMINATION_GRACE,FORCED_TERMINATION_GRACE,MAX_DESCENDANTS);
-        windowsJob.ifPresent(job->{
-            if(!job.abort(FORCED_TERMINATION_GRACE))
-                LOG.error("Failed-start Windows PTY ownership could not be closed safely");
-        });
     }
 
     private static final class Handle implements PseudoTerminalHandle {
@@ -68,15 +55,13 @@ public final class Pty4jProcessLauncher implements PseudoTerminalLauncher {
         private final ReentrantLock terminationGate=new ReentrantLock(true);
         private final ProcessTreeTerminator.TrackedProcessTree processTree;
         private final Optional<UnixPtyProcessGroup> processGroup;
-        private final Optional<WindowsPtyProcessJob> windowsJob;
         private final CountDownLatch outputDrained=new CountDownLatch(1);
         private volatile Thread outputReader;
         private boolean activated;private boolean stopRequested;
         private final Object outputGate=new Object();private final Object inputGate=new Object();private volatile boolean outputPaused;
-        Handle(PtyProcess process,Optional<WindowsPtyProcessJob> windowsJob){
+        Handle(PtyProcess process){
             this.process=process;this.processTree=ProcessTreeTerminator.track(process);
             this.processGroup=UnixPtyProcessGroup.claim(process);
-            this.windowsJob=windowsJob;
         }
         @Override public long pid(){return process.pid();}
         @Override public void activate(Consumer<byte[]> output,IntConsumer exit){
@@ -181,10 +166,6 @@ public final class Pty4jProcessLauncher implements PseudoTerminalLauncher {
         private boolean terminateOwnedProcesses(){
             terminationGate.lock();
             try{
-                // A Job Object is authoritative on Windows: children cannot break away because the
-                // job does not opt into breakaway, and membership survives root re-parenting.
-                if(windowsJob.isPresent())return windowsJob.get().terminate(
-                        FORCED_TERMINATION_GRACE);
                 // Capture and terminate observable descendants first. A child that changes its
                 // process group is still covered while the root relationship remains available.
                 boolean treeTerminated=processTree.terminate(

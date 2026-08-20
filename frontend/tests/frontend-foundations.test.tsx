@@ -37,7 +37,7 @@ describe('task title metadata', () => {
     })
   })
 
-  test('recognizes a Windows file value even when the metadata key is custom', () => {
+  test('recognizes a backslash-delimited file value even when the metadata key is custom', () => {
     expect(parseTaskMetadata('Inspect output (location: C:\\work\\logs\\result.txt)')).toEqual({
       title: 'Inspect output',
       meta: [{ kind: 'path', label: 'location', value: 'C:\\work\\logs\\result.txt' }],

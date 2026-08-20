@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HermesPtyFixtureTest {
     @Test
-    void separatesCookedWindowsSubmissionsAtTheirCompleteMessageBoundaries() throws Exception {
+    void separatesCookedSubmissionsAtTheirCompleteMessageBoundaries() throws Exception {
         String startup = "\u001b[200~<termestra-message kind=\"startup\">\nsetup\n"
                 + "</termestra-message>\u001b[201~\r\n";
         String task = "\u001b[200~HERMES_DELIVERY_TOKEN\n<termestra-system-reminder>\n"

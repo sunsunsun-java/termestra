@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Locale;
 
 /**
  * Small PTY fixture that models the Hermes bracketed-paste contract without
@@ -20,8 +19,8 @@ public final class HermesPtyFixture {
     public static void main(String[] args) throws IOException {
         InputStream input = System.in;
         prompt();
-        if (windows() || Arrays.asList(args).contains("--cooked-input")) {
-            runCookedWindowsInput(input);
+        if (Arrays.asList(args).contains("--cooked-input")) {
+            runCookedInput(input);
             return;
         }
         int pasteNumber = 0;
@@ -35,7 +34,7 @@ public final class HermesPtyFixture {
         }
     }
 
-    private static void runCookedWindowsInput(InputStream input) throws IOException {
+    private static void runCookedInput(InputStream input) throws IOException {
         int pasteNumber = 0;
         byte[] submission;
         while ((submission = readCookedSubmission(input)) != null) {
@@ -132,7 +131,4 @@ public final class HermesPtyFixture {
         return false;
     }
 
-    private static boolean windows() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
-    }
 }

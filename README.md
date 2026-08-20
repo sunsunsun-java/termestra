@@ -17,7 +17,7 @@ Termestra 为一个 Orchestrator 和多个 CLI Worker 提供共享的本地工�
 [![npm](https://img.shields.io/npm/v/%40termestra%2Fcli?label=npm)](https://www.npmjs.com/package/@termestra/cli)
 [![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-43853d)](https://nodejs.org/)
 ![项目状态](https://img.shields.io/badge/status-alpha-f59e0b)
-![支持平台](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-64748b)
+![支持平台](https://img.shields.io/badge/platform-macOS-64748b)
 
 > Termestra 是本地优先应用。服务只监听 `127.0.0.1`，数据保存在你的电脑上，
 > 选中的源码目录不会被 Termestra 删除。
@@ -227,11 +227,8 @@ Termestra 从启动它的 Shell 所继承的 `PATH` 中检测可执行文件。�
 | --- | --- | --- |
 | macOS Apple Silicon | `@termestra/runtime-darwin-arm64` | 原生选择器、服务器目录浏览或粘贴路径 |
 | macOS Intel | `@termestra/runtime-darwin-x64` | 原生选择器、服务器目录浏览或粘贴路径 |
-| Linux ARM64（glibc） | `@termestra/runtime-linux-arm64` | `zenity`、服务器目录浏览或粘贴路径 |
-| Linux x64（glibc） | `@termestra/runtime-linux-x64` | `zenity`、服务器目录浏览或粘贴路径 |
-| Windows x64 | `@termestra/runtime-win32-x64` | PowerShell 目录对话框、服务器目录浏览或粘贴路径 |
 
-Linux 没有安装 `zenity` 时，请使用“浏览服务器文件系统”或粘贴绝对路径。
+当前源码与后续版本只支持 macOS。历史 Linux/Windows npm runtime 不再更新。
 
 ## 安全模型
 
@@ -266,7 +263,7 @@ command -v codex
 command -v claude
 ```
 
-Windows 使用 `where codex`。只安装桌面应用并不代表对应 CLI 已经加入 `PATH`。
+只安装桌面应用并不代表对应 CLI 已经加入 `PATH`。
 
 ### 默认端口被占用
 
@@ -292,8 +289,8 @@ Worker 必须报告结果，或由 Orchestrator 取消尚未关闭的派单。�
 
 ## 当前状态
 
-Termestra `0.1.1` 已通过 npm 公开发布。macOS、Linux 和 Windows 的五个平台包
-均经过原生 CI 构建、测试、隔离安装和发布后验证。
+Termestra 的 macOS-only 发行线从 `0.1.2` 开始；当前源码已收缩为 macOS Apple Silicon 与
+Intel 两个平台包。历史 Linux/Windows 包保留在 npm 作为既有版本，但不再发布更新。
 
 项目当前仍处于 Alpha 阶段。请在重要 Workspace 中使用版本控制，并在升级前
 保留必要的数据备份。

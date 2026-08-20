@@ -1,28 +1,29 @@
 # npm 运行时包发布
 
-Termestra 面向终端用户发布六个 npm 包：一个 `@termestra/cli` 启动器和五个携带
-jlink Java runtime 与应用 JAR 的平台包。用户只需要安装 CLI：
+Termestra 面向终端用户发布三个 npm 包：一个 `@termestra/cli` 启动器和两个携带
+jlink Java runtime 与应用 JAR 的 macOS 架构包。用户只需要安装 CLI：
 
 ```bash
 npm install -g @termestra/cli
 termestra
 ```
 
-CLI 通过 `optionalDependencies` 选择与本机匹配的平台 runtime；它不是一个会替代
-Claude Code、Codex、Gemini 或其他 CLI Agent 执行任务的编码 Agent。Termestra 只在
-本机展示、协调和监控这些外部 CLI 产品。
+CLI 通过 `optionalDependencies` 选择与本机匹配的平台 runtime，并在 `postinstall`
+阶段确认对应 runtime 确实存在；如果 npm 因可选依赖下载失败而跳过 runtime，整个安装
+会明确失败，不再留下一个无法启动却显示安装成功的 CLI。Termestra 不是一个会替代
+Claude Code、Codex、Gemini 或其他 CLI Agent 执行任务的编码 Agent，只在本机展示、
+协调和监控这些外部 CLI 产品。
 
 | 包 | 用途 |
 | --- | --- |
 | `@termestra/cli` | `termestra`、`team`、`update` 命令与用户文档 |
 | `@termestra/runtime-darwin-arm64` | macOS Apple Silicon runtime |
 | `@termestra/runtime-darwin-x64` | macOS Intel runtime |
-| `@termestra/runtime-linux-arm64` | Linux ARM64、glibc runtime |
-| `@termestra/runtime-linux-x64` | Linux x64、glibc runtime |
-| `@termestra/runtime-win32-x64` | Windows x64 runtime |
 
-Linux 包明确要求 glibc；Alpine/musl 当前不在支持范围内。用户安装包时需要 Node.js
-20+，不需要另行安装 JDK。
+当前发行仅支持 macOS；历史 Linux/Windows 包不撤回，但不再发布新版本。用户安装包时
+需要 Node.js 20+，不需要另行安装 JDK。runtime 组装会从 SQLite、pty4j、JNA 与 Netty
+依赖中删除非目标平台/架构内容、把 pty4j 通用 Mach-O 裁成目标架构，并由发行验证把
+每个 `.tgz` 限制在 75,000,000 bytes。
 
 ## 公开发布的资产与隐私核验
 
@@ -45,14 +46,14 @@ Linux 包明确要求 glibc；Alpine/musl 当前不在支持范围内。用户�
 
 `.github/workflows/platform-packages.yml` 是唯一的 npm 发布工作流。
 
-1. `vX.Y.Z` 或 `vX.Y.Z-prerelease` tag 触发五个 GitHub-hosted runner。
+1. `vX.Y.Z` 或 `vX.Y.Z-prerelease` tag 触发 Apple Silicon 与 Intel 两个 macOS runner。
 2. 每个 runner 要求根 `pom.xml` 恰好为同一版本的 `-SNAPSHOT`，再仅在 CI 工作区
    改成 tag 中的发行版本。
 3. Maven 全量验证会构建对应 jlink runtime、运行 Java/npm 静态校验，执行真实的
    临时 npm registry 全局安装，并用已安装的 `termestra team --help` 启动嵌入 Java。
 4. 通过的 `npm pack` `.tgz` 才会被上传为 GitHub Artifact；不会跨 job 传递原始目录，
-   因此 macOS/Linux 的 Java 执行权限不会在 Artifact ZIP 过程中丢失。
-5. `publish` job 先发布五个 runtime tarball，全部成功后才发布 CLI。若重试遇到已
+   因此 macOS 的 Java 执行权限不会在 Artifact ZIP 过程中丢失。
+5. `publish` job 先发布两个 runtime tarball，全部成功后才发布 CLI。若重试遇到已
    发布版本，工作流只会接受字节完整性及 dist-tag 都相同的成品；不一致时必须发新版本。
 
 稳定 tag 发布到 npm `latest`；带 prerelease 标识的 tag 发布到 `next`。`termestra
@@ -60,10 +61,10 @@ update` 始终追踪 `latest`，预发布用户应显式安装 `@next`。
 
 ## 首次公开发布（一次性 Token 引导）
 
-npm 的 Trusted Publishing 只能绑定已经存在的包，因此第一次发布六个包需要一个短期、
+npm 的 Trusted Publishing 只能绑定已经存在的包，因此第一次发布三个活跃包需要一个短期、
 最小权限的 npm granular access token。后续发布不再使用它。
 
-1. 创建或确认 npm Organization `@termestra`，确认它拥有六个包的命名空间，并为
+1. 创建或确认 npm Organization `@termestra`，确认它拥有三个活跃包的命名空间，并为
    发布者启用 2FA。Scoped public package 的首次发布需要 public access。
 2. 在 GitHub 仓库创建 `npm-production` Environment。建议只允许受保护的 `v*` tag
    部署并要求审批者；工作流的发布 job 固定使用这个 Environment。
@@ -72,7 +73,7 @@ npm 的 Trusted Publishing 只能绑定已经存在的包，因此第一次发�
    `NPM_TOKEN` secret，绝不提交到仓库或本机配置文件。
 4. 确认根 `pom.xml` 是例如 `0.1.0-SNAPSHOT`，完成全部发布前门槛后创建并推送
    `v0.1.0` tag。工作流会检测二者是否匹配。
-5. 在 GitHub Actions 中等待五个平台 job 和 publish job 完成。首次 token 发布使用
+5. 在 GitHub Actions 中等待两个 macOS job 和 publish job 完成。首次 token 发布使用
    provenance；不要在任何一个包失败后换成同一个版本重新构建并发布。
 
 Scoped public package、发布访问控制及 Token 的官方说明见 [npm 的 scoped package
@@ -81,7 +82,7 @@ Scoped public package、发布访问控制及 Token 的官方说明见 [npm 的 
 
 ## 首发后迁移到 Trusted Publishing
 
-首发成功后，依次打开六个 npm package 的 Settings → Trusted publishing，为每个包
+首发成功后，依次打开三个活跃 npm package 的 Settings → Trusted publishing，为每个包
 配置同一个 GitHub Actions 发布者：
 
 | 字段 | 值 |

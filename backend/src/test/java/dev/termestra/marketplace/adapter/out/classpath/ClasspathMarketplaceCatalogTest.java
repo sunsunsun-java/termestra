@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 class ClasspathMarketplaceCatalogTest {
     @Test
-    void parsesCrLfFrontmatterFromAWindowsClasspathResource() {
+    void parsesCrLfFrontmatterFromAClasspathResource() {
         var agent = ClasspathMarketplaceCatalog.parse("design/ux.md", """
                 ---\r
                 name: UX Architect\r
