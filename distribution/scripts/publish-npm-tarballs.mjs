@@ -9,9 +9,14 @@ import { pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 const DEFAULT_VERIFICATION_TIMEOUT_MS = 10 * 60 * 1000
-const DEFAULT_VERIFICATION_RETRY_DELAY_MS = 5 * 1000
-const DEFAULT_TARBALL_RETRY_DELAY_MS = 1000
+const DEFAULT_VERIFICATION_RETRY_DELAY_MS = 15 * 1000
+const DEFAULT_TARBALL_RETRY_DELAY_MS = 15 * 1000
 const MAX_TARBALL_REQUESTS = 48
+
+assert.ok(DEFAULT_VERIFICATION_RETRY_DELAY_MS * MAX_TARBALL_REQUESTS >= DEFAULT_VERIFICATION_TIMEOUT_MS,
+  'default npm propagation retries must span the full verification timeout')
+assert.ok(DEFAULT_TARBALL_RETRY_DELAY_MS * MAX_TARBALL_REQUESTS >= DEFAULT_VERIFICATION_TIMEOUT_MS,
+  'default npm connection retries must span the full verification timeout')
 
 class TarballRequestCapacityError extends Error {
   constructor(tarballUrl, cause) {
@@ -65,7 +70,12 @@ async function main(arguments_) {
       readVersion: () => packageVersion(registry, manifest.name, manifest.version),
       readDistTags: () => packageDistTags(registry, manifest.name),
       readTarball: (tarballUrl, publishedIntegrity, timeoutMs, requestBudget) =>
-        packageTarballMatches(registry, tarballUrl, publishedIntegrity, timeoutMs, { requestBudget }),
+        packageTarballMatches(registry, tarballUrl, publishedIntegrity, timeoutMs, {
+          requestBudget,
+          onFailure: observation => console.warn(
+            `${manifest.name}@${manifest.version} tarball verification pending `
+              + `(${requestBudget.requests}/${MAX_TARBALL_REQUESTS} requests): ${observation}`),
+        }),
       timeoutMs: verificationTimeoutMs,
       retryDelayMs: verificationRetryDelayMs,
     })
@@ -199,6 +209,7 @@ export async function packageTarballMatches(
     wait = sleep,
     retryDelayMs = DEFAULT_TARBALL_RETRY_DELAY_MS,
     requestBudget = { requests: 0 },
+    onFailure = () => {},
   } = {},
 ) {
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0, 'tarball timeout must be a positive integer')
@@ -209,6 +220,7 @@ export async function packageTarballMatches(
       && Number.isSafeInteger(requestBudget.requests) && requestBudget.requests >= 0,
     'tarball request budget must track a non-negative safe integer',
   )
+  assert.equal(typeof onFailure, 'function', 'onFailure must be a function')
   const registryOrigin = new URL(registry).origin
   const parsedTarballUrl = new URL(tarballUrl)
   assert.equal(parsedTarballUrl.origin, registryOrigin,
@@ -248,10 +260,13 @@ export async function packageTarballMatches(
     }
     assert.equal(new URL(response.url).origin, registryOrigin,
       `npm tarball redirect must stay on the configured registry origin: ${response.url}`)
-    if (!response.body) return false
+    if (!response.body) return tarballMismatch(onFailure, 'tarball response has no body')
 
     if (requestOffset === 0) {
-      if (response.status !== 200) return false
+      if (response.status !== 200) {
+        return tarballMismatch(onFailure,
+          `initial tarball response returned HTTP ${response.status} instead of 200`)
+      }
       totalSize = contentLength(response)
     } else if (response.status === 200) {
       // A registry or CDN may ignore Range. Restart the digest so a full 200 response can still
@@ -261,13 +276,21 @@ export async function packageTarballMatches(
       totalSize = contentLength(response)
     } else if (response.status === 206) {
       const range = parsedContentRange(response.headers.get('content-range'))
-      if (!range || range.start !== requestOffset || range.end >= range.total) return false
+      if (!range || range.start !== requestOffset || range.end >= range.total) {
+        return tarballMismatch(onFailure,
+          `resume response has invalid Content-Range for offset ${requestOffset}`)
+      }
       const length = contentLength(response)
-      if (length !== undefined && length !== range.end - range.start + 1) return false
-      if (totalSize !== undefined && totalSize !== range.total) return false
+      if (length !== undefined && length !== range.end - range.start + 1) {
+        return tarballMismatch(onFailure, 'resume response Content-Length does not match Content-Range')
+      }
+      if (totalSize !== undefined && totalSize !== range.total) {
+        return tarballMismatch(onFailure, 'resume response changed the tarball total size')
+      }
       totalSize = range.total
     } else {
-      return false
+      return tarballMismatch(onFailure,
+        `resume response returned HTTP ${response.status} instead of 200 or 206`)
     }
 
     const beforeRead = offset
@@ -275,7 +298,9 @@ export async function packageTarballMatches(
       for await (const chunk of response.body) {
         digest.update(chunk)
         offset += chunk.length
-        if (totalSize !== undefined && offset > totalSize) return false
+        if (totalSize !== undefined && offset > totalSize) {
+          return tarballMismatch(onFailure, 'tarball response exceeded its declared total size')
+        }
       }
     } catch (error) {
       lastError = error
@@ -288,10 +313,21 @@ export async function packageTarballMatches(
     }
 
     if (totalSize !== undefined && offset < totalSize) continue
-    if (totalSize !== undefined && offset !== totalSize) return false
-    return `sha512-${digest.digest('base64')}` === expectedIntegrity
+    if (totalSize !== undefined && offset !== totalSize) {
+      return tarballMismatch(onFailure, 'tarball response size does not match its declared total size')
+    }
+    const actualIntegrity = `sha512-${digest.digest('base64')}`
+    if (actualIntegrity !== expectedIntegrity) {
+      return tarballMismatch(onFailure, `published SHA-512 does not match after ${offset} bytes`)
+    }
+    return true
   }
   throw new TarballRequestCapacityError(tarballUrl, lastError)
+}
+
+function tarballMismatch(onFailure, observation) {
+  onFailure(observation)
+  return false
 }
 
 async function waitForTarballRetry({ deadline, clock, wait, retryDelayMs, requestBudget, tarballUrl, error }) {

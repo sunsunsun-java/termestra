@@ -230,9 +230,26 @@ test('downloads the real tarball body with origin, integrity, status, and timeou
   assert.ok(address && typeof address === 'object')
   const registry = `http://127.0.0.1:${address.port}`
   try {
+    const observations = []
     assert.equal(await packageTarballMatches(registry, `${registry}/ok.tgz`, integrity), true)
-    assert.equal(await packageTarballMatches(registry, `${registry}/ok.tgz`, 'sha512-wrong'), false)
-    assert.equal(await packageTarballMatches(registry, `${registry}/missing.tgz`, integrity), false)
+    assert.equal(await packageTarballMatches(
+      registry,
+      `${registry}/ok.tgz`,
+      'sha512-wrong',
+      2 * 60 * 1000,
+      { onFailure: observation => observations.push(observation) },
+    ), false)
+    assert.equal(await packageTarballMatches(
+      registry,
+      `${registry}/missing.tgz`,
+      integrity,
+      2 * 60 * 1000,
+      { onFailure: observation => observations.push(observation) },
+    ), false)
+    assert.deepEqual(observations, [
+      'published SHA-512 does not match after 26 bytes',
+      'initial tarball response returned HTTP 404 instead of 200',
+    ])
     await assert.rejects(
       packageTarballMatches(registry, `http://localhost:${address.port}/ok.tgz`, integrity),
       /configured registry origin/,
