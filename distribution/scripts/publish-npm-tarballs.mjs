@@ -55,6 +55,8 @@ async function main(arguments_) {
       distTag,
       readVersion: () => packageVersion(registry, manifest.name, manifest.version),
       readDistTags: () => packageDistTags(registry, manifest.name),
+      readTarball: (tarballUrl, publishedIntegrity) =>
+        packageTarballMatches(registry, tarballUrl, publishedIntegrity),
       timeoutMs: verificationTimeoutMs,
       retryDelayMs: verificationRetryDelayMs,
     })
@@ -74,6 +76,7 @@ export async function verifyPublishedPackage({
   distTag,
   readVersion,
   readDistTags,
+  readTarball,
   timeoutMs = DEFAULT_VERIFICATION_TIMEOUT_MS,
   retryDelayMs = DEFAULT_VERIFICATION_RETRY_DELAY_MS,
   clock = Date.now,
@@ -81,6 +84,7 @@ export async function verifyPublishedPackage({
 }) {
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0, 'verification timeout must be a positive integer')
   assert.ok(Number.isSafeInteger(retryDelayMs) && retryDelayMs > 0, 'verification retry delay must be a positive integer')
+  assert.equal(typeof readTarball, 'function', 'readTarball must be a function')
 
   const startedAt = clock()
   let lastObservation = 'the version is not visible'
@@ -101,8 +105,18 @@ export async function verifyPublishedPackage({
       }
       try {
         const distTags = await readDistTags()
-        if (distTags?.[distTag] === version) return publishedIntegrity
-        lastObservation = `dist-tag ${distTag} points to ${distTags?.[distTag] ?? 'nothing'}`
+        if (distTags?.[distTag] === version) {
+          const tarballUrl = published.dist?.tarball
+          if (!tarballUrl) {
+            lastObservation = 'the version metadata has no tarball URL'
+          } else if (await readTarball(tarballUrl, publishedIntegrity)) {
+            return publishedIntegrity
+          } else {
+            lastObservation = `tarball is not fully downloadable with published integrity: ${tarballUrl}`
+          }
+        } else {
+          lastObservation = `dist-tag ${distTag} points to ${distTags?.[distTag] ?? 'nothing'}`
+        }
       } catch (error) {
         lastObservation = error instanceof Error ? error.message : String(error)
       }
@@ -149,6 +163,31 @@ async function packageVersion(registry, name, version) {
 
 async function packageDistTags(registry, name) {
   return fetchJson(`${registry}/-/package/${encodeURIComponent(name)}/dist-tags`, true)
+}
+
+export async function packageTarballMatches(
+  registry,
+  tarballUrl,
+  expectedIntegrity,
+  timeoutMs = 2 * 60 * 1000,
+) {
+  assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0, 'tarball timeout must be a positive integer')
+  const registryOrigin = new URL(registry).origin
+  const parsedTarballUrl = new URL(tarballUrl)
+  assert.equal(parsedTarballUrl.origin, registryOrigin,
+    `npm tarball URL must use the configured registry origin: ${tarballUrl}`)
+  const response = await fetch(parsedTarballUrl, {
+    cache: 'no-store',
+    headers: {
+      accept: 'application/octet-stream',
+      'cache-control': 'no-cache',
+    },
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+  if (!response.ok || !response.body) return false
+  const digest = createHash('sha512')
+  for await (const chunk of response.body) digest.update(chunk)
+  return `sha512-${digest.digest('base64')}` === expectedIntegrity
 }
 
 async function fetchJson(url, allowNotFound) {

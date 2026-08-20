@@ -31,7 +31,8 @@ Termestra supports only macOS on Apple Silicon and Intel.
   Distribution verification inspects nested JAR contents and Mach-O architectures, and rejects
   runtime tarballs larger than 75,000,000 bytes.
 - The CLI postinstall step verifies that npm actually installed the host runtime. A skipped optional
-  download fails the installation with a retry instruction instead of leaving a broken launcher.
+  download is resumed into a CLI-owned recovery directory and checked against npm's SHA-512;
+  exhausted recovery fails the installation instead of leaving a broken launcher.
 
 ## Consequences
 

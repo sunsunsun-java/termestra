@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync } from 'node:fs'
 import { spawn, spawnSync } from 'node:child_process'
@@ -81,11 +81,14 @@ if (!packageName) {
   process.exit(1)
 }
 const require = createRequire(import.meta.url)
+const cliRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 let root
 try { root = dirname(require.resolve(`${packageName}/package.json`)) }
 catch {
-  const local = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'runtime-current')
-  if (existsSync(local)) root = local
+  const recovered = join(cliRoot, '.runtime', basename(packageName))
+  const local = join(cliRoot, '..', 'runtime-current')
+  if (existsSync(join(recovered, 'package.json'))) root = recovered
+  else if (existsSync(local)) root = local
 }
 if (!root) {
   console.error(`Termestra runtime package ${packageName} is missing. npm may have skipped a failed optional download; retry: npm install -g @termestra/cli`)

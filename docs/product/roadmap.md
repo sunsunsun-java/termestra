@@ -51,10 +51,10 @@ platform validation item explicitly says otherwise.
 - [x] `termestra`, `team`, `update`, port/help/version, and package smoke paths.
 - [x] Native CI/package/publish matrix for macOS arm64/x64.
 - [x] macOS runtime trimming removes non-target SQLite, pty4j, JNA, and Netty content and enforces a 75 MB tarball budget.
-- [x] CLI postinstall fails closed when npm skips a missing host runtime after an optional download failure.
+- [x] CLI postinstall resumes and verifies an interrupted host-runtime download, then fails closed if recovery is exhausted.
 - [x] `.tgz` transport, isolated global-install smoke coverage, public package metadata, and runtime-first npm release ordering.
 - [x] Replace third-party product/app imagery with neutral vectors and regenerate the README tour from the anonymous built-in Demo; retain the dated public-asset remediation record.
-- [ ] Observe one successful two-architecture macOS tag build after the distribution contraction.
+- [x] Observe one successful two-architecture macOS tag build after the distribution contraction (`v0.1.2`).
 
 ## Phase 6: Release readiness
 

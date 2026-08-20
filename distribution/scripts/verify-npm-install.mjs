@@ -111,6 +111,48 @@ try {
     await missingRuntimeRegistry.close()
   }
 
+  const recoveryRegistry = await startRegistry({
+    cliManifest,
+    cliPackage,
+    runtimeManifest,
+    runtimePackage,
+    interruptRuntimeTarball: true,
+  })
+  const recoveryPrefix = join(workspace, 'recovery-prefix')
+  mkdirSync(join(recoveryPrefix, 'etc'), { recursive: true })
+  writeFileSync(join(recoveryPrefix, 'etc', 'npmrc'), [
+    `registry=${recoveryRegistry.url}`,
+    `@termestra:registry=${recoveryRegistry.url}`,
+    'audit=false',
+    'fund=false',
+    'update-notifier=false',
+    '',
+  ].join('\n'))
+  try {
+    await runNpm([
+      'install',
+      '--global',
+      '--prefix', recoveryPrefix,
+      '--registry', recoveryRegistry.url,
+      '--no-audit',
+      '--no-fund',
+      '@termestra/cli',
+    ], { env: { ...npmEnvironment, npm_config_cache: join(workspace, 'recovery-cache') } })
+    const recoveryRoot = (await runNpm(
+      ['root', '--global', '--prefix', recoveryPrefix], { env: npmEnvironment })).stdout.trim()
+    const recoveredCli = join(recoveryRoot, '@termestra', 'cli')
+    const recoveredRuntime = join(recoveredCli, '.runtime', currentRuntimeName.replace('@termestra/', ''))
+    assert.ok(statSync(join(recoveredRuntime, 'runtime', 'bin', 'java')).mode & 0o111,
+      'postinstall recovery did not restore the executable runtime')
+    const recoveredTermestra = join(recoveryPrefix, 'bin', 'termestra')
+    const recoveredVersion = await runCommand(recoveredTermestra, ['--version'])
+    assert.equal(recoveredVersion.stdout.trim(), cliPackage.version)
+    const recoveredTeamHelp = await runCommand(recoveredTermestra, ['team', '--help'])
+    assert.match(recoveredTeamHelp.stdout, /Usage: team/)
+  } finally {
+    await recoveryRegistry.close()
+  }
+
   registry = await startRegistry({ cliManifest, cliPackage, runtimeManifest, runtimePackage })
   const npmrc = [
     `registry=${registry.url}`,
@@ -185,6 +227,7 @@ function assertPackagedFiles(packageResult) {
     'README.md',
     'bin/postinstall.mjs',
     'bin/runtime-package.mjs',
+    'bin/runtime-recovery.mjs',
     'bin/termestra.mjs',
     'docs/release/npm.md',
   ]) {
@@ -212,18 +255,24 @@ function assertRuntimeDependencySet(cliManifest, version) {
   for (const dependencyVersion of Object.values(dependencies)) assert.equal(dependencyVersion, version)
 }
 
-async function startRegistry({ cliManifest, cliPackage, runtimeManifest, runtimePackage, runtimeAvailable = true }) {
+async function startRegistry({
+  cliManifest,
+  cliPackage,
+  runtimeManifest,
+  runtimePackage,
+  runtimeAvailable = true,
+  interruptRuntimeTarball = false,
+}) {
   const tarballs = new Map([
-    [`/tarballs/${cliPackage.filename}`, cliPackage.path],
-    [`/tarballs/${runtimePackage.filename}`, runtimePackage.path],
+    [`/tarballs/${cliPackage.filename}`, { path: cliPackage.path, runtime: false }],
+    [`/tarballs/${runtimePackage.filename}`, { path: runtimePackage.path, runtime: true }],
   ])
   let baseUrl
   const server = createServer((request, response) => {
     const requestUrl = new URL(request.url ?? '/', baseUrl)
     const tarball = tarballs.get(requestUrl.pathname)
     if (tarball) {
-      response.writeHead(200, { 'content-type': 'application/octet-stream' })
-      createReadStream(tarball).pipe(response)
+      serveTarball(request, response, tarball, interruptRuntimeTarball)
       return
     }
 
@@ -232,20 +281,27 @@ async function startRegistry({ cliManifest, cliPackage, runtimeManifest, runtime
       sendJson(response, packument(cliManifest, cliPackage, baseUrl))
       return
     }
-    const variant = RUNTIME_VARIANTS.find(candidate => runtimeName(candidate) === packageName)
+    const variant = RUNTIME_VARIANTS.find(candidate => {
+      const name = runtimeName(candidate)
+      return packageName === name || packageName === `${name}/${cliManifest.version}`
+    })
     if (variant) {
-      if (!runtimeAvailable && packageName === runtimeManifest.name) {
+      const requestedName = runtimeName(variant)
+      if (!runtimeAvailable && requestedName === runtimeManifest.name) {
         response.writeHead(404).end()
         return
       }
-      const manifest = packageName === runtimeManifest.name
+      const manifest = requestedName === runtimeManifest.name
         ? runtimeManifest
         : syntheticRuntimeManifest(variant, cliManifest.version)
-      const tarballUrl = packageName === runtimeManifest.name
+      const tarballUrl = requestedName === runtimeManifest.name
         ? `${baseUrl}/tarballs/${runtimePackage.filename}`
-        : `${baseUrl}/unavailable/${packageName.replace('@termestra/', '')}.tgz`
-      const packed = packageName === runtimeManifest.name ? runtimePackage : undefined
-      sendJson(response, packument(manifest, packed, baseUrl, tarballUrl))
+        : `${baseUrl}/unavailable/${requestedName.replace('@termestra/', '')}.tgz`
+      const packed = requestedName === runtimeManifest.name ? runtimePackage : undefined
+      const versionRequest = packageName === `${requestedName}/${cliManifest.version}`
+      sendJson(response, versionRequest
+        ? packageVersionMetadata(manifest, packed, tarballUrl)
+        : packument(manifest, packed, baseUrl, tarballUrl))
       return
     }
     response.writeHead(404).end()
@@ -261,6 +317,45 @@ async function startRegistry({ cliManifest, cliPackage, runtimeManifest, runtime
     url: baseUrl,
     close: () => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())),
   }
+}
+
+function serveTarball(request, response, tarball, interruptRuntimeTarball) {
+  const size = statSync(tarball.path).size
+  const range = request.headers.range?.match(/^bytes=(\d+)-(\d*)$/)
+  if (range) {
+    const start = Number(range[1])
+    const end = range[2] ? Math.min(Number(range[2]), size - 1) : size - 1
+    if (!Number.isSafeInteger(start) || start < 0 || start >= size || end < start) {
+      response.writeHead(416, { 'content-range': `bytes */${size}` }).end()
+      return
+    }
+    response.writeHead(206, {
+      'accept-ranges': 'bytes',
+      'content-length': end - start + 1,
+      'content-range': `bytes ${start}-${end}/${size}`,
+      'content-type': 'application/octet-stream',
+    })
+    createReadStream(tarball.path, { start, end }).pipe(response)
+    return
+  }
+  if (interruptRuntimeTarball && tarball.runtime) {
+    response.writeHead(200, {
+      'accept-ranges': 'bytes',
+      'content-length': size,
+      'content-type': 'application/octet-stream',
+    })
+    const partial = createReadStream(tarball.path, { start: 0, end: Math.min(size - 1, 64 * 1024 - 1) })
+    partial.on('data', chunk => response.write(chunk))
+    partial.once('end', () => response.destroy())
+    partial.once('error', () => response.destroy())
+    return
+  }
+  response.writeHead(200, {
+    'accept-ranges': 'bytes',
+    'content-length': size,
+    'content-type': 'application/octet-stream',
+  })
+  createReadStream(tarball.path).pipe(response)
 }
 
 function syntheticRuntimeManifest(variant, version) {
@@ -285,6 +380,16 @@ function packument(manifest, packed, baseUrl, explicitTarballUrl) {
           ...(packed ? { integrity: packed.integrity } : {}),
         },
       },
+    },
+  }
+}
+
+function packageVersionMetadata(manifest, packed, tarball) {
+  return {
+    ...manifest,
+    dist: {
+      tarball,
+      ...(packed ? { integrity: packed.integrity } : {}),
     },
   }
 }

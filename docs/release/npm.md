@@ -9,8 +9,10 @@ termestra
 ```
 
 CLI 通过 `optionalDependencies` 选择与本机匹配的平台 runtime，并在 `postinstall`
-阶段确认对应 runtime 确实存在；如果 npm 因可选依赖下载失败而跳过 runtime，整个安装
-会明确失败，不再留下一个无法启动却显示安装成功的 CLI。Termestra 不是一个会替代
+阶段确认对应 runtime 确实存在；如果 npm 因连接重置而跳过 runtime，postinstall 会用
+macOS 自带的 `curl` 续传固定版本 tarball、核对 npm SHA-512 后解压到 CLI 自有的
+`.runtime/` 恢复目录。有限次数恢复仍失败时，整个安装会明确失败，不再留下一个无法
+启动却显示安装成功的 CLI。Termestra 不是一个会替代
 Claude Code、Codex、Gemini 或其他 CLI Agent 执行任务的编码 Agent，只在本机展示、
 协调和监控这些外部 CLI 产品。
 
@@ -53,8 +55,9 @@ Claude Code、Codex、Gemini 或其他 CLI Agent 执行任务的编码 Agent，�
    临时 npm registry 全局安装，并用已安装的 `termestra team --help` 启动嵌入 Java。
 4. 通过的 `npm pack` `.tgz` 才会被上传为 GitHub Artifact；不会跨 job 传递原始目录，
    因此 macOS 的 Java 执行权限不会在 Artifact ZIP 过程中丢失。
-5. `publish` job 先发布两个 runtime tarball，全部成功后才发布 CLI。若重试遇到已
-   发布版本，工作流只会接受字节完整性及 dist-tag 都相同的成品；不一致时必须发新版本。
+5. `publish` job 先发布两个 runtime tarball，全部成功后才发布 CLI。每个包只有在
+   版本与 dist-tag 可见、完整 tarball 可下载且 SHA-512 与本地候选包一致后才算发布成功。
+   若重试遇到已发布版本，工作流只会接受相同字节；不一致时必须发新版本。
 
 稳定 tag 发布到 npm `latest`；带 prerelease 标识的 tag 发布到 `next`。`termestra
 update` 始终追踪 `latest`，预发布用户应显式安装 `@next`。

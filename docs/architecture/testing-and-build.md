@@ -21,7 +21,8 @@ mvn clean verify
    [`verify-npm-runtime.mjs`](../../distribution/scripts/verify-npm-runtime.mjs) 断言 macOS
    应用 JAR 不含 Linux/Windows 或错误架构的原生内容，并核验 pty4j Mach-O slice，
    [`verify-npm-install.mjs`](../../distribution/scripts/verify-npm-install.mjs) 把 runtime
-   tarball 限制在 75,000,000 bytes；
+   tarball 限制在 75,000,000 bytes，并模拟可选 runtime 下载中断，验证 postinstall
+   能续传、校验 SHA-512 并从恢复目录启动；
 7. **root / verify**：校验品牌和许可边界文件。
 
 完整 reactor 与 runtime 组装只支持 macOS；CI 分别在 Apple Silicon 与 Intel runner

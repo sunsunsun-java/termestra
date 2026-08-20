@@ -104,7 +104,10 @@ assert.equal(unsupportedPlatform.status, 1)
 assert.equal(unsupportedPlatform.stdout, '')
 assert.equal(unsupportedPlatform.stderr, 'Termestra supports macOS only; detected linux-x64.\n')
 
-const missingRuntime = spawnSync(process.execPath, [join(cli, 'bin', 'postinstall.mjs')], CHECK_OPTIONS)
+const missingRuntime = spawnSync(process.execPath, [join(cli, 'bin', 'postinstall.mjs')], {
+  ...CHECK_OPTIONS,
+  env: { ...process.env, TERMESTRA_DISABLE_RUNTIME_RECOVERY: '1' },
+})
 assert.ifError(missingRuntime.error)
 assert.equal(missingRuntime.status, 1)
 assert.equal(missingRuntime.stdout, '')
