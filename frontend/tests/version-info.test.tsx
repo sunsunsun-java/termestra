@@ -1,13 +1,17 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 const api = vi.hoisted(() => ({ getVersionInfo: vi.fn() }))
 
 vi.mock('../web/src/api.js', () => ({ getVersionInfo: api.getVersionInfo }))
 
-import { useVersionInfo } from '../web/src/useVersionInfo.js'
+import { Topbar } from '../web/src/layout/Topbar.js'
+import { APP_VERSION, useVersionInfo } from '../web/src/useVersionInfo.js'
 
 const versionInfo = {
   currentVersion: '0.1.0',
@@ -32,6 +36,33 @@ afterEach(() => {
 })
 
 describe('version information', () => {
+  test('keeps the bundled fallback version aligned with the Maven release', () => {
+    const rootPom = readFileSync(resolve(process.cwd(), '../pom.xml'), 'utf8')
+    const sourceVersion = rootPom.match(
+      /<artifactId>termestra-parent<\/artifactId>\s*<version>([^<]+)<\/version>/
+    )?.[1]
+
+    expect(sourceVersion).toBeDefined()
+    expect(APP_VERSION).toBe(sourceVersion?.replace(/-SNAPSHOT$/, ''))
+  })
+
+  test('shows the running runtime version in the topbar', () => {
+    render(
+      <Topbar
+        hideActions
+        version="0.1.0"
+        versionInfo={{
+          ...versionInfo,
+          currentVersion: '0.1.8',
+          latestVersion: '0.1.8',
+          updateAvailable: false,
+        }}
+      />
+    )
+
+    expect(screen.getByText('v0.1.8')).toBeTruthy()
+  })
+
   test('shares one in-flight request across concurrent consumers', async () => {
     const request = deferred<typeof versionInfo>()
     api.getVersionInfo.mockReturnValue(request.promise)

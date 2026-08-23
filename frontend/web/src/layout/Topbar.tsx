@@ -29,8 +29,9 @@ export const Topbar = ({
 }: TopbarProps) => {
   const { t } = useI18n()
   const versionInfo = useVersionInfo(providedVersionInfo)
+  const currentVersion = versionInfo?.currentVersion ?? version
   const updateInfo =
-    versionInfo?.updateAvailable && versionInfo.latestVersion !== version ? versionInfo : null
+    versionInfo?.updateAvailable && versionInfo.latestVersion !== currentVersion ? versionInfo : null
   const hasOpenTasks = openTaskCount > 0
   const taskGraphTooltip = taskGraphOpen
     ? t('topbar.hideTodo')
@@ -54,7 +55,7 @@ export const Topbar = ({
           data-testid="topbar-logo"
         />
         <span className="font-semibold text-pri">Termestra</span>
-        <span className="text-ter text-xs tabular-nums">v{version}</span>
+        <span className="text-ter text-xs tabular-nums">v{currentVersion}</span>
         {updateInfo ? (
           <div className="flex items-center gap-2 text-xs" data-testid="topbar-update-badge">
             <span
@@ -68,7 +69,7 @@ export const Topbar = ({
               {t('topbar.updateAvailable')}
             </span>
             <span className="text-ter">
-              v{version} → v{updateInfo.latestVersion}
+              v{currentVersion} → v{updateInfo.latestVersion}
             </span>
             <code className="mono text-ter">{updateInfo.installHint}</code>
           </div>
