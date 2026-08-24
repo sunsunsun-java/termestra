@@ -19,7 +19,9 @@ mvn clean verify
    真实 Java/npm smoke 验证，并从实际 `.tgz` 在隔离 npm registry 与全局 prefix 中
    安装，再执行已安装的 `termestra team --help`；
    [`verify-npm-runtime.mjs`](../../distribution/scripts/verify-npm-runtime.mjs) 断言 macOS
-   应用 JAR 不含 Linux/Windows 或错误架构的原生内容，并核验 pty4j Mach-O slice，
+   应用 JAR 不含 Linux/Windows 或错误架构的原生内容，核验 pty4j Mach-O slice，并用
+   嵌入式 Java 通过最终 Spring Boot JAR 的 nested-JAR loader 启动真实 PTY；跨平台库
+   共享入口链接所需的非 macOS Java 字节码不得按原生资源处理，
    [`verify-npm-install.mjs`](../../distribution/scripts/verify-npm-install.mjs) 把 runtime
    tarball 限制在 75,000,000 bytes，并模拟可选 runtime 下载中断，验证 postinstall
    能续传、校验 SHA-512 并从恢复目录启动；

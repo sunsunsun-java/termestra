@@ -25,8 +25,9 @@ Claude Code、Codex、Gemini 或其他 CLI Agent 执行任务的编码 Agent，�
 
 当前发行仅支持 macOS；历史 Linux/Windows 包不撤回，但不再发布新版本。用户安装包时
 需要 Node.js 20+，不需要另行安装 JDK。runtime 组装会从 SQLite、pty4j、JNA 与 Netty
-依赖中删除非目标平台/架构内容、把 pty4j 通用 Mach-O 裁成目标架构，并由发行验证把
-每个 `.tgz` 限制在 75,000,000 bytes。
+依赖中删除非目标平台/架构的原生内容、把 pty4j 通用 Mach-O 裁成目标架构，但保留
+跨平台共享入口在 JVM 链接时仍会解析的实现字节码。发行验证使用最终裁剪产物启动真实
+PTY，并把每个 `.tgz` 限制在 75,000,000 bytes。
 
 ## 公开发布的资产与隐私核验
 

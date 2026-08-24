@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { dirname, join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -18,9 +18,10 @@ const RUNTIME_PLATFORMS = [
 
 const target = process.argv[2]
 if (!target) {
-  console.error('Usage: node verify-npm-runtime.mjs <distribution-target>')
+  console.error('Usage: node verify-npm-runtime.mjs <distribution-target> [build-jdk-home]')
   process.exit(2)
 }
+const buildJdkHome = process.argv[3] ?? process.env.JAVA_HOME
 
 const platform = `${process.platform}-${process.arch}`
 const runtime = join(target, 'npm', `runtime-${platform}`)
@@ -79,6 +80,7 @@ assert.ifError(javaResult.error)
 assert.equal(javaResult.status, 0, javaResult.stderr || javaResult.stdout)
 const javaMajor = Number((javaResult.stderr || javaResult.stdout).match(/version "(\d+)/)?.[1])
 assert.ok(javaMajor >= 21, `embedded Java must support Java 21 class files, found: ${javaResult.stderr || javaResult.stdout}`)
+assertPackagedPtyStarts(applicationJar, java, buildJdkHome)
 
 const cliResult = spawnSync(process.execPath, [join(cli, 'bin', 'termestra.mjs'), '--version'], CHECK_OPTIONS)
 assert.ifError(cliResult.error)
@@ -212,8 +214,8 @@ function assertMacOnlyApplicationJar(applicationJar, architecture) {
 
     const pty4j = nestedJar(workspace, outerEntries, /^BOOT-INF\/lib\/pty4j-.*\.jar$/)
     assertOnlyTargetNativeEntries(pty4j, 'resources/com/pty4j/native/', 'resources/com/pty4j/native/darwin/')
-    assert.ok(!jarEntries(pty4j).some(entry => entry.startsWith('com/pty4j/windows/')),
-      'pty4j retains Windows implementation classes')
+    assert.ok(jarEntries(pty4j).includes('com/pty4j/windows/cygwin/CygwinPtyProcess.class'),
+      'pty4j shared builder requires Windows implementation bytecode for JVM linkage')
     assertPty4jMachOArchitecture(pty4j, architecture)
 
     const jna = nestedJar(workspace, outerEntries, /^BOOT-INF\/lib\/jna-[0-9].*\.jar$/)
@@ -229,6 +231,51 @@ function assertMacOnlyApplicationJar(applicationJar, architecture) {
       [],
       'JNA platform jar contains Linux or Windows implementations',
     )
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
+}
+
+function assertPackagedPtyStarts(applicationJar, javaExecutable, jdkHome) {
+  assert.ok(jdkHome, 'build JDK home is required for the packaged PTY smoke test')
+  const javac = join(jdkHome, 'bin', 'javac')
+  assert.ok(existsSync(javac), `build JDK compiler is missing: ${javac}`)
+  const workspace = mkdtempSync(join(tmpdir(), 'termestra-packaged-pty-'))
+  try {
+    const dependencyEntries = jarEntries(applicationJar)
+      .filter(entry => /^BOOT-INF\/lib\/.*\.jar$/.test(entry))
+    const extraction = spawnSync(
+      jarExecutable(),
+      ['xf', resolve(applicationJar), ...dependencyEntries],
+      { ...CHECK_OPTIONS, cwd: workspace },
+    )
+    assert.ifError(extraction.error)
+    assert.equal(extraction.status, 0, extraction.stderr || extraction.stdout)
+
+    const dependencyClasspath = dependencyEntries
+      .map(entry => join(workspace, entry))
+      .join(delimiter)
+    const compilation = spawnSync(javac, [
+      '-cp', dependencyClasspath,
+      '-d', workspace,
+      resolve(repositoryRoot, 'distribution/scripts/PtySmokeProbe.java'),
+    ], CHECK_OPTIONS)
+    assert.ifError(compilation.error)
+    assert.equal(compilation.status, 0, compilation.stderr || compilation.stdout)
+
+    const smoke = spawnSync(javaExecutable, [
+      '--enable-native-access=ALL-UNNAMED',
+      `-Dpty4j.tmpdir=${workspace}`,
+      '-Dloader.main=PtySmokeProbe',
+      `-Dloader.path=${workspace}`,
+      '-cp', resolve(applicationJar),
+      'org.springframework.boot.loader.launch.PropertiesLauncher',
+    ], CHECK_OPTIONS)
+    assert.ifError(smoke.error)
+    assert.equal(smoke.status, 0, smoke.stderr || smoke.stdout)
+    assert.equal(smoke.stdout.trim().split(/\r?\n/).at(-1), 'PTY_SMOKE_OK')
+    assert.ok(existsSync(join(workspace, 'pty4j-darwin')),
+      'packaged PTY smoke must extract native files inside its managed workspace')
   } finally {
     rmSync(workspace, { recursive: true, force: true })
   }

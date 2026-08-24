@@ -53,8 +53,7 @@ zip -q -d "$sqlite_jar" \
 zip -q -d "$pty4j_jar" \
   'resources/com/pty4j/native/win/*' \
   'resources/com/pty4j/native/linux/*' \
-  'resources/com/pty4j/native/freebsd/*' \
-  'com/pty4j/windows/*'
+  'resources/com/pty4j/native/freebsd/*'
 
 pty4j_native_root="$workspace/pty4j-native"
 unzip -q "$pty4j_jar" 'resources/com/pty4j/native/darwin/*' -d "$pty4j_native_root"

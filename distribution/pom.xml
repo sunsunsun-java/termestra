@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
-  <parent><groupId>dev.termestra</groupId><artifactId>termestra-parent</artifactId><version>0.1.9-SNAPSHOT</version></parent>
+  <parent><groupId>dev.termestra</groupId><artifactId>termestra-parent</artifactId><version>0.1.10-SNAPSHOT</version></parent>
   <artifactId>termestra-distribution</artifactId>
   <packaging>pom</packaging>
   <dependencies>
@@ -10,7 +10,7 @@
   <build><plugins>
     <plugin><groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.6.3</version><executions>
       <execution><id>jlink-runtime</id><phase>prepare-package</phase><goals><goal>exec</goal></goals><configuration><executable>sh</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>scripts/build-runtime.sh</argument><argument>${project.build.directory}/runtime-current</argument><argument>${java.home}/bin/jlink</argument></arguments></configuration></execution>
-      <execution><id>verify-npm-runtime</id><phase>verify</phase><goals><goal>exec</goal></goals><configuration><executable>node</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>scripts/verify-npm-runtime.mjs</argument><argument>${project.build.directory}</argument></arguments></configuration></execution>
+      <execution><id>verify-npm-runtime</id><phase>verify</phase><goals><goal>exec</goal></goals><configuration><executable>node</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>scripts/verify-npm-runtime.mjs</argument><argument>${project.build.directory}</argument><argument>${java.home}</argument></arguments></configuration></execution>
       <execution><id>verify-npm-install</id><phase>verify</phase><goals><goal>exec</goal></goals><configuration><executable>node</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>scripts/verify-npm-install.mjs</argument><argument>${project.build.directory}</argument></arguments></configuration></execution>
       <execution><id>test-npm-publish-verification</id><phase>verify</phase><goals><goal>exec</goal></goals><configuration><executable>node</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>--test</argument><argument>scripts/publish-npm-tarballs.test.mjs</argument></arguments></configuration></execution>
       <execution><id>test-npm-runtime-recovery</id><phase>verify</phase><goals><goal>exec</goal></goals><configuration><executable>node</executable><workingDirectory>${project.basedir}</workingDirectory><arguments><argument>--test</argument><argument>scripts/runtime-recovery.test.mjs</argument></arguments></configuration></execution>
