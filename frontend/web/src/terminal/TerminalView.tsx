@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom'
 import type { TranslationKey } from '../i18n.js'
 import { useI18n } from '../i18n.js'
+import { TerminalBookmarkRail } from './TerminalBookmarkRail.js'
 import { useTerminalRun } from './useTerminalRun.js'
 import type { TerminalWheelInputProfile } from './wheelFallback.js'
 
@@ -14,6 +15,7 @@ const STATUS_KEYS: Record<string, TranslationKey> = {
 }
 
 interface TerminalViewProps {
+  bookmarksEnabled?: boolean
   inputProfile?: TerminalWheelInputProfile
   runId: string
   title: string
@@ -195,20 +197,43 @@ const useStablePortalHost = (runId: string, target: HTMLElement | null): HTMLEle
   return activated ? host : null
 }
 
-export const TerminalView = ({ inputProfile = 'default', runId, title }: TerminalViewProps) => {
+export const TerminalView = ({
+  bookmarksEnabled = false,
+  inputProfile = 'default',
+  runId,
+  title,
+}: TerminalViewProps) => {
   const portalTarget = usePortalTarget(runId)
   const host = useStablePortalHost(runId, portalTarget)
 
   if (!host) return null
   return createPortal(
-    <TerminalPtyView inputProfile={inputProfile} runId={runId} title={title} />,
+    <TerminalPtyView
+      bookmarksEnabled={bookmarksEnabled}
+      inputProfile={inputProfile}
+      runId={runId}
+      title={title}
+    />,
     host
   )
 }
 
-const TerminalPtyView = ({ inputProfile, runId, title: _title }: TerminalViewProps) => {
+const TerminalPtyView = ({
+  bookmarksEnabled = false,
+  inputProfile,
+  runId,
+  title: _title,
+}: TerminalViewProps) => {
   const { t } = useI18n()
-  const { containerRef, error, status } = useTerminalRun(runId, inputProfile)
+  const {
+    activeBookmarkId,
+    bookmarkNavigationAvailable,
+    bookmarks,
+    containerRef,
+    error,
+    selectBookmark,
+    status,
+  } = useTerminalRun(runId, inputProfile, bookmarksEnabled)
   const statusKey = STATUS_KEYS[status]
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
@@ -226,11 +251,20 @@ const TerminalPtyView = ({ inputProfile, runId, title: _title }: TerminalViewPro
           {error}
         </p>
       ) : null}
-      <div
-        data-testid={`terminal-${runId}`}
-        ref={containerRef}
-        className="bg-crust h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden"
-      />
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div
+          data-testid={`terminal-${runId}`}
+          ref={containerRef}
+          className="bg-crust h-full min-h-0 w-full min-w-0 overflow-hidden"
+        />
+        {bookmarkNavigationAvailable ? (
+          <TerminalBookmarkRail
+            activeBookmarkId={activeBookmarkId}
+            bookmarks={bookmarks}
+            onSelect={selectBookmark}
+          />
+        ) : null}
+      </div>
     </div>
   )
 }

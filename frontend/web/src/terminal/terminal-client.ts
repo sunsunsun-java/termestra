@@ -35,8 +35,8 @@ const RESTORE_TIMEOUT_MS = 15_000
 export interface TerminalClient {
   dispose: () => void
   resize: (cols: number, rows: number, pixelWidth?: number, pixelHeight?: number) => void
-  sendBinaryInput: (chunk: string) => void
-  sendInput: (chunk: string) => void
+  sendBinaryInput: (chunk: string) => boolean
+  sendInput: (chunk: string) => boolean
 }
 
 const toWebSocketUrl = (path: string, params: Record<string, number | string | undefined> = {}) => {
@@ -296,33 +296,35 @@ export const createTerminalClient = ({
       sendResize()
     },
     sendBinaryInput(chunk) {
-      if (lifecycle !== 'active' || ioSocket.readyState !== WebSocket.OPEN) return
+      if (lifecycle !== 'active' || ioSocket.readyState !== WebSocket.OPEN) return false
       if (chunk.length > MAX_INPUT_MESSAGE_BYTES) {
         fail('Terminal input exceeded the 256 KiB message limit. Split the input and try again.')
-        return
+        return false
       }
       if (ioSocket.bufferedAmount + chunk.length > MAX_SOCKET_BUFFERED_BYTES) {
         fail('Terminal input exceeded the safe buffer. Reopen the terminal.')
-        return
+        return false
       }
       const bytes = new Uint8Array(chunk.length)
       for (let index = 0; index < chunk.length; index++) {
         bytes[index] = chunk.charCodeAt(index) & 0xff
       }
       ioSocket.send(bytes)
+      return true
     },
     sendInput(chunk) {
-      if (lifecycle !== 'active' || ioSocket.readyState !== WebSocket.OPEN) return
+      if (lifecycle !== 'active' || ioSocket.readyState !== WebSocket.OPEN) return false
       const bytes = textEncoder.encode(chunk).byteLength
       if (bytes > MAX_INPUT_MESSAGE_BYTES) {
         fail('Terminal input exceeded the 256 KiB message limit. Split the input and try again.')
-        return
+        return false
       }
       if (ioSocket.bufferedAmount + bytes > MAX_SOCKET_BUFFERED_BYTES) {
         fail('Terminal input exceeded the safe buffer. Reopen the terminal.')
-        return
+        return false
       }
       ioSocket.send(chunk)
+      return true
     },
   }
 }

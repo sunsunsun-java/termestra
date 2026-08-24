@@ -11,12 +11,14 @@ type WorkspaceTerminalPanelsProps = {
 }
 
 type TerminalDescriptor = {
+  bookmarksEnabled: boolean
   inputProfile: NonNullable<TerminalRunSummary['terminal_input_profile']>
   runId: string
   title: string
 }
 
-const describeTerminal = (run: TerminalRunSummary): TerminalDescriptor => ({
+const describeTerminal = (run: TerminalRunSummary, workspaceId: string): TerminalDescriptor => ({
+  bookmarksEnabled: run.agent_id === `${workspaceId}:orchestrator`,
   inputProfile: run.terminal_input_profile ?? 'default',
   runId: run.run_id,
   title: `${run.agent_name} (${run.status})`,
@@ -35,7 +37,7 @@ export const WorkspaceTerminalPanels = ({
 }: WorkspaceTerminalPanelsProps) => {
   const { t } = useI18n()
   const terminals = mergeTerminalRuns(terminalRuns, optimisticRuns, workspaceId).map(
-    describeTerminal
+    (run) => describeTerminal(run, workspaceId)
   )
 
   return (
@@ -45,8 +47,14 @@ export const WorkspaceTerminalPanels = ({
       data-terminal-workspace={workspaceId}
       hidden={hidden}
     >
-      {terminals.map(({ inputProfile, runId, title }) => (
-        <TerminalView inputProfile={inputProfile} key={runId} runId={runId} title={title} />
+      {terminals.map(({ bookmarksEnabled, inputProfile, runId, title }) => (
+        <TerminalView
+          bookmarksEnabled={bookmarksEnabled}
+          inputProfile={inputProfile}
+          key={runId}
+          runId={runId}
+          title={title}
+        />
       ))}
     </section>
   )

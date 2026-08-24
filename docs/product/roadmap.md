@@ -1,6 +1,6 @@
 # Product delivery status
 
-> Last reconciled with the current source tree: 2026-08-20.
+> Last reconciled with the current source tree: 2026-08-24.
 
 Termestra now has an executable vertical slice through every core product
 surface. Checked items have automated coverage in the Maven reactor unless a
@@ -41,6 +41,7 @@ platform validation item explicitly says otherwise.
 - [x] Dual-channel terminal WebSocket protocol and browser-compatible text output frames.
 - [x] Restore, resize, exit, error, acknowledgement, and real PTY WebSocket coverage.
 - [x] Cell-oriented headless terminal mirror and per-viewer high/low-water flow control.
+- [x] Current-Run Orchestrator input bookmarks with bounded xterm markers, accessible navigation, and explicit non-durable scope.
 - [x] Tasks document migration, watcher, writes, and tasks WebSocket.
 - [x] Auto-generated, version-refreshed `.termestra/PROTOCOL.md` recovery guide without needless rewrites.
 

@@ -78,6 +78,14 @@ UI 组件不应重复发明 fetch、认证刷新或 wire 映射。新增 endpoin
 客户端只在 control restore 完成后把 live output 交给 xterm，并按字节确认已消费
 输出。断开只结束 viewer，不等同于停止 Run。
 
+`terminal/terminal-bookmarks.ts` 在用户向 Orchestrator PTY 成功提交单独的 Enter
+输入时，为 xterm normal buffer 的当前行创建浏览器本地 marker。React rail 把有效
+marker 映射为左侧刻度并回传所选 ID；`useTerminalRun` 负责 marker 查询、
+`scrollToLine` 和临时 decoration。registry 上限为 200，marker 被 scrollback 淘汰、
+viewer 失败/退出、Run 卸载或视图销毁时同步清理。Shell 与 Worker terminal、
+alternate screen 不创建或展示书签；书签不写入后端，也不承诺跨刷新、重连 restore
+或 Run 重启恢复。这是一种通用 PTY 定位能力，不是对 CLI 消息语义的解析。
+
 `tasks/useTasksFile.ts` 通过 `/ws/tasks/{workspaceId}` 接收 snapshot/update，写入
 则携带 expected revision。`latest-write-queue` 防止连续编辑形成无界 Promise 链；
 409 冲突保留远端内容和 revision 给 UI 明确处理。

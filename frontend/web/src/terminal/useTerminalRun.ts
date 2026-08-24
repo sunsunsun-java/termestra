@@ -1,8 +1,14 @@
 import type { FitAddon as XtermFitAddon } from '@xterm/addon-fit'
-import type { Terminal as XtermTerminal } from '@xterm/xterm'
-import { useEffect, useRef, useState } from 'react'
+import type { IDecoration, Terminal as XtermTerminal } from '@xterm/xterm'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { resolveTerminalShortcut } from './shortcuts.js'
+import {
+  isTerminalBookmarkSubmission,
+  type TerminalBookmark,
+  terminalBookmarkRenderStateEqual,
+  TerminalBookmarkRegistry,
+} from './terminal-bookmarks.js'
 import { createTerminalClient } from './terminal-client.js'
 import {
   attachAlternateScreenWheelFallback,
@@ -43,21 +49,70 @@ const normalizeBinaryTerminalInput = (
 
 export const useTerminalRun = (
   runId: string,
-  inputProfile: TerminalWheelInputProfile = 'default'
+  inputProfile: TerminalWheelInputProfile = 'default',
+  bookmarksEnabled = false
 ) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const terminalRef = useRef<XtermTerminal | null>(null)
+  const bookmarkRegistryRef = useRef<TerminalBookmarkRegistry | null>(null)
+  const highlightRef = useRef<{
+    decoration: IDecoration | null
+    timer: number | undefined
+  }>({ decoration: null, timer: undefined })
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<'connecting' | 'running' | 'stopped'>('connecting')
+  const [bookmarks, setBookmarks] = useState<TerminalBookmark[]>([])
+  const [activeBookmarkId, setActiveBookmarkId] = useState<number | null>(null)
+  const [bookmarkNavigationAvailable, setBookmarkNavigationAvailable] = useState(false)
+
+  const clearBookmarkHighlight = useCallback(() => {
+    const currentHighlight = highlightRef.current
+    if (currentHighlight.timer !== undefined) window.clearTimeout(currentHighlight.timer)
+    currentHighlight.timer = undefined
+    currentHighlight.decoration?.dispose()
+    currentHighlight.decoration = null
+  }, [])
+
+  const selectBookmark = useCallback((id: number) => {
+    const terminal = terminalRef.current
+    const registry = bookmarkRegistryRef.current
+    if (!terminal || terminal.buffer.active.type !== 'normal' || !registry) return
+    const marker = registry.getMarker(id)
+    if (!marker) return
+
+    terminal.scrollToLine(Math.max(0, marker.line - 1))
+    setActiveBookmarkId(id)
+
+    clearBookmarkHighlight()
+    const currentHighlight = highlightRef.current
+    currentHighlight.decoration =
+      terminal.registerDecoration({
+        backgroundColor: '#18213a',
+        layer: 'bottom',
+        marker,
+        width: terminal.cols,
+      }) ?? null
+    currentHighlight.timer = window.setTimeout(() => {
+      currentHighlight.timer = undefined
+      currentHighlight.decoration?.dispose()
+      currentHighlight.decoration = null
+    }, 1_200)
+  }, [clearBookmarkHighlight])
 
   useEffect(() => {
     if (!containerRef.current) return
 
     setError(null)
     setStatus('connecting')
+    setBookmarks([])
+    setActiveBookmarkId(null)
+    setBookmarkNavigationAvailable(false)
     let disposed = false
     let onWindowResize: (() => void) | undefined
     let binaryInputSubscription: { dispose: () => void } | undefined
+    let bookmarkRegistry: TerminalBookmarkRegistry | undefined
     let inputSubscription: { dispose: () => void } | undefined
+    let writeParsedSubscription: { dispose: () => void } | undefined
     let client: ReturnType<typeof createTerminalClient> | undefined
     let terminal: XtermTerminal | undefined
     let fitAddon: XtermFitAddon | undefined
@@ -100,8 +155,14 @@ export const useTerminalRun = (
       binaryInputSubscription = undefined
       inputSubscription?.dispose()
       inputSubscription = undefined
+      writeParsedSubscription?.dispose()
+      writeParsedSubscription = undefined
+      bookmarkRegistry?.dispose()
+      if (bookmarkRegistryRef.current === bookmarkRegistry) bookmarkRegistryRef.current = null
+      bookmarkRegistry = undefined
       client?.dispose()
       client = undefined
+      if (terminalRef.current === terminal) terminalRef.current = null
       terminal?.dispose()
       terminal = undefined
       fitAddon?.dispose()
@@ -140,6 +201,7 @@ export const useTerminalRun = (
       })
       const nextFitAddon = new fitModule.FitAddon()
       terminal = nextTerminal
+      terminalRef.current = nextTerminal
       fitAddon = nextFitAddon
       nextTerminal.loadAddon(nextFitAddon)
       nextTerminal.loadAddon(new unicode11Module.Unicode11Addon())
@@ -147,6 +209,39 @@ export const useTerminalRun = (
       nextTerminal.loadAddon(new clipboardModule.ClipboardAddon())
       nextTerminal.open(containerRef.current)
       nextFitAddon.fit()
+
+      const publishBookmarks = () => {
+        const normalBufferActive =
+          bookmarksEnabled &&
+          bookmarkRegistry !== undefined &&
+          nextTerminal.buffer.active.type === 'normal'
+        setBookmarkNavigationAvailable(normalBufferActive)
+        const nextBookmarks = normalBufferActive
+          ? (bookmarkRegistry?.snapshot(nextTerminal.buffer.normal.length) ?? [])
+          : []
+        setBookmarks((current) =>
+          terminalBookmarkRenderStateEqual(current, nextBookmarks) ? current : nextBookmarks
+        )
+        setActiveBookmarkId((current) =>
+          current !== null && nextBookmarks.some((bookmark) => bookmark.id === current)
+            ? current
+            : null
+        )
+      }
+      const stopBookmarkNavigation = () => {
+        clearBookmarkHighlight()
+        bookmarkRegistry?.dispose()
+        if (bookmarkRegistryRef.current === bookmarkRegistry) bookmarkRegistryRef.current = null
+        bookmarkRegistry = undefined
+        setBookmarks([])
+        setActiveBookmarkId(null)
+        setBookmarkNavigationAvailable(false)
+      }
+      if (bookmarksEnabled) {
+        bookmarkRegistry = new TerminalBookmarkRegistry(publishBookmarks)
+        bookmarkRegistryRef.current = bookmarkRegistry
+        writeParsedSubscription = nextTerminal.onWriteParsed(publishBookmarks)
+      }
       wheelFallbackDispose = attachAlternateScreenWheelFallback({
         element: containerRef.current,
         profile: inputProfile,
@@ -269,10 +364,12 @@ export const useTerminalRun = (
           ...getContainerPixels(),
         },
         onError(message) {
+          stopBookmarkNavigation()
           setError(message)
           setStatus('stopped')
         },
         onExit() {
+          stopBookmarkNavigation()
           setStatus('stopped')
         },
         onOutput(chunk, acknowledge) {
@@ -285,7 +382,19 @@ export const useTerminalRun = (
       })
       inputSubscription = nextTerminal.onData((chunk) => {
         if (isComposingRef.current) return
-        client?.sendInput(chunk)
+        const submitted = client?.sendInput(chunk) ?? false
+        if (
+          submitted &&
+          bookmarksEnabled &&
+          isTerminalBookmarkSubmission(chunk) &&
+          nextTerminal.buffer.active.type === 'normal'
+        ) {
+          const buffer = nextTerminal.buffer.normal
+          const cursorLine = buffer.baseY + buffer.cursorY
+          const preview = buffer.getLine(cursorLine)?.translateToString(true) ?? ''
+          const marker = nextTerminal.registerMarker(0)
+          if (marker) bookmarkRegistry?.add(marker, preview)
+        }
       })
       if (typeof nextTerminal.onBinary === 'function') {
         binaryInputSubscription = nextTerminal.onBinary((chunk) => {
@@ -312,9 +421,18 @@ export const useTerminalRun = (
 
     return () => {
       disposed = true
+      clearBookmarkHighlight()
       cleanupResources()
     }
-  }, [runId, inputProfile])
+  }, [bookmarksEnabled, clearBookmarkHighlight, inputProfile, runId])
 
-  return { containerRef, error, status }
+  return {
+    activeBookmarkId,
+    bookmarkNavigationAvailable,
+    bookmarks,
+    containerRef,
+    error,
+    selectBookmark,
+    status,
+  }
 }

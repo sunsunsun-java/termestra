@@ -94,7 +94,7 @@ export const attachAlternateScreenWheelFallback = ({
 }: {
   element: HTMLElement
   profile?: TerminalWheelInputProfile
-  sendInput: (chunk: string) => void
+  sendInput: (chunk: string) => boolean | void
   terminal: TerminalLike
 }): (() => void) => {
   const resolve = createAlternateScreenWheelInputResolver(terminal, profile)

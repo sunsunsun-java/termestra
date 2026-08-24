@@ -1,0 +1,145 @@
+.terminal-bookmark-rail {
+  position: absolute;
+  z-index: 8;
+  inset: 0 auto 0 0;
+  width: 24px;
+  overflow: visible;
+  background: linear-gradient(90deg, transparent, transparent);
+  pointer-events: none;
+  transition: width var(--dur-base) ease, background var(--dur-base) ease;
+}
+
+.terminal-bookmark-rail:hover,
+.terminal-bookmark-rail:focus-within {
+  width: min(330px, 72%);
+  background: linear-gradient(90deg, rgba(14, 14, 14, 0.97) 0 72%, transparent);
+}
+
+.terminal-bookmark-rail__activation {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 6px;
+  pointer-events: auto;
+}
+
+.terminal-bookmark-rail__hint {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  width: 120px;
+  opacity: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.terminal-bookmark-rail__hint strong {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.terminal-bookmark-rail__hint small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.terminal-bookmark-rail:hover .terminal-bookmark-rail__hint,
+.terminal-bookmark-rail:focus-within .terminal-bookmark-rail__hint {
+  opacity: 1;
+}
+
+.terminal-bookmark-rail button {
+  position: absolute;
+  left: 0;
+  display: flex;
+  width: 24px;
+  height: 8px;
+  align-items: center;
+  gap: 11px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  text-align: left;
+  transform: translateY(-50%);
+  transition: width var(--dur-base) ease;
+}
+
+.terminal-bookmark-rail:hover button,
+.terminal-bookmark-rail:focus-within button {
+  width: min(320px, 100%);
+}
+
+.terminal-bookmark-rail__tick {
+  width: 16px;
+  height: 2px;
+  flex: 0 0 auto;
+  background: var(--text-extra-light);
+  transition: width var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+
+.terminal-bookmark-rail button:hover .terminal-bookmark-rail__tick,
+.terminal-bookmark-rail button:focus-visible .terminal-bookmark-rail__tick,
+.terminal-bookmark-rail button.is-active .terminal-bookmark-rail__tick {
+  width: 24px;
+  background: var(--text-primary);
+}
+
+.terminal-bookmark-rail__card {
+  position: absolute;
+  top: 50%;
+  left: 28px;
+  display: flex;
+  min-width: 0;
+  width: min(250px, calc(100% - 44px));
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-md);
+  opacity: 0;
+  background: var(--bg-2);
+  box-shadow: var(--shadow-elev-2);
+  pointer-events: none;
+  transform: translateX(-8px);
+  visibility: hidden;
+  transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease;
+}
+
+.terminal-bookmark-rail button:hover .terminal-bookmark-rail__card,
+.terminal-bookmark-rail button:focus-visible .terminal-bookmark-rail__card {
+  opacity: 1;
+  transform: translateX(0);
+  visibility: visible;
+}
+
+.terminal-bookmark-rail__card strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-bookmark-rail__card small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-bookmark-rail,
+  .terminal-bookmark-rail button,
+  .terminal-bookmark-rail__tick,
+  .terminal-bookmark-rail__card,
+  .terminal-bookmark-rail__hint {
+    transition: none;
+  }
+}

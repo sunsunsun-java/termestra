@@ -238,7 +238,7 @@ test('rejects input when the browser WebSocket send queue reaches its hard limit
     const { client, controlSocket, errors, ioSocket } = createClient()
     ioSocket.bufferedAmount = 1024 * 1024
 
-    client.sendInput('x')
+    assert.equal(client.sendInput('x'), false)
 
     assert.equal(errors.length, 1)
     assert.match(errors[0], /input exceeded the safe buffer/i)
@@ -256,8 +256,8 @@ test('accepts text and binary input exactly at the backend 256 KiB message limit
     const unicodeAtLimit = `${'你'.repeat(87_381)}a`
     assert.equal(new TextEncoder().encode(unicodeAtLimit).byteLength, 256 * 1024)
 
-    client.sendInput(unicodeAtLimit)
-    client.sendBinaryInput('x'.repeat(256 * 1024))
+    assert.equal(client.sendInput(unicodeAtLimit), true)
+    assert.equal(client.sendBinaryInput('x'.repeat(256 * 1024)), true)
 
     assert.deepEqual(errors, [])
     assert.equal(ioSocket.sent[0], unicodeAtLimit)
@@ -275,7 +275,7 @@ test('rejects text and binary input one byte above the backend message limit', (
     const unicodeOverLimit = `${'你'.repeat(87_381)}ab`
     assert.equal(new TextEncoder().encode(unicodeOverLimit).byteLength, 256 * 1024 + 1)
 
-    textPair.client.sendInput(unicodeOverLimit)
+    assert.equal(textPair.client.sendInput(unicodeOverLimit), false)
 
     assert.equal(textPair.errors.length, 1)
     assert.match(textPair.errors[0], /256 KiB message limit/i)
@@ -285,7 +285,7 @@ test('rejects text and binary input one byte above the backend message limit', (
 
     FakeWebSocket.instances = []
     const binaryPair = createClient()
-    binaryPair.client.sendBinaryInput('x'.repeat(256 * 1024 + 1))
+    assert.equal(binaryPair.client.sendBinaryInput('x'.repeat(256 * 1024 + 1)), false)
 
     assert.equal(binaryPair.errors.length, 1)
     assert.match(binaryPair.errors[0], /256 KiB message limit/i)
