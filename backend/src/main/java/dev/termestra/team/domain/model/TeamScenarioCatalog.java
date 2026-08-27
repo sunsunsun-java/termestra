@@ -102,8 +102,6 @@ public final class TeamScenarioCatalog {
         return SCENARIOS.stream().filter(scenario -> scenario.id().equals(id)).findFirst();
     }
 
-    public static List<TeamScenario> all() { return SCENARIOS; }
-
     private static TeamScenario.MemberSpec member(String stem, AgentRole role, String english) {
         // Built-in role contracts remain English across locales so CLI agents
         // receive one stable instruction vocabulary.

@@ -1,4 +1,4 @@
-export interface WorkspaceColor {
+interface WorkspaceColor {
   token: string
   label: string
 }

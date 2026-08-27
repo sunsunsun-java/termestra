@@ -1,4 +1,4 @@
-export const agentStatuses = ['idle', 'working', 'stopped'] as const
+const agentStatuses = ['idle', 'working', 'stopped'] as const
 
 export type AgentStatus = (typeof agentStatuses)[number]
 

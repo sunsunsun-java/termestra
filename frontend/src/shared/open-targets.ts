@@ -27,16 +27,6 @@ export const isOpenTargetSupported = (
   platform: OpenTargetPlatform
 ): boolean => OPEN_TARGET_IDS_BY_PLATFORM[platform].includes(targetId)
 
-/**
- * The id the server will actually attempt to launch. A stale or unknown saved
- * preference falls back to Finder rather than breaking the button.
- */
-export const getEffectiveOpenTargetId = (
-  targetId: OpenTargetId,
-  platform: OpenTargetPlatform
-): OpenTargetId =>
-  isOpenTargetSupported(targetId, platform) ? targetId : getDefaultOpenTargetId()
-
 export const getDefaultOpenTargetId = (): OpenTargetId => 'finder'
 
 export type OpenWorkspaceErrorCode =

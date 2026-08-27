@@ -42,7 +42,7 @@ platform validation item explicitly says otherwise.
 - [x] Dual-channel terminal WebSocket protocol and browser-compatible text output frames.
 - [x] Restore, resize, exit, error, acknowledgement, and real PTY WebSocket coverage.
 - [x] Cell-oriented headless terminal mirror and per-viewer high/low-water flow control.
-- [x] Current-Run Orchestrator input bookmarks with bounded xterm markers, accessible navigation, and explicit non-durable scope.
+- [x] Codex-style continuous current-Run scrollback with optional bounded Orchestrator input bookmarks and explicit restore limits.
 - [x] Tasks document migration, watcher, writes, and tasks WebSocket.
 - [x] Auto-generated, version-refreshed `.termestra/PROTOCOL.md` recovery guide without needless rewrites.
 

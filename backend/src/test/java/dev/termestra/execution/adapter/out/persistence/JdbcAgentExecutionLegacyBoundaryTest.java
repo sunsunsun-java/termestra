@@ -9,6 +9,7 @@ import dev.termestra.execution.application.port.out.AgentDescriptor;
 import dev.termestra.execution.application.port.out.AgentRecoveryContextProvider;
 import dev.termestra.execution.application.port.out.AgentSessionCapture;
 import dev.termestra.execution.application.service.AgentExecutionService;
+import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
 import dev.termestra.platform.persistence.sqlite.SqliteDatabase;
 import dev.termestra.platform.persistence.sqlite.SqliteSchemaMigrator;
 import org.junit.jupiter.api.Test;
@@ -162,7 +163,8 @@ class JdbcAgentExecutionLegacyBoundaryTest {
                 sessionCapture,
                 (presetId, command) -> List.of(),
                 recovery,
-                Clock.fixed(Instant.parse("2026-08-11T00:00:00Z"), ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-08-11T00:00:00Z"), ZoneOffset.UTC),
+                new RuntimeOperationCoordinator());
     }
 
     private record LegacyConfiguration(String command, String argumentsJson,

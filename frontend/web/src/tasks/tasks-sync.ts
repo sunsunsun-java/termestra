@@ -191,7 +191,7 @@ interface TasksStreamOptions {
   workspaceId: string
 }
 
-export interface TasksStream {
+interface TasksStream {
   dispose: () => void
 }
 

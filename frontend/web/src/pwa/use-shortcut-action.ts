@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
 
-export type ShortcutAction = 'add-workspace' | 'try-demo'
+type ShortcutAction = 'add-workspace' | 'try-demo'
 
-export interface UseShortcutActionOptions {
+interface UseShortcutActionOptions {
   onAddWorkspace: () => void
   onTryDemo: () => void
   /** Wait until bootstrap has either succeeded or reached an explicit error. */

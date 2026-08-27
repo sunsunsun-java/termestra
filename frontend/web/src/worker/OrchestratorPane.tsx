@@ -12,8 +12,6 @@ export type OrchestratorPaneState =
 
 type OrchestratorPaneProps = {
   state: OrchestratorPaneState
-  /** Kept for API stability; M6-B will surface stop via the ⌘K palette. */
-  onStop: () => void
   onRemoveWorkspace: () => void
   onStart: () => void
   onRestart: () => void
@@ -215,10 +213,6 @@ const FailedBody = ({
           {t('orchestrator.removeWorkspace')}
         </button>
       </div>
-      {/* Header retry was a duplicate; alias kept for back-compat. */}
-      <span data-testid="orchestrator-retry-header" className="sr-only">
-        {t('common.retry')}
-      </span>
     </section>
   )
 }

@@ -16,6 +16,7 @@ import dev.termestra.execution.application.port.out.PseudoTerminalLauncher;
 import dev.termestra.execution.application.port.out.ProcessLaunchRequest;
 import dev.termestra.execution.domain.model.AgentLaunchConfiguration;
 import dev.termestra.execution.domain.model.RunStatus;
+import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -79,7 +80,8 @@ class AgentExecutionServiceConcurrencyTest {
                 noSessionCapture(),
                 (presetId, command) -> List.of(),
                 noRecovery(),
-                Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC),
+                new RuntimeOperationCoordinator());
         ExecutorService starts = Executors.newFixedThreadPool(2);
 
         try {
@@ -431,7 +433,7 @@ class AgentExecutionServiceConcurrencyTest {
                 (workspaceId, agentId) -> Optional.of(agent),
                 credentials(), launcher, noSessionCapture(), (presetId, command) -> List.of(), noRecovery(),
                 Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC),
-                new RunCapacityBudget(1, 1));
+                new RuntimeOperationCoordinator(),new RunCapacityBudget(1, 1));
 
         try {
             assertThrows(IllegalStateException.class,
@@ -465,7 +467,7 @@ class AgentExecutionServiceConcurrencyTest {
                     TestPty pty=new TestPty(90+processes.size());processes.add(pty);return pty;
                 },noSessionCapture(),(presetId,command)->List.of(),noRecovery(),
                 Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"),ZoneOffset.UTC),
-                new RunCapacityBudget(1,1));
+                new RuntimeOperationCoordinator(),new RunCapacityBudget(1,1));
 
         try{
             AgentRunView first=service.start(new StartAgentCommand(WORKSPACE_ID,AGENT_ID,"4010"));
@@ -508,7 +510,8 @@ class AgentExecutionServiceConcurrencyTest {
         AgentExecutionService service=new AgentExecutionService(repository,
                 (workspaceId,agentId)->Optional.of(agent),credentials(),ignored->pty,failingCleanup,
                 (presetId,command)->List.of(),noRecovery(),
-                Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"),ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"),ZoneOffset.UTC),
+                new RuntimeOperationCoordinator());
 
         try{
             AgentRunView run=service.start(new StartAgentCommand(WORKSPACE_ID,AGENT_ID,"4010"));
@@ -528,7 +531,8 @@ class AgentExecutionServiceConcurrencyTest {
                 (workspaceId, agentId) -> workspaceId.equals(WORKSPACE_ID) && agentId.equals(AGENT_ID)
                         ? Optional.of(agent) : Optional.empty(),
                 credentials(), launcher, noSessionCapture(), (presetId, command) -> List.of(), noRecovery(),
-                Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC),
+                new RuntimeOperationCoordinator());
     }
 
     private static int indexContaining(List<String> values, String expected) {

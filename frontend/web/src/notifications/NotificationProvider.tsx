@@ -29,7 +29,7 @@ interface NotificationApi {
   updateSettings: (patch: Partial<NotificationSettings>) => void
 }
 
-export const NOTIFICATION_SETTINGS_KEY = 'termestra.notification.settings'
+const NOTIFICATION_SETTINGS_KEY = 'termestra.notification.settings'
 
 const DEFAULT_SETTINGS: NotificationSettings = {
   desktop: false,

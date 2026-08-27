@@ -16,10 +16,7 @@ export const initialTerminalRunsPollState = (): TerminalRunsPollState => ({
   stale: false,
 })
 
-export const terminalRunsAfterSuccess = (
-  previous: Pick<TerminalRunsPollState, 'runs'>,
-  runs: TerminalRunSummary[]
-): TerminalRunsPollState => ({
+export const terminalRunsAfterSuccess = (runs: TerminalRunSummary[]): TerminalRunsPollState => ({
   failureCount: 0,
   initialized: true,
   runs,

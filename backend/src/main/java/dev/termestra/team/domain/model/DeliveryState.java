@@ -13,8 +13,4 @@ public enum DeliveryState {
 
     DeliveryState(String wireValue) { this.wireValue = wireValue; }
     public String wireValue() { return wireValue; }
-    public static DeliveryState parse(String value) {
-        for (DeliveryState state : values()) if (state.wireValue.equals(value)) return state;
-        throw new IllegalArgumentException("Unknown delivery state: " + value);
-    }
 }

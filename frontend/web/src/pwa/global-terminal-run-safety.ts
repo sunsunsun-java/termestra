@@ -1,6 +1,6 @@
 import type { TerminalRunSummary } from '../api.js'
 
-export const GLOBAL_TERMINAL_PROBE_CONCURRENCY = 4
+const GLOBAL_TERMINAL_PROBE_CONCURRENCY = 4
 
 export interface GlobalTerminalRunSnapshot {
   failure?: unknown

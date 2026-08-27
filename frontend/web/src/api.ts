@@ -146,7 +146,7 @@ export interface RoleTemplate {
   roleType: WorkerRole | 'orchestrator'
 }
 
-export interface RoleTemplateInput {
+interface RoleTemplateInput {
   description: string
   name: string
   roleType: WorkerRole | 'orchestrator'
@@ -201,7 +201,7 @@ const toRoleTemplateBody = (input: RoleTemplateInput) => ({
   default_env: {},
 })
 
-export interface AgentStartResult {
+interface AgentStartResult {
   error: string | null
   ok: boolean
   runId: string | null
@@ -213,14 +213,14 @@ interface AgentStartPayload {
   run_id: string | null
 }
 
-export interface CreateWorkerResult {
+interface CreateWorkerResult {
   agentStart: AgentStartResult
   worker: TeamListItem
 }
 
 type CreateWorkerPayload = TeamListItemPayload & { agent_start?: AgentStartPayload }
 
-export interface AppliedScenarioWorker {
+interface AppliedScenarioWorker {
   id: string
   name: string
   role: WorkerRole
@@ -230,7 +230,7 @@ export interface AppliedScenarioWorker {
   }
 }
 
-export interface AppliedTeamScenarioResult {
+interface AppliedTeamScenarioResult {
   createdWorkers: AppliedScenarioWorker[]
   injected: boolean
 }
@@ -301,20 +301,6 @@ export const stopAgentRun = async (runId: string): Promise<void> => {
   }
 }
 
-export const restartAgentRun = async (
-  workspaceId: string,
-  agentId: string,
-  runId: string
-): Promise<{ runId: string }> => {
-  // Best-effort stop: a 404 here often means the run already exited on its
-  // own; either way we proceed to start a fresh one. Swallowed errors land in
-  // the dev console for diagnosis.
-  await stopAgentRun(runId).catch((error: unknown) => {
-    console.error('[termestra] swallowed:restartAgentRun.stop', error)
-  })
-  return startAgentRun(workspaceId, agentId)
-}
-
 export const getActiveWorkspaceId = async (signal?: AbortSignal): Promise<string | null> => {
   const response = await apiFetch(
     '/api/settings/app-state/active_workspace_id',
@@ -363,7 +349,7 @@ export const listWorkers = async (
   return payload.map(fromPayload)
 }
 
-export type DispatchDeliveryState =
+type DispatchDeliveryState =
   | 'pending'
   | 'delivering'
   | 'retry_wait'
@@ -504,7 +490,7 @@ export interface TerminalRunSummary {
   terminal_input_profile?: TerminalInputProfile
 }
 
-export const workspaceShellAgentId = (workspaceId: string): string => `${workspaceId}:shell`
+const workspaceShellAgentId = (workspaceId: string): string => `${workspaceId}:shell`
 
 export const isWorkspaceShellRun = (run: TerminalRunSummary, workspaceId: string): boolean =>
   run.agent_id === workspaceShellAgentId(workspaceId)
@@ -557,23 +543,6 @@ export const createRoleTemplate = async (input: RoleTemplateInput): Promise<Role
 
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, 'Failed to create role template'))
-  }
-
-  return fromRoleTemplatePayload((await response.json()) as RoleTemplatePayload)
-}
-
-export const updateRoleTemplate = async (
-  templateId: string,
-  input: RoleTemplateInput
-): Promise<RoleTemplate> => {
-  const response = await apiFetch(`/api/settings/role-templates/${templateId}`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(toRoleTemplateBody(input)),
-  })
-
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, 'Failed to update role template'))
   }
 
   return fromRoleTemplatePayload((await response.json()) as RoleTemplatePayload)
@@ -887,7 +856,7 @@ export type WorkspaceRevisionSelectionPayload =
   | { kind: 'current'; selection_token?: string | null }
   | { kind: 'local_branch'; name: string; selection_token: string }
 
-export interface WorkspaceRegistrationBranch {
+interface WorkspaceRegistrationBranch {
   blocked_reason: string | null
   current: boolean
   name: string

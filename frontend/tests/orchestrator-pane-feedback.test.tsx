@@ -13,7 +13,6 @@ const renderPane = (
     onRemoveWorkspace: vi.fn(),
     onRestart: vi.fn(),
     onStart: vi.fn(),
-    onStop: vi.fn(),
   }
 ) => {
   window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'en')

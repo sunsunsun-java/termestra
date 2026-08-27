@@ -6,7 +6,7 @@ import { useI18n } from '../i18n.js'
 import {
   type ServiceWorkerUpdateApply,
   subscribeServiceWorkerUpdate,
-} from './register-service-worker.js'
+} from './service-worker-registration.js'
 import { isServiceWorkerReloadSafe } from './service-worker-update-policy.js'
 import { useGlobalTerminalRunSafety } from './useGlobalTerminalRunSafety.js'
 

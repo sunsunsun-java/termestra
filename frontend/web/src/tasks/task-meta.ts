@@ -1,4 +1,4 @@
-export type PillTone = 'green' | 'orange' | 'red' | 'neutral'
+type PillTone = 'green' | 'orange' | 'red' | 'neutral'
 
 export type TaskMetaItem =
   | { kind: 'owner'; value: string }

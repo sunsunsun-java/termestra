@@ -39,7 +39,7 @@ const buildWorkerLookup = (names: readonly string[]): Map<string, string> => {
   return lookup
 }
 
-export interface ParseTaskMarkdownOptions {
+interface ParseTaskMarkdownOptions {
   /**
    * When provided, only `@<name>` tokens whose lowercased form matches an
    * entry in this list are kept as `mentions`. Unknown / email-like tokens

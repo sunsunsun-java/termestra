@@ -1,6 +1,6 @@
 import type { IMarker } from '@xterm/xterm'
 
-export const MAX_TERMINAL_BOOKMARKS = 200
+const MAX_TERMINAL_BOOKMARKS = 200
 const MAX_PREVIEW_LENGTH = 96
 
 export type TerminalBookmark = {

@@ -12,7 +12,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-export type CliAgentIcon = {
+type CliAgentIcon = {
   Icon: LucideIcon
   label: string
   tone: string

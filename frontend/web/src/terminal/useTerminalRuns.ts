@@ -64,7 +64,6 @@ export const useTerminalRuns = (workspaceId: string | null): TerminalRunsPollSta
                 : initialTerminalRunsPollState()
             return {
               state: terminalRunsAfterSuccess(
-                previous,
                 areTerminalRunsEqual(previous.runs, runs) ? previous.runs : runs
               ),
               workspaceId,

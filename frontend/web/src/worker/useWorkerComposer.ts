@@ -27,7 +27,7 @@ interface UseWorkerComposerInput {
 type ModelSelection = { mode: ModelSelectionMode; modelId: string }
 const DEFAULT_MODEL_SELECTION: ModelSelection = { mode: 'default', modelId: '' }
 
-export interface WorkerComposerState {
+interface WorkerComposerState {
   commandPresets: CommandPreset[]
   commandPresetId: string
   modelId: string

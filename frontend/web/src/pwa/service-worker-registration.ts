@@ -24,11 +24,7 @@ export const __resetServiceWorkerUpdateStateForTests = (): void => {
   currentApply = null
 }
 
-export const __setServiceWorkerUpdateForTests = (apply: ServiceWorkerUpdateApply | null): void => {
-  setUpdateApply(apply)
-}
-
-export interface ServiceWorkerEnv {
+interface ServiceWorkerEnv {
   isProd: boolean
   serviceWorker: ServiceWorkerContainer | null
   reload: () => void

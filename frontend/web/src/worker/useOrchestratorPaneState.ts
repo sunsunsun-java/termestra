@@ -25,7 +25,6 @@ interface UseOrchestratorPaneStateInput {
 interface UseOrchestratorPaneStateOutput {
   state: OrchestratorPaneState
   start: () => void
-  stop: () => void
   restart: () => void
 }
 
@@ -131,13 +130,6 @@ export const useOrchestratorPaneState = ({
     workspaceId,
   ])
 
-  const stop = useCallback(() => {
-    if (!orchestratorRun) return
-    void stopAgentRun(orchestratorRun.run_id).catch((error: unknown) => {
-      console.error('[termestra] swallowed:orchestrator.stop', error)
-    })
-  }, [orchestratorRun])
-
   const restart = useCallback(() => {
     onClearAutostartError()
     if (orchestratorRun) {
@@ -170,5 +162,5 @@ export const useOrchestratorPaneState = ({
     start()
   }, [agentId, language, onAfterStart, onClearAutostartError, orchestratorRun, start, workspaceId])
 
-  return { state, start, stop, restart }
+  return { state, start, restart }
 }

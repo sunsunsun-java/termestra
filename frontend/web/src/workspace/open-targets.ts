@@ -21,7 +21,7 @@ import {
 export type { OpenTargetId, OpenTargetPlatform }
 export { getDefaultOpenTargetId, isOpenTargetSupported, OPEN_TARGET_IDS_BY_PLATFORM }
 
-export interface OpenTargetOption {
+interface OpenTargetOption {
   id: OpenTargetId
   /**
    * i18n key for the display label. Translation lives in `i18n.tsx` so Finder
@@ -117,7 +117,7 @@ export const getOpenTargetOptions = (platform: OpenTargetPlatform): readonly Ope
  */
 export const resolveOpenTargetPlatform = (): OpenTargetPlatform => 'mac'
 
-export const PREFERRED_OPEN_TARGET_STORAGE_KEY = 'termestra.openTarget.preferred'
+const PREFERRED_OPEN_TARGET_STORAGE_KEY = 'termestra.openTarget.preferred'
 
 const readPreferredOpenTargetRaw = (): string | null => {
   try {

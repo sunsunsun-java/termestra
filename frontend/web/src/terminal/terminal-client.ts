@@ -32,7 +32,7 @@ const MAX_INPUT_MESSAGE_BYTES = 256 * 1024
 const MAX_SOCKET_BUFFERED_BYTES = 1024 * 1024
 const RESTORE_TIMEOUT_MS = 15_000
 
-export interface TerminalClient {
+interface TerminalClient {
   dispose: () => void
   resize: (cols: number, rows: number, pixelWidth?: number, pixelHeight?: number) => void
   sendBinaryInput: (chunk: string) => boolean

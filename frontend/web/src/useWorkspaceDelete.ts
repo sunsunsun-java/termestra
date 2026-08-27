@@ -15,7 +15,7 @@ type WorkspaceDeleteOptions = {
   workspaces: WorkspaceSummary[] | null
 }
 
-export const getNextWorkspaceIdAfterDelete = (
+const getNextWorkspaceIdAfterDelete = (
   workspaces: WorkspaceSummary[],
   deletedWorkspaceId: string
 ): string | null => {

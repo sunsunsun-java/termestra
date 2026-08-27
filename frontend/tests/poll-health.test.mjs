@@ -12,7 +12,7 @@ import {
 } from '../web/src/terminal/terminal-runs-state.ts'
 
 test('terminal polling failures preserve the last-known-good runs and mark them stale', () => {
-  const previous = terminalRunsAfterSuccess([], [
+  const previous = terminalRunsAfterSuccess([
     { agent_id: 'a', agent_name: 'A', run_id: 'r', status: 'running' },
   ])
   const failed = terminalRunsAfterFailure(previous)

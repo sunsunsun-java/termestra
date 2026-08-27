@@ -80,12 +80,6 @@ export const createAlternateScreenWheelInputResolver = (
   }
 }
 
-export const getAlternateScreenWheelInput = (
-  terminal: TerminalLike,
-  event: WheelEventData,
-  profile: TerminalWheelInputProfile = 'default'
-): string | null => createAlternateScreenWheelInputResolver(terminal, profile)(event).input
-
 export const attachAlternateScreenWheelFallback = ({
   element,
   profile = 'default',

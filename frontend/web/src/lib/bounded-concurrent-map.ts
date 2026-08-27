@@ -1,6 +1,6 @@
 export const MAX_BOUNDED_MAP_CONCURRENCY = 4
 
-export type BoundedMapSettledResult<Item, Value> =
+type BoundedMapSettledResult<Item, Value> =
   | {
       index: number
       item: Item

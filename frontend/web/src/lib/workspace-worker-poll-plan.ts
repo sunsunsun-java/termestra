@@ -12,7 +12,7 @@ interface WorkspaceWorkerPollPlanInput {
   workspaceIds: readonly string[]
 }
 
-export interface WorkspacePollHealth {
+interface WorkspacePollHealth {
   failureCount: number
   lastAttemptAt: number
 }

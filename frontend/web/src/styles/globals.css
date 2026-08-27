@@ -1233,13 +1233,6 @@ html, body {
 }
 
 
-/* Deprecated — kept only for compat; prefer `.app-overlay` on a
-   <Dialog.Overlay> element. M6-A migrated all known callers; remove this
-   class in M6-D收口 once external code (if any) is verified. */
-.modal-backdrop {
-  background: var(--bg-overlay);
-}
-
 /* Dialog.Overlay surface — Twenty uses a flat 72% black backdrop, no blur.
    The previous implementation layered blur(10px) + saturate(140%); dropped to match. */
 .app-overlay {

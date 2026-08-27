@@ -19,12 +19,6 @@ public final class TeamScenarioApplicationService implements ApplyTeamScenarioUs
 
     public TeamScenarioApplicationService(TeamMemberRepository members,
                                           MemberProvisioningRepository provisioning,
-                                          TeamScenarioRuntime runtime, Clock clock) {
-        this(members,provisioning,runtime,clock,new RuntimeOperationCoordinator());
-    }
-
-    public TeamScenarioApplicationService(TeamMemberRepository members,
-                                          MemberProvisioningRepository provisioning,
                                           TeamScenarioRuntime runtime, Clock clock,
                                           RuntimeOperationCoordinator operations) {
         this.members = members;

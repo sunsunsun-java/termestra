@@ -46,7 +46,7 @@ class TeamApplicationServiceRollbackTest {
         };
         JdbcTeamLedger ledger=new JdbcTeamLedger(database,new ObjectMapper());
         PendingTaskProjection pending=new PendingTaskProjection(ledger);
-        TeamApplicationService service=new TeamApplicationService(ledger,members,(id,token)->true,unavailable,
+        TeamApplicationService service=service(ledger,members,(id,token)->true,unavailable,
                 workspaceId->java.util.Set.of(),pending,Clock.systemUTC());
 
         TeamOperationResult accepted=service.send(new SendTaskCommand(workspace,workspace+":orchestrator","token","Alice","Build it","4010"));
@@ -64,7 +64,7 @@ class TeamApplicationServiceRollbackTest {
         JdbcTeamLedger ledger=new JdbcTeamLedger(database,new ObjectMapper());
         PendingTaskProjection pending=new PendingTaskProjection(ledger);
         AgentTeamNotifier uncertain=notifierReturning(DeliveryResult.uncertain("PTY closed after input write started"));
-        TeamApplicationService service=new TeamApplicationService(ledger,members,(id,token)->true,uncertain,
+        TeamApplicationService service=service(ledger,members,(id,token)->true,uncertain,
                 workspaceId->java.util.Set.of(),pending,Clock.systemUTC());
 
         TeamOperationResult accepted=service.send(
@@ -95,7 +95,7 @@ class TeamApplicationServiceRollbackTest {
             }
         };
         PendingTaskProjection pending=new PendingTaskProjection(durableLedger);
-        TeamApplicationService service=new TeamApplicationService(failingAcknowledgement,members,(id,token)->true,
+        TeamApplicationService service=service(failingAcknowledgement,members,(id,token)->true,
                 notifierReturning(new DeliveryResult(true,null)),workspaceId->java.util.Set.of(),pending,Clock.systemUTC());
 
         service.send(new SendTaskCommand(workspace,workspace+":orchestrator","token","Alice","Build it","4010"));
@@ -134,7 +134,7 @@ class TeamApplicationServiceRollbackTest {
         };
         JdbcTeamLedger ledger=new JdbcTeamLedger(database,new ObjectMapper());
         PendingTaskProjection pending=new PendingTaskProjection(ledger);
-        TeamApplicationService service=new TeamApplicationService(ledger,members,(id,token)->true,notifier,
+        TeamApplicationService service=service(ledger,members,(id,token)->true,notifier,
                 workspaceId->java.util.Set.of(worker.id().toString()),pending,Clock.systemUTC());
         TeamOperationResult sent=service.send(new SendTaskCommand(workspace,workspace+":orchestrator","token","Alice","Build it","4010"));
 
@@ -178,7 +178,7 @@ class TeamApplicationServiceRollbackTest {
             @Override public DeliveryResult cancel(Dispatch dispatch,TeamMember member){notifications.add("cancel");return new DeliveryResult(true,null);}
         };
         JdbcTeamLedger ledger=new JdbcTeamLedger(database,new ObjectMapper());
-        TeamApplicationService service=new TeamApplicationService(ledger,members,(id,token)->true,notifier,
+        TeamApplicationService service=service(ledger,members,(id,token)->true,notifier,
                 ignored->java.util.Set.of(),new PendingTaskProjection(ledger),Clock.systemUTC());
 
         TeamOperationResult cancelled=service.cancel(new CancelTaskCommand(workspace,
@@ -216,7 +216,7 @@ class TeamApplicationServiceRollbackTest {
                 return cancelled;
             }
         };
-        TeamApplicationService service=new TeamApplicationService(deletingLedger,members,(id,token)->true,
+        TeamApplicationService service=service(deletingLedger,members,(id,token)->true,
                 notifierReturning(new DeliveryResult(true,null)),ignored->java.util.Set.of(),
                 new PendingTaskProjection(durableLedger),Clock.systemUTC());
         TeamOperationResult sent=service.send(new SendTaskCommand(
@@ -250,7 +250,7 @@ class TeamApplicationServiceRollbackTest {
             @Override public DeliveryResult cancel(Dispatch value,TeamMember member){return DeliveryResult.unavailable("unused");}
         };
 
-        TeamApplicationService restarted=new TeamApplicationService(ledger,members,(id,token)->true,unused,
+        TeamApplicationService restarted=service(ledger,members,(id,token)->true,unused,
                 ignored->java.util.Set.of(),new PendingTaskProjection(ledger),Clock.systemUTC());
 
         var view=restarted.listForUi(workspace).getFirst();
@@ -307,7 +307,7 @@ class TeamApplicationServiceRollbackTest {
             @Override public DeliveryResult cancel(Dispatch dispatch, TeamMember member) { return DeliveryResult.unavailable("unused"); }
         };
         RuntimeOperationCoordinator operations = new RuntimeOperationCoordinator();
-        TeamApplicationService team = new TeamApplicationService(ledger, members, (id, token) -> true,
+        TeamApplicationService team = service(ledger, members, (id, token) -> true,
                 notifier, ignored -> java.util.Set.of(), new PendingTaskProjection(ledger),
                 Clock.systemUTC(), operations);
         AtomicBoolean runtimeCleaned = new AtomicBoolean();
@@ -341,6 +341,23 @@ class TeamApplicationServiceRollbackTest {
         });
     }
 
+    private static TeamApplicationService service(TeamLedger ledger,TeamMemberRepository members,
+                                                   AgentAuthenticator authenticator,
+                                                   AgentTeamNotifier notifier,
+                                                   WorkerRuntimeStatus runtime,
+                                                   PendingTaskProjection pendingTasks,Clock clock){
+        return service(ledger,members,authenticator,notifier,runtime,pendingTasks,clock,
+                new RuntimeOperationCoordinator());
+    }
+    private static TeamApplicationService service(TeamLedger ledger,TeamMemberRepository members,
+                                                   AgentAuthenticator authenticator,
+                                                   AgentTeamNotifier notifier,
+                                                   WorkerRuntimeStatus runtime,
+                                                   PendingTaskProjection pendingTasks,Clock clock,
+                                                   RuntimeOperationCoordinator operations){
+        return new TeamApplicationService(ledger,members,authenticator,notifier,runtime,pendingTasks,
+                clock,operations,()->{});
+    }
     private SqliteDatabase database(String name){SqliteDatabase database=new SqliteDatabase(tempDirectory.resolve(name));new SqliteSchemaMigrator(database,Clock.systemUTC()).migrate();return database;}
     private static String seedWorkspace(SqliteDatabase database){
         String workspace=UUID.randomUUID().toString();

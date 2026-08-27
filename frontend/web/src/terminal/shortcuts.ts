@@ -1,4 +1,4 @@
-export type TerminalShortcutAction =
+type TerminalShortcutAction =
   | { kind: 'send'; bytes: string }
   | { kind: 'clear' }
   | { kind: 'block' }
@@ -26,7 +26,7 @@ const MAC_CHORDS: Readonly<Record<string, TerminalShortcutAction>> = {
   'meta:k': { kind: 'clear' },
 }
 
-export const isMacPlatform = (): boolean =>
+const isMacPlatform = (): boolean =>
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 
 const macChord = (event: KeyboardEvent): string | null => {

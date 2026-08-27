@@ -10,7 +10,7 @@ interface UiSessionErrorPayload {
   error_code?: unknown
 }
 
-export interface UiSessionFetch {
+interface UiSessionFetch {
   fetch: UiSessionRequest
   initialize: () => Promise<void>
 }

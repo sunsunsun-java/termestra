@@ -258,7 +258,6 @@ export const WorkspaceDetail = ({
         >
           <OrchestratorPane
             state={orchestrator.state}
-            onStop={orchestrator.stop}
             onRemoveWorkspace={() => {
               void onDeleteWorkspace(workspace).catch((error: unknown) => {
                 const message = error instanceof Error ? error.message : String(error)

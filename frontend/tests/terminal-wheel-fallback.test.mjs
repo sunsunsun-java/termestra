@@ -16,3 +16,16 @@ test('pixel wheel input resolves without requiring a global WheelEvent construct
     input: '\u001b[B',
   })
 })
+
+test('normal-buffer wheel input stays with xterm native scrollback', () => {
+  const terminal = {
+    buffer: { active: { type: 'normal' } },
+    modes: { applicationCursorKeysMode: false, mouseTrackingMode: 'none' },
+  }
+  const resolveWheelInput = createAlternateScreenWheelInputResolver(terminal)
+
+  assert.deepEqual(resolveWheelInput({ deltaMode: 0, deltaY: -64, shiftKey: false }), {
+    handled: false,
+    input: null,
+  })
+})

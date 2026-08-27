@@ -22,21 +22,6 @@ public final class TeamApplicationService implements TeamUseCase, TeamAdminUseCa
     private final RuntimeOperationCoordinator operations;
     private final DispatchDeliveryScheduler deliveryScheduler;
 
-    public TeamApplicationService(TeamLedger ledger, TeamMemberRepository members, AgentAuthenticator authenticator,
-                                  AgentTeamNotifier notifier, WorkerRuntimeStatus runtime,
-                                  PendingTaskProjection pendingTasks, Clock clock) {
-        this(ledger, members, authenticator, notifier, runtime, pendingTasks, clock,
-                new RuntimeOperationCoordinator(), () -> { });
-    }
-
-    public TeamApplicationService(TeamLedger ledger, TeamMemberRepository members, AgentAuthenticator authenticator,
-                                  AgentTeamNotifier notifier, WorkerRuntimeStatus runtime,
-                                  PendingTaskProjection pendingTasks, Clock clock,
-                                  RuntimeOperationCoordinator operations) {
-        this(ledger, members, authenticator, notifier, runtime, pendingTasks, clock, operations,
-                () -> { });
-    }
-
     public TeamApplicationService(TeamLedger ledger, TeamMemberRepository members,
                                   AgentAuthenticator authenticator, AgentTeamNotifier notifier,
                                   WorkerRuntimeStatus runtime, PendingTaskProjection pendingTasks,

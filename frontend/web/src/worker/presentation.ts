@@ -1,9 +1,9 @@
 import type { AgentStatus, TeamListItem, WorkerRole } from '../../../src/shared/types.js'
 
 export type WorkerStatusKind = AgentStatus
-export type WorkerRuntimeStatusKind = Extract<WorkerStatusKind, 'working' | 'stopped'>
+type WorkerRuntimeStatusKind = Extract<WorkerStatusKind, 'working' | 'stopped'>
 
-export interface WorkerStatusPresentation {
+interface WorkerStatusPresentation {
   kind: WorkerStatusKind
   dotClass: string
   tone: string
@@ -34,8 +34,8 @@ export const presentRuntimeStatus = (
   return { kind, ...STATUS_VISUALS[kind] }
 }
 
-export type RoleTranslationKey = `role.${WorkerRole}`
-export type StatusTranslationKey = 'common.idle' | 'common.running' | 'common.stopped'
+type RoleTranslationKey = `role.${WorkerRole}`
+type StatusTranslationKey = 'common.idle' | 'common.running' | 'common.stopped'
 
 export const roleTranslationKey = (role: WorkerRole): RoleTranslationKey => `role.${role}`
 

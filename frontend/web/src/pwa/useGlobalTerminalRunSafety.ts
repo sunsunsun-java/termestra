@@ -20,7 +20,7 @@ interface DesiredProbe {
   scopeKey: string
 }
 
-export interface GlobalTerminalRunSafety {
+interface GlobalTerminalRunSafety {
   snapshot: GlobalTerminalRunSnapshot
   verifyNow: () => Promise<GlobalTerminalRunSnapshot>
 }

@@ -5,7 +5,7 @@ interface VisiblePagePollerOptions {
 
 export type VisiblePagePollReason = 'initial' | 'scheduled' | 'visible'
 
-export interface VisiblePagePoller {
+interface VisiblePagePoller {
   dispose: () => void
   schedule: () => void
 }

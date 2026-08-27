@@ -88,7 +88,7 @@ const randomUint32 = (): number => {
   return buffer[0] ?? 0
 }
 
-export interface GenerateWorkerNameOptions {
+interface GenerateWorkerNameOptions {
   language?: UiLanguage
   role?: WorkerRole
   usedNames?: ReadonlySet<string>

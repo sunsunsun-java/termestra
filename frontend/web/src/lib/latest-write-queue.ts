@@ -1,4 +1,4 @@
-export interface LatestWriteQueue<T> {
+interface LatestWriteQueue<T> {
   enqueue: (value: T) => void
   whenIdle: () => Promise<void>
 }

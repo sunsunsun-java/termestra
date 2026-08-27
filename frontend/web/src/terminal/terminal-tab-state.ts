@@ -1,4 +1,4 @@
-export const MAX_TERMINAL_TABS = 64
+const MAX_TERMINAL_TABS = 64
 const MAX_TERMINAL_TAB_ID_CHARS = 512
 
 const isTerminalTabId = (value: unknown): value is string =>

@@ -4,7 +4,6 @@ import dev.termestra.execution.application.exception.*;
 import dev.termestra.execution.application.port.in.*;
 import dev.termestra.execution.application.port.out.*;
 import dev.termestra.execution.domain.model.*;
-import dev.termestra.shared.id.RunId;
 import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,11 +37,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
     private final AtomicBoolean closed=new AtomicBoolean();
 
     public AgentExecutionService(AgentExecutionRepository repository,AgentDirectory directory,AgentCredentialIssuer credentials,
-                                 PseudoTerminalLauncher launcher,AgentSessionCapture sessionCapture,CommandPresetPolicy presetPolicy,AgentRecoveryContextProvider recovery,Clock clock){this(repository,directory,credentials,launcher,sessionCapture,presetPolicy,recovery,clock,new RuntimeOperationCoordinator(),new RunCapacityBudget(MAX_ACTIVE_RUNS,MAX_ACTIVE_RUNS_PER_WORKSPACE));}
-    public AgentExecutionService(AgentExecutionRepository repository,AgentDirectory directory,AgentCredentialIssuer credentials,
                                  PseudoTerminalLauncher launcher,AgentSessionCapture sessionCapture,CommandPresetPolicy presetPolicy,AgentRecoveryContextProvider recovery,Clock clock,RuntimeOperationCoordinator operations){this(repository,directory,credentials,launcher,sessionCapture,presetPolicy,recovery,clock,operations,new RunCapacityBudget(MAX_ACTIVE_RUNS,MAX_ACTIVE_RUNS_PER_WORKSPACE));}
-    AgentExecutionService(AgentExecutionRepository repository,AgentDirectory directory,AgentCredentialIssuer credentials,
-                          PseudoTerminalLauncher launcher,AgentSessionCapture sessionCapture,CommandPresetPolicy presetPolicy,AgentRecoveryContextProvider recovery,Clock clock,RunCapacityBudget runCapacity){this(repository,directory,credentials,launcher,sessionCapture,presetPolicy,recovery,clock,new RuntimeOperationCoordinator(),runCapacity);}
     AgentExecutionService(AgentExecutionRepository repository,AgentDirectory directory,AgentCredentialIssuer credentials,
                           PseudoTerminalLauncher launcher,AgentSessionCapture sessionCapture,CommandPresetPolicy presetPolicy,
                           AgentRecoveryContextProvider recovery,Clock clock,RuntimeOperationCoordinator operations,
@@ -117,7 +112,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
         AgentLaunchConfiguration config=new AgentLaunchConfiguration(stored.command(),effectiveArguments,stored.commandPresetId(),stored.interactiveCommand(),stored.presetAugmentationDisabled(),stored.resumeArgsTemplate(),stored.sessionIdCaptureJson(),stored.environment(),stored.modelId(),stored.revision());
         RunCapacityBudget.Lease capacity=runCapacity.reserve(command.workspaceId());
         String token=null;PseudoTerminalHandle process=null;LiveRun live=null;
-        String runId=RunId.newId().toString();Instant started=Instant.now(clock);
+        String runId=UUID.randomUUID().toString();Instant started=Instant.now(clock);
         List<String> processCommand=new ArrayList<>();processCommand.add(config.command());processCommand.addAll(config.arguments());
         Map<String,String> env=new HashMap<>(config.environment());env.put("TERM","xterm-256color");env.put("COLORTERM","truecolor");env.put("FORCE_COLOR","1");
         env.put("TERM_PROGRAM","termestra");capture.ifPresent(value->env.putAll(value.environment()));env.put("TERMESTRA_PORT",Objects.requireNonNullElse(command.runtimePort(),""));

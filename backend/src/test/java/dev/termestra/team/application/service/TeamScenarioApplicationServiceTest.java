@@ -5,6 +5,7 @@ import dev.termestra.team.application.port.in.ApplyTeamScenarioCommand;
 import dev.termestra.team.application.exception.TeamConflict;
 import dev.termestra.team.application.port.out.*;
 import dev.termestra.team.domain.model.TeamMember;
+import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -78,7 +79,7 @@ class TeamScenarioApplicationServiceTest {
 
     private static TeamScenarioApplicationService service(InMemoryMembers members, TeamScenarioRuntime runtime) {
         return new TeamScenarioApplicationService(members, (member, plan) -> members.save(member), runtime,
-                Clock.systemUTC());
+                Clock.systemUTC(),new RuntimeOperationCoordinator());
     }
 
     private static ApplyTeamScenarioCommand command(String workspaceId) {

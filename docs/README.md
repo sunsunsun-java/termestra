@@ -23,7 +23,7 @@
 | [`architecture/`](architecture/README.md) | 当前系统如何工作 | 与代码同步；只写已经实现的架构 |
 | [`adr/`](adr/README.md) | 已接受的长期决策及其理由 | 历史记录；改变决策时新增“取代”记录 |
 | [`design/`](design/reliable-dispatch.md) | 复杂机制的实现级设计 | 以当前实现为基线，算法变化时更新 |
-| [`research/`](research/pi-orchestrator-assessment.md) | 外部项目或方案评估 | 参考材料，不定义 Termestra 产品行为 |
+| [`research/`](research/README.md) | 外部项目或方案评估 | 参考材料，不定义 Termestra 产品行为 |
 | [`governance/`](governance/licensing-review.md) | 带日期的许可与治理证据，例如[公开资产整改记录](governance/public-asset-remediation-2026-08-18.md) | 快照材料，不替代法律意见或当前代码 |
 | [`product/`](product/roadmap.md) | 已交付能力和发布缺口 | 产品状态，完成或改变范围时更新 |
 | [`release/`](release/npm.md) | npm 包发布、验证和运维步骤 | 与实际发布工作流、npm 元数据同步 |
