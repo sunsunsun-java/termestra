@@ -226,11 +226,20 @@ class TeamProtocolHttpIntegrationTest {
                 .bodyValue(Map.of("name","Rollback Lab","path",temp("termestra-rollback-workspace-").toString(),"autostart_orchestrator",false))
                 .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
         String workspaceId=Objects.requireNonNull(workspace).get("id").toString();
+        TestJavaCommand command=TestJavaCommand.fixture(PtyTestFixture.class,"echo");
+        Map<?,?> preset=client.post().uri("/api/settings/command-presets").header(HttpHeaders.COOKIE,cookie)
+                .bodyValue(Map.of("display_name","Rollback Fixture","command",command.command(),
+                        "args",List.of(),"env",Map.of()))
+                .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
+        String presetId=Objects.requireNonNull(preset).get("id").toString();
         database.write("block launch configuration",connection->{try(var statement=connection.createStatement()){statement.execute("CREATE TRIGGER block_launch_config BEFORE INSERT ON agent_launch_configs BEGIN SELECT RAISE(ABORT, 'blocked launch config'); END");}return null;});
-        client.post().uri("/api/workspaces/"+workspaceId+"/workers").header(HttpHeaders.COOKIE,cookie)
-                .bodyValue(Map.of("name","ConfigFailure","role","coder","command_preset_id","claude"))
-                .exchange().expectStatus().is5xxServerError();
-        database.write("unblock launch configuration",connection->{try(var statement=connection.createStatement()){statement.execute("DROP TRIGGER block_launch_config");}return null;});
+        try{
+            client.post().uri("/api/workspaces/"+workspaceId+"/workers").header(HttpHeaders.COOKIE,cookie)
+                    .bodyValue(Map.of("name","ConfigFailure","role","coder","command_preset_id",presetId))
+                    .exchange().expectStatus().is5xxServerError();
+        }finally{
+            database.write("unblock launch configuration",connection->{try(var statement=connection.createStatement()){statement.execute("DROP TRIGGER IF EXISTS block_launch_config");}return null;});
+        }
         client.get().uri("/api/ui/workspaces/"+workspaceId+"/team").header(HttpHeaders.COOKIE,cookie).exchange()
                 .expectStatus().isOk().expectBody().jsonPath("$[?(@.name == 'ConfigFailure')]").isEmpty();
         Map<?,?> worker=client.post().uri("/api/workspaces/"+workspaceId+"/workers").header(HttpHeaders.COOKIE,cookie)
