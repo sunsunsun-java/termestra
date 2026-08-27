@@ -1,10 +1,11 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { ChevronDown, ChevronRight, Folder, GitBranch, LoaderCircle } from 'lucide-react'
+import { ChevronDown, ChevronRight, Folder, LoaderCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import type { CommandPreset, FsProbeResponse } from '../api.js'
+import type { CommandPreset, FsProbeResponse, WorkspaceRevisionSelectionPayload } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { WorkspaceCommandPresetSelect } from './WorkspaceCommandPresetSelect.js'
+import { GitBranchSelect } from './GitBranchSelect.js'
 import {
   buildWorkspaceCreateInput,
   type WorkspaceCreateInput,
@@ -23,6 +24,7 @@ type ConfirmWorkspaceDialogProps = {
   onCreate: (input: WorkspaceCreateInput) => void
   onOpenServerBrowse: () => void
   open?: boolean
+  registrationId: string
   submitError?: string | null
   submitting?: boolean
 }
@@ -44,6 +46,7 @@ export const ConfirmWorkspaceDialog = ({
   onCreate,
   onOpenServerBrowse,
   open = true,
+  registrationId,
   submitError = null,
   submitting = false,
 }: ConfirmWorkspaceDialogProps) => {
@@ -55,10 +58,12 @@ export const ConfirmWorkspaceDialog = ({
   const [pasteExpanded, setPasteExpanded] = useState(pasteFallbackDefault)
   const [startupExpanded, setStartupExpanded] = useState(false)
   const [startupCommand, setStartupCommand] = useState('')
+  const [revisionSelection, setRevisionSelection] = useState<WorkspaceRevisionSelectionPayload>({ kind: 'current' })
 
   // Re-sync when the probe changes (user re-picks a folder without closing).
   useEffect(() => {
     setName(probe?.suggested_name ?? basenameOf(probe?.path ?? ''))
+    setRevisionSelection({ kind: 'current' })
   }, [probe?.path, probe?.suggested_name])
 
   const pastedClean = pastePath.trim()
@@ -86,6 +91,10 @@ export const ConfirmWorkspaceDialog = ({
       commandPresetId,
       name,
       path: resolvedPath,
+      registrationId,
+      revisionSelection: pasteExpanded && pastedClean.length > 0
+        ? { kind: 'current' }
+        : revisionSelection,
       startupCommand,
     }))
   }
@@ -150,23 +159,12 @@ export const ConfirmWorkspaceDialog = ({
               </label>
 
               {probe?.is_git_repository ? (
-                <div
-                  className="flex items-center gap-2 text-xs"
-                  data-testid="confirm-workspace-git-badge"
-                >
-                  <span
-                    className="inline-flex items-center gap-1.5 rounded px-2 py-0.5 font-medium"
-                    style={{
-                      background: 'color-mix(in oklab, var(--status-blue) 12%, transparent)',
-                      color: 'var(--status-blue)',
-                      border: '1px solid color-mix(in oklab, var(--status-blue) 30%, transparent)',
-                    }}
-                  >
-                    <GitBranch size={12} aria-hidden />
-                    {probe.current_branch ?? t('workspace.git.detached')}
-                  </span>
-                  <span className="text-ter">{t('workspace.git.detected')}</span>
-                </div>
+                <GitBranchSelect
+                  disabled={submitting || (pasteExpanded && pastedClean.length > 0)}
+                  onChange={setRevisionSelection}
+                  probe={probe}
+                  value={revisionSelection}
+                />
               ) : probe?.ok ? (
                 <span className="text-xs text-ter">{t('workspace.git.none')}</span>
               ) : null}

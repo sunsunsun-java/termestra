@@ -3,11 +3,8 @@ package dev.termestra.workspace.adapter.out.persistence;
 import dev.termestra.shared.id.WorkspaceId;
 import dev.termestra.platform.persistence.sqlite.SqliteDatabase;
 import dev.termestra.workspace.application.port.out.WorkspaceRepository;
-import dev.termestra.workspace.application.port.out.WorkspaceRegistration;
 import dev.termestra.workspace.application.port.in.WorkspaceInputLimits;
-import dev.termestra.workspace.application.exception.InvalidWorkspacePath;
 import dev.termestra.workspace.application.exception.InvalidWorkspaceRecord;
-import dev.termestra.workspace.application.exception.WorkspaceLimitReached;
 import dev.termestra.workspace.domain.model.*;
 
 import java.sql.PreparedStatement;
@@ -23,48 +20,13 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
     private final SqliteDatabase database;
     public JdbcWorkspaceRepository(SqliteDatabase database) { this.database = database; }
 
-    @Override public WorkspaceRegistration register(Workspace workspace) {
-        WorkspaceInputLimits.validateName(workspace.name().value());
-        if (workspace.path().value().length() > WorkspaceInputLimits.MAX_PATH_CHARACTERS) {
-            throw new InvalidWorkspacePath("Workspace path exceeds "
-                    + WorkspaceInputLimits.MAX_PATH_CHARACTERS + " characters");
-        }
-        return database.write("register workspace", connection -> {
-            Optional<Workspace> existing = findByCanonicalPath(connection, workspace.path().value());
-            if (existing.isPresent()) return new WorkspaceRegistration(existing.orElseThrow(), false);
-            try (PreparedStatement capacity = connection.prepareStatement(
-                    "SELECT COUNT(*) FROM workspaces WHERE deleted_at IS NULL AND (canonical_path_owner=1 OR canonical_path IS NULL)")) {
-                try (ResultSet result = capacity.executeQuery()) {
-                    if (result.next() && result.getInt(1) >= MAX_ACTIVE_WORKSPACES) {
-                        throw new WorkspaceLimitReached(MAX_ACTIVE_WORKSPACES);
-                    }
-                }
-            }
-            int inserted;
-            try (PreparedStatement ps = connection.prepareStatement("""
-                    INSERT INTO workspaces(id,name,path,created_at,canonical_path,canonical_path_owner)
-                    VALUES (?,?,?,?,?,1)
-                    ON CONFLICT(canonical_path) WHERE deleted_at IS NULL AND canonical_path_owner=1
-                    DO NOTHING
-                    """)) {
-                ps.setString(1, workspace.id().toString()); ps.setString(2, workspace.name().value());
-                ps.setString(3, workspace.path().value()); ps.setLong(4, workspace.createdAt().toEpochMilli());
-                ps.setString(5, workspace.path().value()); inserted = ps.executeUpdate();
-            }
-            if (inserted == 1) return new WorkspaceRegistration(workspace, true);
-            Workspace concurrent = findByCanonicalPath(connection, workspace.path().value())
-                    .orElseThrow(() -> new IllegalStateException("Workspace path claim disappeared"));
-            return new WorkspaceRegistration(concurrent, false);
-        });
-    }
-
     @Override public List<Workspace> findAll() {
         return database.read("list workspaces", connection -> {
             List<Workspace> workspaces = new ArrayList<>();
             try (PreparedStatement ps = connection.prepareStatement("""
                     SELECT id,substr(name,1,?) AS name,path,created_at
                     FROM workspaces
-                    WHERE deleted_at IS NULL
+                    WHERE deleted_at IS NULL AND lifecycle_state='active'
                       AND (canonical_path_owner=1 OR canonical_path IS NULL)
                       AND length(id) BETWEEN 1 AND ?
                       AND length(path) BETWEEN 1 AND ?
@@ -88,7 +50,7 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
                     SELECT id,substr(name,1,?) AS name,
                            CASE WHEN length(path) BETWEEN 1 AND ? THEN path ELSE NULL END AS path,
                            created_at
-                    FROM workspaces WHERE id=? AND deleted_at IS NULL
+                    FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active'
                     """)) {
                 ps.setInt(1, WorkspaceInputLimits.MAX_NAME_CHARACTERS);
                 ps.setInt(2, WorkspaceInputLimits.MAX_PATH_CHARACTERS);
@@ -101,6 +63,15 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
         });
     }
 
+    @Override public Optional<Workspace> findByCanonicalPath(String canonicalPath) {
+        if (canonicalPath == null || canonicalPath.isBlank()
+                || canonicalPath.length() > WorkspaceInputLimits.MAX_PATH_CHARACTERS) {
+            return Optional.empty();
+        }
+        return database.write("find workspace by canonical path",
+                connection -> findByCanonicalPath(connection, canonicalPath));
+    }
+
     private static Optional<Workspace> findByCanonicalPath(java.sql.Connection connection, String canonicalPath)
             throws java.sql.SQLException {
         Workspace workspace;
@@ -110,7 +81,7 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
                        CASE WHEN length(path) BETWEEN 1 AND ? THEN path ELSE NULL END AS path,
                        created_at,canonical_path_owner
                 FROM workspaces
-                WHERE canonical_path=? AND deleted_at IS NULL
+                WHERE canonical_path=? AND deleted_at IS NULL AND lifecycle_state='active'
                   AND length(id) BETWEEN 1 AND ?
                 ORDER BY canonical_path_owner DESC,created_at,id
                 LIMIT 1
@@ -178,7 +149,7 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
                 SELECT CASE WHEN length(canonical_path) BETWEEN 1 AND ?
                             THEN canonical_path ELSE NULL END AS canonical_path,
                        canonical_path_owner
-                FROM workspaces WHERE id=? AND deleted_at IS NULL
+                FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active'
                 """)) {
             statement.setInt(1, WorkspaceInputLimits.MAX_PATH_CHARACTERS);
             statement.setString(2, workspaceId);
@@ -196,7 +167,7 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
                 UPDATE workspaces SET canonical_path_owner=1
                 WHERE id=(
                     SELECT id FROM workspaces
-                    WHERE canonical_path=? AND deleted_at IS NULL
+                    WHERE canonical_path=? AND deleted_at IS NULL AND lifecycle_state='active'
                     ORDER BY created_at,id
                     LIMIT 1
                 )

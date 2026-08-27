@@ -2,7 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { AlertTriangle, FolderSearch } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
-import { type CommandPreset, type FsProbeResponse, listCommandPresets, pickFolder } from '../api.js'
+import { ApiRequestError, type CommandPreset, type FsProbeResponse, listCommandPresets, pickFolder } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { ConfirmWorkspaceDialog } from './ConfirmWorkspaceDialog.js'
 import { ServerBrowseDialog } from './ServerBrowseDialog.js'
@@ -49,6 +49,7 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
   const [commandPresetError, setCommandPresetError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const registrationIdRef = useRef(crypto.randomUUID())
   const createInFlightRef = useRef(false)
   const pickerFlowGenerationRef = useRef(0)
   const commandPresetSnapshotRef = useRef<{
@@ -74,6 +75,7 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
     setServerBrowseOpen(false)
     setCommandPresetError(null)
     setSubmitError(null)
+    registrationIdRef.current = crypto.randomUUID()
     const presetsReady = listCommandPresets()
       .then((presets) => {
         if (!isCurrentFlow()) return
@@ -168,6 +170,12 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
       .catch((error: unknown) => {
         createInFlightRef.current = false
         setSubmitting(false)
+        if (
+          error instanceof ApiRequestError &&
+          error.code !== 'GIT_OPERATION_OUTCOME_UNKNOWN'
+        ) {
+          registrationIdRef.current = crypto.randomUUID()
+        }
         const message = error instanceof Error ? error.message : t('workspace.error.createFailed')
         setSubmitError(message)
       })
@@ -298,6 +306,7 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
         onCreate={handleCreate}
         onOpenServerBrowse={() => !createInFlightRef.current && setServerBrowseOpen(true)}
         open={!serverBrowseOpen}
+        registrationId={registrationIdRef.current}
         submitError={submitError}
         submitting={submitting}
       />
@@ -310,6 +319,7 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
         onCommandPresetChange={handleCommandPresetChange}
         onCreate={handleCreate}
         open={serverBrowseOpen}
+        registrationId={registrationIdRef.current}
         submitError={submitError}
         submitting={submitting}
       />

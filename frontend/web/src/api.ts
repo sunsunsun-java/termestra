@@ -220,11 +220,13 @@ export interface CreateWorkspaceResponse extends WorkspaceSummary {
 }
 
 export const createWorkspace = async (input: {
+  registration_id: string
   name: string
   path: string
   autostart_orchestrator?: boolean
   command_preset_id?: string | null
   startup_command?: string | null
+  revision_selection: WorkspaceRevisionSelectionPayload
 }): Promise<CreateWorkspaceResponse> => {
   const response = await apiFetch('/api/workspaces', {
     method: 'POST',
@@ -233,7 +235,7 @@ export const createWorkspace = async (input: {
   })
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, 'Failed to create workspace'))
+    throw await readApiRequestError(response, 'Failed to create workspace')
   }
 
   const payload = (await response.json()) as Omit<CreateWorkspaceResponse, 'created'>
@@ -813,9 +815,58 @@ export interface FsProbeResponse {
   exists: boolean
   is_dir: boolean
   is_git_repository: boolean
+  git_inspection_token: string | null
   ok: boolean
   path: string
   suggested_name: string
+}
+
+export type WorkspaceRevisionSelectionPayload =
+  | { kind: 'current'; selection_token?: string | null }
+  | { kind: 'local_branch'; name: string; selection_token: string }
+
+export interface WorkspaceRegistrationBranch {
+  blocked_reason: string | null
+  current: boolean
+  name: string
+  selectable: boolean
+  selection_token: string | null
+}
+
+export interface WorkspaceRegistrationOptions {
+  branches: WorkspaceRegistrationBranch[]
+  canonical_path: string
+  changes: { count: number | null; count_accuracy: string; state: 'clean' | 'dirty' | 'unknown' }
+  head:
+    | { kind: 'branch'; name: string; oid: string }
+    | { kind: 'detached'; oid: string }
+    | { kind: 'unborn'; name: string }
+  next_cursor: string | null
+}
+
+export const listWorkspaceRegistrationOptions = async (
+  inspectionToken: string,
+  query = '',
+  signal?: AbortSignal
+): Promise<WorkspaceRegistrationOptions> => {
+  const parameters = new URLSearchParams({ inspection_token: inspectionToken, limit: '100' })
+  if (query.trim()) parameters.set('query', query.trim())
+  const response = await apiFetch(`/api/workspace-registrations/options?${parameters}`, {
+    mode: 'same-origin',
+    ...(signal ? { signal } : {}),
+  }, INTERACTIVE_QUERY_TIMEOUT_MS)
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to list Git branches'))
+  }
+  const body = (await response.json()) as WorkspaceRegistrationOptions
+  return {
+    ...body,
+    branches: requireBoundedList(
+      body.branches,
+      'workspace registration branches',
+      COLLECTION_LIMITS.filesystemEntries
+    ),
+  }
 }
 
 export const browseFs = async (path: string, signal?: AbortSignal): Promise<FsBrowseResponse> => {

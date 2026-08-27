@@ -21,7 +21,7 @@ public final class JdbcTeamMemberRepository implements TeamMemberRepository {
 
     @Override public boolean workspaceExists(String workspaceId) {
         return database.read("find workspace for team", c -> {
-            try (PreparedStatement ps = c.prepareStatement("SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL")) { ps.setString(1,workspaceId); return ps.executeQuery().next(); }
+            try (PreparedStatement ps = c.prepareStatement("SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active'")) { ps.setString(1,workspaceId); return ps.executeQuery().next(); }
         });
     }
 
@@ -31,7 +31,7 @@ public final class JdbcTeamMemberRepository implements TeamMemberRepository {
                 try (PreparedStatement ps = c.prepareStatement("""
                         INSERT INTO workers(id,workspace_id,name,description,role,created_at)
                         SELECT ?,?,?,?,?,?
-                        WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
+                        WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active')
                           AND (SELECT COUNT(*) FROM workers WHERE workspace_id=? AND deleted_at IS NULL) < ?
                         """)) {
                     ps.setString(1,member.id().toString()); ps.setString(2,member.workspaceId().toString()); ps.setString(3,member.name());
@@ -143,7 +143,7 @@ public final class JdbcTeamMemberRepository implements TeamMemberRepository {
     }
 
     private static boolean activeWorkspace(Connection connection,String workspaceId)throws SQLException{
-        try(PreparedStatement statement=connection.prepareStatement("SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL")){
+        try(PreparedStatement statement=connection.prepareStatement("SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active'")){
             statement.setString(1,workspaceId);try(ResultSet result=statement.executeQuery()){return result.next();}
         }
     }

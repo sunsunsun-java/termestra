@@ -1,0 +1,21 @@
+package dev.termestra.workspace.application.exception;
+
+public final class GitWorktreeAccessFailure extends RuntimeException {
+    private final String errorCode;
+    private final boolean retryable;
+
+    public GitWorktreeAccessFailure(String errorCode, String message, boolean retryable) {
+        super(message);
+        this.errorCode = errorCode;
+        this.retryable = retryable;
+    }
+
+    public GitWorktreeAccessFailure(String errorCode, String message, boolean retryable, Throwable cause) {
+        super(message, cause);
+        this.errorCode = errorCode;
+        this.retryable = retryable;
+    }
+
+    public String errorCode() { return errorCode; }
+    public boolean retryable() { return retryable; }
+}

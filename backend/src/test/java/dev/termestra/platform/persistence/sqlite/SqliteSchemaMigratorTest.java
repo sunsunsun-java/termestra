@@ -50,14 +50,27 @@ class SqliteSchemaMigratorTest {
             assertTrue(columns(connection.createStatement(), "agent_runs").contains("workspace_id"));
             assertTrue(columns(connection.createStatement(), "workspaces").contains("deleted_at"));
             assertTrue(columns(connection.createStatement(), "workspaces")
-                    .containsAll(Set.of("canonical_path", "canonical_path_owner")));
+                    .containsAll(Set.of("canonical_path", "canonical_path_owner", "lifecycle_state")));
+            Set<String> registrationColumns = columns(
+                    connection.createStatement(), "workspace_registration_attempts");
+            assertTrue(registrationColumns.containsAll(Set.of(
+                            "registration_id", "workspace_id", "request_hash",
+                            "canonical_path", "selection_kind", "selected_branch",
+                            "selected_ref_oid", "state",
+                            "checkout_outcome", "observed_head_kind", "observed_branch",
+                            "observed_head_oid", "error_code", "created_at", "updated_at")));
+            assertFalse(registrationColumns.contains("selection_token_hash"));
+            assertFalse(registrationColumns.contains("completed_at"));
             assertTrue(columns(connection.createStatement(), "workers").contains("deleted_at"));
-            assertTrue(values(connection.createStatement(), "SELECT name FROM sqlite_master WHERE type='index'")
-                    .containsAll(Set.of("idx_agent_runs_agent_status", "idx_messages_workspace_created_sequence",
+            Set<String> indexes = values(connection.createStatement(),
+                    "SELECT name FROM sqlite_master WHERE type='index'");
+            assertTrue(indexes.containsAll(Set.of(
+                            "idx_agent_runs_agent_status", "idx_messages_workspace_created_sequence",
                             "idx_messages_workspace_type_sequence", "idx_workspaces_active_canonical_path",
                             "idx_agent_runs_workspace_status", "idx_workers_active_workspace_name",
                             "idx_dispatches_idempotency", "idx_messages_dispatch",
                             "idx_dispatch_deliveries_ready", "idx_dispatch_deliveries_worker")));
+            assertFalse(indexes.contains("idx_workspace_registration_path"));
             assertEquals(
                     "CREATE INDEX idx_dispatches_open_by_worker ON dispatches(workspace_id,to_agent_id,sequence) WHERE status IN ('queued','submitted')",
                     text(connection.createStatement(), "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_dispatches_open_by_worker'"));
@@ -71,7 +84,7 @@ class SqliteSchemaMigratorTest {
         database.write("restore v28 open dispatch fixture", connection -> {
             try (Statement statement = connection.createStatement()) {
                 statement.execute("DROP TABLE dispatch_deliveries");
-                statement.execute("DELETE FROM schema_version WHERE version=29");
+                statement.execute("DELETE FROM schema_version WHERE version>=29");
                 statement.execute("INSERT INTO dispatches(id,workspace_id,to_agent_id,text,status,created_at,artifacts) VALUES('queued','workspace','worker','unknown','queued',1,'[]')");
                 statement.execute("INSERT INTO dispatches(id,workspace_id,to_agent_id,text,status,created_at,artifacts) VALUES('submitted','workspace','worker','known','submitted',2,'[]')");
             }
@@ -159,7 +172,8 @@ class SqliteSchemaMigratorTest {
             assertEquals(Set.of(
                             "agent_launch_configs", "agent_runs", "agent_sessions", "app_state",
                             "command_presets", "dispatches", "dispatch_deliveries", "messages", "role_templates",
-                            "schema_version", "workers", "workspaces"),
+                            "schema_version", "workers", "workspaces",
+                            "workspace_registration_attempts"),
                     values(connection.createStatement(), "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"));
             return null;
         });

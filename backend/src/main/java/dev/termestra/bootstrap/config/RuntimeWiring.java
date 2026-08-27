@@ -15,11 +15,16 @@ import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
 import dev.termestra.platform.persistence.sqlite.*;
 import dev.termestra.workspace.adapter.out.filesystem.NioWorkspacePathResolver;
 import dev.termestra.workspace.adapter.out.filesystem.ProcessWorkspaceOpener;
+import dev.termestra.workspace.adapter.out.git.ProcessGitWorktreeAccess;
 import dev.termestra.workspace.adapter.out.persistence.JdbcWorkspaceRepository;
+import dev.termestra.workspace.adapter.out.persistence.JdbcWorkspaceRegistrationLedger;
 import dev.termestra.workspace.application.port.in.*;
+import dev.termestra.workspace.application.port.in.registration.WorkspaceRegistrationUseCase;
 import dev.termestra.workspace.application.port.out.*;
 import dev.termestra.workspace.application.service.WorkspaceApplicationService;
 import dev.termestra.workspace.application.service.OpenWorkspaceService;
+import dev.termestra.workspace.application.service.WorkspaceRegistrationService;
+import dev.termestra.workspace.application.service.WorkspaceRegistrationTokenCodec;
 import dev.termestra.team.adapter.out.persistence.*;
 import dev.termestra.team.adapter.out.runtime.ExecutionTeamScenarioRuntime;
 import dev.termestra.team.adapter.out.runtime.DispatchDeliveryRuntime;
@@ -162,13 +167,27 @@ public class RuntimeWiring {
             pendingTasks.invalidate(workspaceId);
         };
     }
-    @Bean WorkspaceApplicationService workspaceService(WorkspaceRepository repository, WorkspacePathResolver resolver,
-                                                         OrchestratorStarter starter,
-                                                         WorkspaceMetadataInitializer metadataInitializer,
-                                                         WorkspaceRuntimeCleaner cleaner, Clock clock,
+    @Bean WorkspaceApplicationService workspaceService(WorkspaceRepository repository,
+                                                         WorkspaceRuntimeCleaner cleaner,
                                                          RuntimeOperationCoordinator operations) {
-        return new WorkspaceApplicationService(repository, resolver, starter,metadataInitializer,
-                cleaner, clock,operations);
+        return new WorkspaceApplicationService(repository, cleaner, operations);
+    }
+    @Bean WorkspaceRegistrationTokenCodec workspaceRegistrationTokenCodec(Clock clock) {
+        return new WorkspaceRegistrationTokenCodec(clock);
+    }
+    @Bean GitWorktreeAccess gitWorktreeAccess() { return new ProcessGitWorktreeAccess(); }
+    @Bean WorkspaceRegistrationLedger workspaceRegistrationLedger(SqliteDatabase database) {
+        return new JdbcWorkspaceRegistrationLedger(database);
+    }
+    @Bean WorkspaceRegistrationUseCase workspaceRegistrationUseCase(
+            WorkspaceRegistrationLedger ledger, WorkspaceRepository repository,
+            WorkspacePathResolver resolver, GitWorktreeAccess git,
+            WorkspaceRegistrationTokenCodec tokens, WorkspaceMetadataInitializer metadata,
+            OrchestratorStarter starter, RuntimeOperationCoordinator operations, Clock clock) {
+        WorkspaceRegistrationService service = new WorkspaceRegistrationService(
+                ledger, repository, resolver, git, tokens, metadata, starter, operations, clock);
+        service.recover();
+        return service;
     }
     @Bean UiSessionService uiSessionService() { return new UiSessionService(); }
     @Bean AgentCredentialService agentCredentialService() { return new AgentCredentialService(); }
@@ -219,7 +238,7 @@ public class RuntimeWiring {
         return workspaceId -> database.read("find tasks workspace", connection -> {
             try (var statement = connection.prepareStatement("""
                     SELECT CASE WHEN length(path) BETWEEN 1 AND ? THEN path ELSE NULL END AS path
-                    FROM workspaces WHERE id=? AND deleted_at IS NULL
+                    FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active'
                     """)) {
                 statement.setInt(1, dev.termestra.workspace.application.port.in.WorkspaceInputLimits.MAX_PATH_CHARACTERS);
                 statement.setString(2, workspaceId);
@@ -249,9 +268,9 @@ public class RuntimeWiring {
     @Bean CommandAvailabilityProbe commandAvailabilityProbe(){return new PathCommandAvailabilityProbe();}
     @Bean CommandAvailabilityUseCase commandAvailabilityUseCase(CommandAvailabilityProbe probe){return new CommandAvailabilityService(probe);}
     @Bean MarketplaceCatalog marketplaceCatalog(ObjectMapper json){return new ClasspathMarketplaceCatalog(json);}
-    @Bean DirectoryBrowser directoryBrowser(){String configured=environmentValue("TERMESTRA_FS_BROWSE_ROOT");Path root=configured==null?Path.of(System.getProperty("user.home")):Path.of(configured);return new NioDirectoryBrowser(root);}
+    @Bean DirectoryBrowser directoryBrowser(WorkspaceRegistrationTokenCodec tokens){String configured=environmentValue("TERMESTRA_FS_BROWSE_ROOT");Path root=configured==null?Path.of(System.getProperty("user.home")):Path.of(configured);return new NioDirectoryBrowser(root,tokens);}
     @Bean FilesystemBrowseUseCase filesystemBrowseUseCase(DirectoryBrowser browser){return new FilesystemBrowseService(browser);}
-    @Bean SelectedDirectoryProbe selectedDirectoryProbe(){return new NioSelectedDirectoryProbe();}
+    @Bean SelectedDirectoryProbe selectedDirectoryProbe(WorkspaceRegistrationTokenCodec tokens){return new NioSelectedDirectoryProbe(tokens);}
     @Bean NativeFolderPicker nativeFolderPicker(){return new ProcessNativeFolderPicker();}
     @Bean FilesystemPickerUseCase filesystemPickerUseCase(NativeFolderPicker picker,SelectedDirectoryProbe selectedDirectoryProbe){return new FilesystemPickerService(picker,selectedDirectoryProbe);}
     @Bean TeamMemberRepository teamMemberRepository(SqliteDatabase database) { return new JdbcTeamMemberRepository(database); }

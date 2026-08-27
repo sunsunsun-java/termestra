@@ -3,17 +3,24 @@ package dev.termestra.workspace.adapter.out.filesystem.browse;
 import dev.termestra.platform.process.BoundedProcessRunner;
 import dev.termestra.workspace.application.port.in.browse.ProbeView;
 import dev.termestra.workspace.application.port.out.browse.SelectedDirectoryProbe;
+import dev.termestra.workspace.application.service.WorkspaceRegistrationTokenCodec;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Objects;
 
 public final class NioSelectedDirectoryProbe implements SelectedDirectoryProbe {
     private static final BoundedProcessRunner PROCESSES = new BoundedProcessRunner();
     private static final Duration GIT_TIMEOUT = Duration.ofMillis(800);
     private static final int MAX_GIT_OUTPUT_BYTES = 4 * 1_024;
+    private final WorkspaceRegistrationTokenCodec tokens;
+
+    public NioSelectedDirectoryProbe(WorkspaceRegistrationTokenCodec tokens) {
+        this.tokens = Objects.requireNonNull(tokens, "tokens");
+    }
 
     @Override
     public ProbeView probe(String requested) {
@@ -30,7 +37,8 @@ public final class NioSelectedDirectoryProbe implements SelectedDirectoryProbe {
             boolean directory = Files.isDirectory(real);
             boolean gitRepository = directory && Files.exists(real.resolve(".git"));
             return new ProbeView(true, real.toString(), true, directory, gitRepository,
-                    gitRepository ? branch(real) : null, suggestedName(real));
+                    gitRepository ? branch(real) : null, suggestedName(real),
+                    gitRepository ? tokens.issuePath(real.toString()) : null);
         } catch (IOException | SecurityException error) {
             return missing(candidate.toString());
         }
@@ -43,7 +51,7 @@ public final class NioSelectedDirectoryProbe implements SelectedDirectoryProbe {
         } catch (InvalidPathException error) {
             name = "";
         }
-        return new ProbeView(false, path, false, false, false, null, name);
+        return new ProbeView(false, path, false, false, false, null, name, null);
     }
 
     private static String suggestedName(Path path) {

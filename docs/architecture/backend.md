@@ -27,7 +27,8 @@ Auth、Marketplace 等简单上下文可以使用较小结构；是否分层由�
 
 | interface / seam | 隐藏的实现复杂度 | 当前 adapter |
 | --- | --- | --- |
-| `WorkspaceRepository` | 规范路径幂等注册、容量、软删除/恢复 | `JdbcWorkspaceRepository` |
+| `WorkspaceRepository` | active Workspace 查询与删除/恢复 | `JdbcWorkspaceRepository` |
+| `WorkspaceRegistrationLedger` | 规范路径 claim、容量、注册状态机与恢复 | `JdbcWorkspaceRegistrationLedger` |
 | `TeamLedger` | Message/Dispatch/Delivery 原子事务、查询投影、claim 和状态保护 | `JdbcTeamLedger` |
 | `AgentExecutionUseCase` / `AgentMessagingUseCase` | Run 容量、PTY 生命周期、输入串行、恢复与持久状态 | `AgentExecutionService` |
 | `PseudoTerminalLauncher` | 平台 PTY 启动、进程组/Job Object 终止 | `Pty4jProcessLauncher` |
@@ -42,7 +43,7 @@ Auth、Marketplace 等简单上下文可以使用较小结构；是否分层由�
 
 `dev.termestra.bootstrap.config.RuntimeWiring` 是唯一组合根，负责：
 
-- 创建 SQLite 数据库并在其他 Bean 之前迁移到 schema v29；
+- 创建 SQLite 数据库并在其他 Bean 之前迁移到 schema v30；
 - 把各上下文的 application interface 连接到 adapter；
 - 在组合层实现小型跨上下文 adapter，例如 Terminal 到 Agent Execution；
 - 启动/关闭 Dispatch delivery runtime、Agent execution 和 Tasks watcher；
@@ -79,6 +80,7 @@ adapter 在一个 SQLite 事务内清除跨上下文 lifecycle graph，避免“
 
 - Workspace 普通操作取得公平、可重入的共享锁；
 - Workspace 创建元数据和删除取得排他锁；
+- Workspace 注册按规范源路径取得独立的公平排他锁；
 - Agent 操作还取得 `(workspace_id, agent_id)` 的公平锁；
 - 一次调用共用一个默认两秒的锁获取期限；
 - 共享锁升级为排他锁立即失败；

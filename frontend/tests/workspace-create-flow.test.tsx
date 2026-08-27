@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import type { FsProbeResponse, PickFolderResponse } from '../web/src/api.js'
+import { ApiRequestError, type FsProbeResponse, type PickFolderResponse } from '../web/src/api.js'
 import { useWorkspaceCreate } from '../web/src/useWorkspaceCreate.js'
 import { AddWorkspaceDialog } from '../web/src/workspace/AddWorkspaceDialog.js'
 
@@ -14,6 +14,7 @@ const probe: FsProbeResponse = {
   exists: true,
   is_dir: true,
   is_git_repository: true,
+  git_inspection_token: 'inspection-token',
   ok: true,
   path: PICKED_PATH,
   suggested_name: 'alpha',
@@ -56,6 +57,25 @@ const stubPickerRequests = () => {
       if (method === 'POST' && url.pathname === '/api/fs/pick-folder') {
         return jsonResponse(pickResult)
       }
+      if (method === 'GET' && url.pathname === '/api/workspace-registrations/options') {
+        return jsonResponse({
+          branches: [
+            { blocked_reason: null, current: true, name: 'main', selectable: true, selection_token: 'main-token' },
+            { blocked_reason: null, current: false, name: 'feature/local', selectable: true, selection_token: 'feature-token' },
+            {
+              blocked_reason: 'checked_out_elsewhere',
+              current: false,
+              name: 'release',
+              selectable: false,
+              selection_token: null,
+            },
+          ],
+          canonical_path: PICKED_PATH,
+          changes: { count: 0, count_accuracy: 'exact', state: 'clean' },
+          head: { kind: 'branch', name: 'main', oid: 'abc' },
+          next_cursor: null,
+        })
+      }
       throw new Error(`Unexpected request: ${method} ${url.pathname}`)
     })
   )
@@ -78,6 +98,31 @@ afterEach(() => {
 })
 
 describe('Workspace creation feedback', () => {
+  test('selects an existing local branch and includes its opaque token in creation', async () => {
+    stubPickerRequests()
+    const onCreate = vi.fn(async () => {})
+    render(<AddWorkspaceDialog onClose={() => {}} onCreate={onCreate} trigger={1} />)
+
+    const trigger = await screen.findByTestId('workspace-git-branch-trigger')
+    expect(trigger.getAttribute('aria-haspopup')).toBe('listbox')
+    fireEvent.click(trigger)
+    expect(
+      ((await screen.findByTestId('workspace-git-branch-release')) as HTMLButtonElement).disabled
+    ).toBe(true)
+    expect(screen.getByTestId('workspace-git-branch-search')).not.toBeNull()
+    fireEvent.click(await screen.findByTestId('workspace-git-branch-feature/local'))
+    fireEvent.click(screen.getByTestId('confirm-workspace-create'))
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1))
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
+      revisionSelection: {
+        kind: 'local_branch',
+        name: 'feature/local',
+        selection_token: 'feature-token',
+      },
+    }))
+  })
+
   test('locks the dialog immediately and collapses rapid double-clicks into one create request', async () => {
     stubPickerRequests()
     const request = deferred<void>()
@@ -105,7 +150,13 @@ describe('Workspace creation feedback', () => {
     stubPickerRequests()
     const onCreate = vi
       .fn<() => Promise<void>>()
-      .mockRejectedValueOnce(new Error('Orchestrator startup failed'))
+      .mockRejectedValueOnce(
+        new ApiRequestError('Selection is stale', {
+          code: 'GIT_SELECTION_STALE',
+          retryable: true,
+          status: 409,
+        })
+      )
       .mockResolvedValueOnce()
 
     render(<AddWorkspaceDialog onClose={() => {}} onCreate={onCreate} trigger={1} />)
@@ -116,13 +167,66 @@ describe('Workspace creation feedback', () => {
     fireEvent.click(createButton)
 
     const error = await screen.findByTestId('workspace-create-error')
-    expect(error.textContent).toContain('Orchestrator startup failed')
+    expect(error.textContent).toContain('Selection is stale')
     expect(createButton.disabled).toBe(false)
     expect(createButton.textContent).toContain('Create Workspace')
 
     fireEvent.click(createButton)
     await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2))
+    expect(onCreate.mock.calls[1]?.[0].registrationId).not.toBe(
+      onCreate.mock.calls[0]?.[0].registrationId
+    )
     await waitFor(() => expect(screen.queryByTestId('confirm-workspace-dialog')).toBeNull())
+  })
+
+  test('reuses the registration id when retrying an explicitly unknown Git outcome', async () => {
+    stubPickerRequests()
+    const onCreate = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(
+        new ApiRequestError('Git outcome is unknown', {
+          code: 'GIT_OPERATION_OUTCOME_UNKNOWN',
+          retryable: true,
+          status: 503,
+        })
+      )
+      .mockResolvedValueOnce()
+
+    render(<AddWorkspaceDialog onClose={() => {}} onCreate={onCreate} trigger={1} />)
+
+    const createButton = (await screen.findByTestId(
+      'confirm-workspace-create'
+    )) as HTMLButtonElement
+    fireEvent.click(createButton)
+    await screen.findByTestId('workspace-create-error')
+
+    fireEvent.click(createButton)
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2))
+    expect(onCreate.mock.calls[1]?.[0].registrationId).toBe(
+      onCreate.mock.calls[0]?.[0].registrationId
+    )
+  })
+
+  test('reuses the registration id after a transport failure with an unknown server outcome', async () => {
+    stubPickerRequests()
+    const onCreate = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new DOMException('Request timed out', 'TimeoutError'))
+      .mockResolvedValueOnce()
+
+    render(<AddWorkspaceDialog onClose={() => {}} onCreate={onCreate} trigger={1} />)
+
+    const createButton = (await screen.findByTestId(
+      'confirm-workspace-create'
+    )) as HTMLButtonElement
+    fireEvent.click(createButton)
+    await screen.findByTestId('workspace-create-error')
+
+    fireEvent.click(createButton)
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2))
+    expect(onCreate.mock.calls[1]?.[0].registrationId).toBe(
+      onCreate.mock.calls[0]?.[0].registrationId
+    )
   })
 
   test('reports a canonical-path replay as existing without clearing its orchestrator state', async () => {
@@ -163,6 +267,8 @@ describe('Workspace creation feedback', () => {
         commandPresetId: 'codex',
         name: 'Requested rename',
         path: PICKED_PATH,
+        registrationId: crypto.randomUUID(),
+        revisionSelection: { kind: 'current' },
       })
     })
 

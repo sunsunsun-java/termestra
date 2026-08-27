@@ -22,7 +22,7 @@ controller/DTO、前端 wire type 和边界测试为准。
 
 | endpoint 族 | 主要消费者 | 所属上下文 |
 | --- | --- | --- |
-| `/api/workspaces`, `/api/fs`, Workspace `open` | Browser UI | Workspace |
+| `/api/workspaces`, `/api/workspace-registrations`, `/api/fs`, Workspace `open` | Browser UI | Workspace |
 | `/api/workspaces/*/team`, `/workers`, `/scenarios`, `/api/team/*` | Browser / managed CLI | Team |
 | `/api/workspaces/*/agents`, `/api/runtime/runs`, `user-input`, `shell` | Browser UI | Agent Execution |
 | `/api/workspaces/*/tasks` | Browser UI | Tasks |
@@ -119,11 +119,12 @@ terminal。停止或 PTY 退出必须先确认进程树终止并持久化 termin
 
 ## SQLite 所有权
 
-当前 schema 版本为 29，由 `SqliteSchemaMigrator` 在启动时事务迁移。
+当前 schema 版本为 30，由 `SqliteSchemaMigrator` 在启动时事务迁移。
 
 | 表 | 所有者 | 说明 |
 | --- | --- | --- |
-| `workspaces` | Workspace | 身份、路径、规范路径唯一性与 legacy 删除标记 |
+| `workspaces` | Workspace | 身份、路径、规范路径唯一性、`preparing/active` 生命周期与 legacy 删除标记 |
+| `workspace_registration_attempts` | Workspace | 注册幂等键、Git 选择意图、checkout 结果证据与恢复状态；最多保留 4096 条 |
 | `workers` | Team | TeamMember、角色、描述、名称唯一性与 legacy 删除标记 |
 | `messages` | Team | send/report/status 的有界审计记录与 Dispatch 关联 |
 | `dispatches` | Team | 公开业务状态与 idempotency key |
@@ -157,3 +158,19 @@ Summary 端点只返回固定字段和固定长度派生数据；Detail 端点�
   pending publication 和 viewer window 多层限制。
 
 任何新 list/poll 需要测试“详情历史增长后响应大小仍保持常数”。
+
+## Workspace 注册与 Git 选择
+
+- `/api/fs/probe` 对 Git 工作树根返回短期、进程级签名的
+  `git_inspection_token`；token 不包含可供客户端篡改的权威路径。
+- `GET /api/workspace-registrations/options` 只列本地 `refs/heads/*`，每页最多
+  100 条；不执行 fetch，不列远端分支，也不创建分支。每个可选项带绑定工作树、
+  HEAD、branch OID 与 worktree 占用状态的 `selection_token`。
+- `POST /api/workspaces` 接受 UUID `registration_id` 和
+  `revision_selection.kind=current|local_branch`。选择本地分支时必须提交分支名与
+  `selection_token`。
+- `GET /api/workspace-registrations/{registration_id}` 返回
+  `processing/completed/failed/needs_attention`，供超时或断线后的显式核对。
+- Git switch 是非事务型外部副作用。结果无法确认时返回稳定
+  `GIT_OPERATION_OUTCOME_UNKNOWN`，并令 `source_revision_changed=null`；系统禁止
+  自动重试。Workspace 只在 checkout 结果和元数据初始化均已确认后变为 `active`。

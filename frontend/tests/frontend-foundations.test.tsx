@@ -118,17 +118,22 @@ describe('before-unload guard', () => {
 
 describe('workspace creation input', () => {
   test('normalizes user-entered values at the creation boundary', () => {
+    const registrationId = crypto.randomUUID()
     expect(
       buildWorkspaceCreateInput({
         commandPresetId: '',
         name: '  Alpha  ',
         path: '  /work/alpha  ',
+        registrationId,
+        revisionSelection: { kind: 'current' },
         startupCommand: '   ',
       })
     ).toEqual({
       commandPresetId: null,
       name: 'Alpha',
       path: '/work/alpha',
+      registrationId,
+      revisionSelection: { kind: 'current' },
     })
 
     expect(
@@ -136,12 +141,16 @@ describe('workspace creation input', () => {
         commandPresetId: 'codex',
         name: 'Alpha',
         path: '/work/alpha',
+        registrationId,
+        revisionSelection: { kind: 'current' },
         startupCommand: '  codex --resume  ',
       })
     ).toEqual({
       commandPresetId: 'codex',
       name: 'Alpha',
       path: '/work/alpha',
+      registrationId,
+      revisionSelection: { kind: 'current' },
       startupCommand: 'codex --resume',
     })
   })

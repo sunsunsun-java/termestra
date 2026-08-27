@@ -23,8 +23,8 @@ class JdbcWorkspaceRepositoryTest {
 
         Workspace alpha = Workspace.create(new WorkspaceName("Alpha"), new WorkspacePath("/tmp/alpha"), now);
         Workspace beta = Workspace.create(new WorkspaceName("Beta"), new WorkspacePath("/tmp/beta"), now.plusMillis(1));
-        assertTrue(repository.register(alpha).created());
-        assertTrue(repository.register(beta).created());
+        insertWorkspace(database, alpha);
+        insertWorkspace(database, beta);
 
         assertEquals(java.util.List.of(alpha, beta), new JdbcWorkspaceRepository(database).findAll());
     }
@@ -74,29 +74,13 @@ class JdbcWorkspaceRepositoryTest {
         }).intValue());
     }
 
-    @Test void returnsTheExistingWorkspaceForTheSameCanonicalPathButAllowsNamesToRepeatElsewhere() {
-        SqliteDatabase database = database("path-identity.db");
-        JdbcWorkspaceRepository repository = new JdbcWorkspaceRepository(database);
-        Instant now = Instant.parse("2026-08-06T00:00:00Z");
-        Workspace first = Workspace.create(new WorkspaceName("Shared"), new WorkspacePath("/tmp/alpha"), now);
-        Workspace retry = Workspace.create(new WorkspaceName("Renamed retry"), new WorkspacePath("/tmp/alpha"), now.plusMillis(1));
-        Workspace sameNameElsewhere = Workspace.create(new WorkspaceName("Shared"), new WorkspacePath("/tmp/beta"), now.plusMillis(2));
-
-        assertTrue(repository.register(first).created());
-        var repeated = repository.register(retry);
-        assertFalse(repeated.created());
-        assertEquals(first, repeated.workspace());
-        assertTrue(repository.register(sameNameElsewhere).created());
-        assertEquals(java.util.List.of(first, sameNameElsewhere), repository.findAll());
-    }
-
     @Test void hidesLegacyPathDuplicatesAndPromotesTheNextOneWhenTheOwnerIsDeleted() {
         SqliteDatabase database = database("legacy-path-owner.db");
         JdbcWorkspaceRepository repository = new JdbcWorkspaceRepository(database);
         Instant now = Instant.parse("2026-08-06T00:00:00Z");
         Workspace owner = Workspace.create(new WorkspaceName("Original"), new WorkspacePath("/tmp/alpha"), now);
         Workspace duplicate = Workspace.create(new WorkspaceName("Accidental retry"), new WorkspacePath("/tmp/alpha"), now.plusMillis(1));
-        assertTrue(repository.register(owner).created());
+        insertWorkspace(database, owner);
         insertLegacyDuplicate(database, duplicate);
 
         assertEquals(java.util.List.of(owner), repository.findAll());
@@ -111,7 +95,7 @@ class JdbcWorkspaceRepositoryTest {
         Instant now = Instant.parse("2026-08-06T00:00:00Z");
         Workspace owner = Workspace.create(new WorkspaceName("Original"), new WorkspacePath("/tmp/alpha"), now);
         Workspace duplicate = Workspace.create(new WorkspaceName("Accidental retry"), new WorkspacePath("/tmp/alpha"), now.plusMillis(1));
-        assertTrue(repository.register(owner).created());
+        insertWorkspace(database, owner);
         insertLegacyDuplicate(database, duplicate);
 
         assertTrue(repository.delete(duplicate.id().toString()));
@@ -123,7 +107,7 @@ class JdbcWorkspaceRepositoryTest {
         SqliteDatabase database = database("delete.db");
         JdbcWorkspaceRepository repository = new JdbcWorkspaceRepository(database);
         Workspace workspace = Workspace.create(new WorkspaceName("Alpha"), new WorkspacePath("/tmp/alpha"), Instant.now());
-        assertTrue(repository.register(workspace).created());
+        insertWorkspace(database, workspace);
         String id = workspace.id().toString();
         seedWorkspaceGraph(database, id, "worker-1");
 
@@ -150,7 +134,7 @@ class JdbcWorkspaceRepositoryTest {
         SqliteDatabase database = database("rollback.db");
         JdbcWorkspaceRepository repository = new JdbcWorkspaceRepository(database);
         Workspace workspace = Workspace.create(new WorkspaceName("Alpha"), new WorkspacePath("/tmp/alpha"), Instant.now());
-        assertTrue(repository.register(workspace).created());
+        insertWorkspace(database, workspace);
         String id = workspace.id().toString();
         seedWorkspaceGraph(database, id, "worker-1");
         database.write("install delete blocker", connection -> { try (var statement=connection.createStatement()) {
@@ -165,42 +149,27 @@ class JdbcWorkspaceRepositoryTest {
         });
     }
 
-    @Test void rejectsTheNextWorkspaceAtTheProductLimit() {
-        SqliteDatabase database = database("workspace-limit.db");
-        database.write("seed bounded workspace collection", connection -> {
-            try (var statement = connection.prepareStatement("""
-                    INSERT INTO workspaces(id,name,path,created_at,canonical_path,canonical_path_owner)
-                    VALUES(?,?,?,?,?,1)
-                    """)) {
-                for (int index = 0; index < JdbcWorkspaceRepository.MAX_ACTIVE_WORKSPACES; index++) {
-                    String path = "/tmp/workspace-limit-" + index;
-                    statement.setString(1, java.util.UUID.randomUUID().toString());
-                    statement.setString(2, "Workspace " + index);
-                    statement.setString(3, path);
-                    statement.setLong(4, index);
-                    statement.setString(5, path);
-                    statement.addBatch();
-                }
-                statement.executeBatch();
-            }
-            return null;
-        });
-        Workspace extra = Workspace.create(new WorkspaceName("Extra"),
-                new WorkspacePath("/tmp/workspace-limit-extra"), Instant.now());
-
-        var failure = assertThrows(dev.termestra.workspace.application.exception.WorkspaceLimitReached.class,
-                () -> new JdbcWorkspaceRepository(database).register(extra));
-
-        assertEquals("Workspace limit reached: " + JdbcWorkspaceRepository.MAX_ACTIVE_WORKSPACES,
-                failure.getMessage());
-        assertEquals(JdbcWorkspaceRepository.MAX_ACTIVE_WORKSPACES,
-                new JdbcWorkspaceRepository(database).findAll().size());
-    }
-
     private SqliteDatabase database(String name) {
         SqliteDatabase database = new SqliteDatabase(tempDirectory.resolve(name));
         new SqliteSchemaMigrator(database, Clock.systemUTC()).migrate();
         return database;
+    }
+
+    private static void insertWorkspace(SqliteDatabase database, Workspace workspace) {
+        database.write("seed workspace", connection -> {
+            try (var statement = connection.prepareStatement("""
+                    INSERT INTO workspaces(id,name,path,created_at,canonical_path,canonical_path_owner)
+                    VALUES(?,?,?,?,?,1)
+                    """)) {
+                statement.setString(1, workspace.id().toString());
+                statement.setString(2, workspace.name().value());
+                statement.setString(3, workspace.path().value());
+                statement.setLong(4, workspace.createdAt().toEpochMilli());
+                statement.setString(5, workspace.path().value());
+                statement.executeUpdate();
+            }
+            return null;
+        });
     }
 
     private static void seedWorkspaceGraph(SqliteDatabase database,String workspace,String worker) {

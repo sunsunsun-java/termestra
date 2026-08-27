@@ -8,19 +8,28 @@
 ```mermaid
 sequenceDiagram
     participant UI as Browser UI
-    participant W as WorkspaceApplicationService
-    participant WR as WorkspaceRepository
+    participant W as WorkspaceRegistrationService
+    participant WR as WorkspaceRegistrationLedger
+    participant Git as Local Git worktree
     participant T as TasksDocumentStore
     participant E as Agent Execution
     participant DB as SQLite
 
-    UI->>W: CreateWorkspaceCommand
-    W->>W: resolve canonical path + single-flight
-    W->>WR: register(candidate)
-    WR->>DB: idempotent registration transaction
-    DB-->>WR: created or existing Workspace
+    UI->>W: inspect(opaque token)
+    W->>Git: list bounded local branches + HEAD
+    W-->>UI: branch options + selection tokens
+    UI->>W: RegisterWorkspaceCommand + registration_id
+    W->>W: resolve canonical path + path single-flight
+    W->>WR: reserve preparing Workspace + intent
+    WR->>DB: commit registration attempt
+    opt existing local branch selected
+        W->>Git: revalidate token and switch without force
+        Git-->>W: applied / rejected / unknown
+        W->>WR: persist checkout evidence
+    end
     W->>T: initialize `.termestra/` files
     T-->>W: tasks.md + refreshed PROTOCOL.md
+    W->>WR: atomically activate Workspace + complete attempt
     alt new Workspace and autostart enabled
         W->>E: configureAndStart Orchestrator
         E->>DB: persist launch config and Run
@@ -29,9 +38,10 @@ sequenceDiagram
     W-->>UI: Workspace + orchestrator_start
 ```
 
-同一规范路径的并发创建由 path single-flight 和数据库唯一约束收敛为一个
-Workspace。元数据初始化或 Orchestrator 准备失败时，新注册会回滚；已有
-Workspace 不会因重复创建失败而被删除。
+同一规范路径的并发注册由引用计数 path single-flight 和数据库唯一约束收敛为一个
+Workspace。Git 拒绝或元数据初始化失败时只释放 `preparing` Workspace；若 Git
+结果未知则保留 `uncertain` 证据并禁止自动重试。Workspace 激活后才准备
+Orchestrator，因此 Orchestrator 失败不会删除已经有效的 Workspace。
 
 ## 可靠派单
 
@@ -131,13 +141,16 @@ sequenceDiagram
 
 后端重启后的恢复顺序是：
 
-1. 打开数据目录并把 SQLite schema 迁移到 v29；
-2. 将未完成的旧 Run 标记为 terminal/stale；活进程不会自动重新收编；
-3. 把遗留 `delivering` Delivery 隔离为 `uncertain`，恢复 `pending` 和到期
+1. 打开数据目录并把 SQLite schema 迁移到 v30；
+2. 恢复 Workspace Registration：未开始 Git 的 `reserved` 可安全失败释放；
+   遗留 `switching` 隔离为 `uncertain`；已记录 `checkout_applied` 的注册继续初始化
+   元数据并激活；
+3. 将未完成的旧 Run 标记为 terminal/stale；活进程不会自动重新收编；
+4. 把遗留 `delivering` Delivery 隔离为 `uncertain`，恢复 `pending` 和到期
    `retry_wait`；
-4. 用户再次启动 Agent 时优先恢复 provider-native session，否则注入有界恢复
+5. 用户再次启动 Agent 时优先恢复 provider-native session，否则注入有界恢复
    摘要；
-5. Browser 重连时重建 Terminal mirror、Tasks watcher 和所有 viewer 投影。
+6. Browser 重连时重建 Terminal mirror、Tasks watcher 和所有 viewer 投影。
 
 ## 删除 Workspace 或 Worker
 

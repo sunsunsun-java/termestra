@@ -21,7 +21,7 @@ public final class JdbcAgentDirectory implements AgentDirectory {
 
     @Override public Optional<AgentDescriptor> find(String workspaceId,String agentId) {
         return database.read("find execution agent", connection -> {
-            try (PreparedStatement workspace = connection.prepareStatement("SELECT substr(name,1,?) name,substr(path,1,?) path FROM workspaces WHERE id=? AND deleted_at IS NULL")) {
+            try (PreparedStatement workspace = connection.prepareStatement("SELECT substr(name,1,?) name,substr(path,1,?) path FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active'")) {
                 workspace.setInt(1,MAX_WORKSPACE_NAME_CHARACTERS+1);
                 workspace.setInt(2,MAX_WORKSPACE_PATH_CHARACTERS+1);
                 workspace.setString(3,workspaceId);

@@ -27,7 +27,7 @@ public final class JdbcAgentExecutionRepository implements AgentExecutionReposit
     @Override public boolean saveConfiguration(String workspace,String agent,AgentLaunchConfiguration config,Instant at){return database.write("save launch configuration",c->{String sql="""
             INSERT INTO agent_launch_configs(workspace_id,agent_id,command,args_json,command_preset_id,interactive_command,preset_augmentation_disabled,resume_args_template,session_id_capture_json,env_json,created_at,updated_at)
             SELECT ?,?,?,?,?,?,?,?,?,?,?,?
-            WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
+            WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active')
               AND (?=?||':orchestrator' OR ?=?||':shell' OR EXISTS(
                 SELECT 1 FROM workers WHERE workspace_id=? AND id=? AND deleted_at IS NULL))
             ON CONFLICT(workspace_id,agent_id) DO UPDATE SET command=excluded.command,args_json=excluded.args_json,command_preset_id=excluded.command_preset_id,interactive_command=excluded.interactive_command,preset_augmentation_disabled=excluded.preset_augmentation_disabled,resume_args_template=excluded.resume_args_template,session_id_capture_json=excluded.session_id_capture_json,env_json=excluded.env_json,updated_at=excluded.updated_at
@@ -63,7 +63,7 @@ public final class JdbcAgentExecutionRepository implements AgentExecutionReposit
     @Override public boolean insertRun(String runId,String workspaceId,String agentId,long pid,RunStatus status,Instant started){return database.write("insert agent run",c->{String sql="""
             INSERT INTO agent_runs(run_id,workspace_id,agent_id,pid,status,started_at,created_at,updated_at)
             SELECT ?,?,?,?,?,?,?,?
-            WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
+            WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active')
               AND (?=?||':orchestrator' OR ?=?||':shell' OR EXISTS(
                 SELECT 1 FROM workers WHERE workspace_id=? AND id=? AND deleted_at IS NULL))
             """;try(PreparedStatement ps=c.prepareStatement(sql)){ps.setString(1,runId);ps.setString(2,workspaceId);ps.setString(3,agentId);ps.setLong(4,pid);ps.setString(5,status.wireValue());ps.setLong(6,started.toEpochMilli());ps.setLong(7,started.toEpochMilli());ps.setLong(8,started.toEpochMilli());ps.setString(9,workspaceId);ps.setString(10,agentId);ps.setString(11,workspaceId);ps.setString(12,agentId);ps.setString(13,workspaceId);ps.setString(14,workspaceId);ps.setString(15,agentId);return ps.executeUpdate()==1;}});}
@@ -74,7 +74,7 @@ public final class JdbcAgentExecutionRepository implements AgentExecutionReposit
     @Override public boolean saveLastSession(String workspace,String agent,String runId,String session,Instant at){String validatedSession;try{validatedSession=ExecutionInputLimits.sessionId(session);}catch(IllegalArgumentException invalid){throw new ExecutionConflict("Invalid session id for agent "+agent,invalid);}return database.write("save agent session",c->{String sql="""
             INSERT INTO agent_sessions(workspace_id,agent_id,last_session_id,updated_at)
             SELECT ?,?,?,?
-            WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
+            WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active')
               AND (?=?||':orchestrator' OR ?=?||':shell' OR EXISTS(
                 SELECT 1 FROM workers WHERE workspace_id=? AND id=? AND deleted_at IS NULL))
               AND EXISTS(SELECT 1 FROM agent_runs

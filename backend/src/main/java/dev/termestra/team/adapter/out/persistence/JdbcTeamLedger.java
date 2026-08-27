@@ -494,7 +494,7 @@ public final class JdbcTeamLedger implements TeamLedger, OpenDispatchCountSource
         String sql="""
                 INSERT INTO dispatches(id,workspace_id,from_agent_id,to_agent_id,text,status,created_at,artifacts,idempotency_key)
                 SELECT ?,?,?,?,?,?,?,?,?
-                WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
+                WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active')
                   AND EXISTS(SELECT 1 FROM workers WHERE workspace_id=? AND id=? AND deleted_at IS NULL)
                 """;
         try(PreparedStatement ps=c.prepareStatement(sql)){ ps.setString(1,d.id().toString());ps.setString(2,d.workspaceId().toString());ps.setString(3,d.fromAgentId().orElse(null));ps.setString(4,d.toAgentId().toString());ps.setString(5,d.task().value());ps.setString(6,d.status().wireValue());ps.setLong(7,d.createdAt().toEpochMilli());ps.setString(8,json(d.artifacts()));ps.setString(9,idempotencyKey);ps.setString(10,d.workspaceId().toString());ps.setString(11,d.workspaceId().toString());ps.setString(12,d.toAgentId().toString());if(ps.executeUpdate()!=1)throw new SQLException("workspace or dispatch worker is no longer active"); }
@@ -504,7 +504,7 @@ public final class JdbcTeamLedger implements TeamLedger, OpenDispatchCountSource
         String sql="""
                 INSERT INTO messages(workspace_id,worker_id,type,from_agent_id,to_agent_id,text,status,artifacts,created_at,dispatch_id)
                 SELECT ?,?,?,?,?,?,?,?,?,?
-                WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
+                WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active')
                   AND EXISTS(SELECT 1 FROM workers WHERE workspace_id=? AND id=? AND deleted_at IS NULL)
                 RETURNING sequence
                 """;

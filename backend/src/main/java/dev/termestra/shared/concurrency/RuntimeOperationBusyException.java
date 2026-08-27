@@ -26,6 +26,10 @@ public final class RuntimeOperationBusyException extends RuntimeException {
         return new RuntimeOperationBusyException("agent", workspaceId, agentId, timeout);
     }
 
+    static RuntimeOperationBusyException workspacePath(String canonicalPath, Duration timeout) {
+        return new RuntimeOperationBusyException("workspace_path", canonicalPath, null, timeout);
+    }
+
     public String resourceType() { return resourceType; }
     public String workspaceId() { return workspaceId; }
     public String agentId() { return agentId; }

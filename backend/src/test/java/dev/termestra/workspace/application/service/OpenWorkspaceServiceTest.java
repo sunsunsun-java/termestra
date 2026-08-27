@@ -1,7 +1,6 @@
 package dev.termestra.workspace.application.service;
 
 import dev.termestra.workspace.application.port.out.WorkspaceOpener;
-import dev.termestra.workspace.application.port.out.WorkspaceRegistration;
 import dev.termestra.workspace.application.port.out.WorkspaceRepository;
 import dev.termestra.workspace.domain.model.Workspace;
 import dev.termestra.workspace.domain.model.WorkspaceName;
@@ -38,9 +37,6 @@ class OpenWorkspaceServiceTest {
     }
 
     private record SingleWorkspaceRepository(Workspace workspace) implements WorkspaceRepository {
-        @Override public WorkspaceRegistration register(Workspace candidate) {
-            return new WorkspaceRegistration(workspace, false);
-        }
         @Override public List<Workspace> findAll() { return List.of(workspace); }
         @Override public Optional<Workspace> find(String workspaceId) {
             return workspace.id().toString().equals(workspaceId)

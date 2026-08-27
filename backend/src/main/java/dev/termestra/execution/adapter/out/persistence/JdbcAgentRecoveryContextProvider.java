@@ -61,7 +61,7 @@ public final class JdbcAgentRecoveryContextProvider implements AgentRecoveryCont
             String sql="""
                     INSERT INTO messages(workspace_id,worker_id,type,to_agent_id,text,artifacts,created_at)
                     SELECT ?,?,?,?,?,'[]',?
-                    WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
+                    WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active')
                       AND (?=?||':orchestrator' OR ?=?||':shell' OR EXISTS(
                         SELECT 1 FROM workers WHERE workspace_id=? AND id=? AND deleted_at IS NULL))
                     RETURNING sequence
@@ -89,7 +89,7 @@ public final class JdbcAgentRecoveryContextProvider implements AgentRecoveryCont
     }
 
     private static String workspacePath(Connection connection,String workspaceId)throws SQLException{
-        try(PreparedStatement statement=connection.prepareStatement("SELECT substr(path,1,?) path FROM workspaces WHERE id=? AND deleted_at IS NULL")){
+        try(PreparedStatement statement=connection.prepareStatement("SELECT substr(path,1,?) path FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active'")){
             statement.setInt(1,MAX_RECOVERY_WORKSPACE_PATH_CHARS+1);statement.setString(2,workspaceId);try(ResultSet result=statement.executeQuery()){
                 if(!result.next())throw new SQLException("workspace not found: "+workspaceId);
                 String path=result.getString("path");

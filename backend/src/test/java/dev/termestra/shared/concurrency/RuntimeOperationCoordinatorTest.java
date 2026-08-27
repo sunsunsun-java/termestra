@@ -251,6 +251,33 @@ class RuntimeOperationCoordinatorTest {
         assertEquals(0, coordinator.retainedAgentKeyCount());
     }
 
+    @Test
+    void workspacePathRegistrationIsBoundedAndReleasesItsExactKey() throws Exception {
+        RuntimeOperationCoordinator coordinator = new RuntimeOperationCoordinator(Duration.ofMillis(75));
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<?> holder = executor.submit(() -> coordinator.exclusivelyRegisteringWorkspacePath(
+                    "/tmp/canonical-workspace", () -> {
+                        entered.countDown();
+                        await(release);
+                    }));
+            assertTrue(entered.await(FAST_OPERATION_DEADLINE.toMillis(), TimeUnit.MILLISECONDS));
+
+            RuntimeOperationBusyException busy = assertThrows(RuntimeOperationBusyException.class,
+                    () -> coordinator.exclusivelyRegisteringWorkspacePath(
+                            "/tmp/canonical-workspace", () -> "unreachable"));
+            assertEquals("workspace_path", busy.resourceType());
+            assertEquals("/tmp/canonical-workspace", busy.workspaceId());
+
+            release.countDown();
+            holder.get(FAST_OPERATION_DEADLINE.toMillis(), TimeUnit.MILLISECONDS);
+        }
+
+        assertEquals(0, coordinator.retainedWorkspacePathKeyCount());
+    }
+
     private static void await(CountDownLatch latch) {
         try {
             latch.await();

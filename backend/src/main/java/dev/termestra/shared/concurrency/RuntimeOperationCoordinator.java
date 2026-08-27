@@ -26,6 +26,8 @@ public final class RuntimeOperationCoordinator {
             new KeyedLockRegistry<>(ignored -> new ReentrantReadWriteLock(true));
     private final KeyedLockRegistry<AgentKey, ReentrantLock> agents =
             new KeyedLockRegistry<>(ignored -> new ReentrantLock(true));
+    private final KeyedLockRegistry<String, ReentrantLock> workspacePaths =
+            new KeyedLockRegistry<>(ignored -> new ReentrantLock(true));
 
     public RuntimeOperationCoordinator() {
         this(DEFAULT_ACQUISITION_TIMEOUT, System::nanoTime);
@@ -97,6 +99,24 @@ public final class RuntimeOperationCoordinator {
         });
     }
 
+    /** Serializes registration claims by their exact canonical source path. */
+    public <T> T exclusivelyRegisteringWorkspacePath(String canonicalPath, Supplier<T> operation) {
+        String path = requireIdentifier(canonicalPath, "canonicalPath");
+        Objects.requireNonNull(operation, "operation");
+        try (var retained = workspacePaths.retain(path)) {
+            return acquired(retained.lock(), deadline(),
+                    RuntimeOperationBusyException.workspacePath(path, acquisitionTimeout), operation);
+        }
+    }
+
+    public void exclusivelyRegisteringWorkspacePath(String canonicalPath, Runnable operation) {
+        Objects.requireNonNull(operation, "operation");
+        exclusivelyRegisteringWorkspacePath(canonicalPath, () -> {
+            operation.run();
+            return null;
+        });
+    }
+
     private <T> T withWorkspaceLock(String workspaceId, boolean exclusive,
                                     AcquisitionDeadline deadline, Supplier<T> operation) {
         try (var retained = workspaces.retain(workspaceId)) {
@@ -144,6 +164,10 @@ public final class RuntimeOperationCoordinator {
 
     int retainedAgentKeyCount() {
         return agents.size();
+    }
+
+    int retainedWorkspacePathKeyCount() {
+        return workspacePaths.size();
     }
 
     private AcquisitionDeadline deadline() {

@@ -11,12 +11,14 @@ import {
 import { useEffect, useState } from 'react'
 
 import type { CommandPreset } from '../api.js'
+import type { WorkspaceRevisionSelectionPayload } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { FsEntryList } from './FsEntryList.js'
 import { FsSelectionPreview } from './FsSelectionPreview.js'
 import { buildBreadcrumbs } from './path-breadcrumbs.js'
 import { useFsBrowser } from './useFsBrowser.js'
 import { WorkspaceCommandPresetSelect } from './WorkspaceCommandPresetSelect.js'
+import { GitBranchSelect } from './GitBranchSelect.js'
 import {
   buildWorkspaceCreateInput,
   type WorkspaceCreateInput,
@@ -31,6 +33,7 @@ type ServerBrowseDialogProps = {
   onCommandPresetChange: (value: string) => void
   onCreate: (input: WorkspaceCreateInput) => void
   open: boolean
+  registrationId: string
   submitError?: string | null
   submitting?: boolean
 }
@@ -51,6 +54,7 @@ export const ServerBrowseDialog = ({
   onCommandPresetChange,
   onCreate,
   open,
+  registrationId,
   submitError = null,
   submitting = false,
 }: ServerBrowseDialogProps) => {
@@ -61,6 +65,7 @@ export const ServerBrowseDialog = ({
   const [manualPath, setManualPath] = useState('')
   const [startupExpanded, setStartupExpanded] = useState(false)
   const [startupCommand, setStartupCommand] = useState('')
+  const [revisionSelection, setRevisionSelection] = useState<WorkspaceRevisionSelectionPayload>({ kind: 'current' })
 
   useEffect(() => {
     if (!open) {
@@ -69,12 +74,14 @@ export const ServerBrowseDialog = ({
       setManualPath('')
       setStartupExpanded(false)
       setStartupCommand('')
+      setRevisionSelection({ kind: 'current' })
     }
   }, [open])
 
   useEffect(() => {
     if (probe?.suggested_name) setName(probe.suggested_name)
-  }, [probe?.suggested_name])
+    setRevisionSelection({ kind: 'current' })
+  }, [probe?.path, probe?.suggested_name])
 
   if (!open) return null
 
@@ -104,6 +111,10 @@ export const ServerBrowseDialog = ({
       commandPresetId,
       name,
       path,
+      registrationId,
+      revisionSelection: advanced && manualPath.trim().length > 0
+        ? { kind: 'current' }
+        : revisionSelection,
       startupCommand,
     }))
   }
@@ -232,6 +243,14 @@ export const ServerBrowseDialog = ({
                   probe={probe}
                   suggestedName={name}
                 />
+                {probe?.is_git_repository ? (
+                  <GitBranchSelect
+                    disabled={submitting || (advanced && manualPath.trim().length > 0)}
+                    onChange={setRevisionSelection}
+                    probe={probe}
+                    value={revisionSelection}
+                  />
+                ) : null}
                 <WorkspaceCommandPresetSelect
                   disabled={submitting}
                   error={commandPresetError ?? presetAvailabilityError}

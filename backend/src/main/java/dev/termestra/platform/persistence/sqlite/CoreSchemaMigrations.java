@@ -28,7 +28,8 @@ final class CoreSchemaMigrations {
                 new SchemaMigration(21, c -> execute(c,"ALTER TABLE workers ADD COLUMN deleted_at INTEGER")),
                 new SchemaMigration(25, this::v25),
                 new SchemaMigration(27, this::v27),
-                new SchemaMigration(28, this::v28));
+                new SchemaMigration(28, this::v28),
+                new SchemaMigration(30, this::v30));
     }
 
     private void v1(Connection c) throws SQLException {
@@ -85,6 +86,47 @@ final class CoreSchemaMigrations {
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_active_canonical_path
                 ON workspaces(canonical_path)
                 WHERE deleted_at IS NULL AND canonical_path_owner=1
+                """);
+    }
+
+    private void v30(Connection connection) throws SQLException {
+        // Some migration boundary tests intentionally construct only the table owned by
+        // an earlier migration. A production schema always has workspaces, while a
+        // partial fixture must still be able to advance its version safely.
+        if (!tableExists(connection, "workspaces")) return;
+        if (!hasColumn(connection, "workspaces", "lifecycle_state")) {
+            execute(connection, """
+                    ALTER TABLE workspaces
+                    ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'active'
+                    CHECK(lifecycle_state IN ('preparing','active'))
+                    """);
+        }
+        execute(connection, """
+                CREATE TABLE IF NOT EXISTS workspace_registration_attempts (
+                    registration_id TEXT PRIMARY KEY,
+                    workspace_id TEXT UNIQUE,
+                    request_hash TEXT NOT NULL,
+                    canonical_path TEXT NOT NULL,
+                    selection_kind TEXT NOT NULL
+                        CHECK(selection_kind IN ('current','local_branch')),
+                    selected_branch TEXT,
+                    selected_ref_oid TEXT,
+                    state TEXT NOT NULL
+                        CHECK(state IN ('reserved','switching','checkout_applied','completed','failed','uncertain')),
+                    checkout_outcome TEXT NOT NULL
+                        CHECK(checkout_outcome IN ('not_attempted','applied','rejected','unknown')),
+                    observed_head_kind TEXT,
+                    observed_branch TEXT,
+                    observed_head_oid TEXT,
+                    error_code TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL
+                )
+                """);
+        execute(connection, """
+                CREATE INDEX IF NOT EXISTS idx_workspace_registration_recovery
+                ON workspace_registration_attempts(state,updated_at)
                 """);
     }
 

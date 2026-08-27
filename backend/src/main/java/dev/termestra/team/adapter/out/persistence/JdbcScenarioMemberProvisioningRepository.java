@@ -26,7 +26,7 @@ public final class JdbcScenarioMemberProvisioningRepository implements ScenarioM
                     """
                     INSERT INTO workers(id,workspace_id,name,description,role,created_at)
                     SELECT ?,?,?,?,?,?
-                    WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
+                    WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active')
                       AND (SELECT COUNT(*) FROM workers WHERE workspace_id=? AND deleted_at IS NULL) < ?
                     """)) {
                 worker.setString(1, member.id().toString());
