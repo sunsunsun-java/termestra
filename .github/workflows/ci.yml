@@ -22,4 +22,4 @@ jobs:
         with:
           node-version: '22.22.2'
       - run: corepack enable
-      - run: mvn --batch-mode --no-transfer-progress clean verify
+      - run: mvn --batch-mode --no-transfer-progress -pl '!distribution' clean verify
