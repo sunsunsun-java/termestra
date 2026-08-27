@@ -8,6 +8,7 @@ import dev.termestra.configuration.application.port.in.ConfigurationConflict;
 import dev.termestra.configuration.application.port.in.ConfigurationInputLimits;
 import dev.termestra.configuration.application.port.out.ConfigurationRepository;
 import dev.termestra.configuration.domain.model.CommandPreset;
+import dev.termestra.configuration.domain.model.ModelCapability;
 import dev.termestra.configuration.domain.model.RoleTemplate;
 import dev.termestra.platform.persistence.sqlite.SqliteDatabase;
 
@@ -47,7 +48,11 @@ public final class JdbcConfigurationRepository implements ConfigurationRepositor
                            substr(resume_args_template,1,?),
                            substr(session_id_capture_json,1,?),
                            substr(yolo_args_json,1,?),
-                           is_builtin
+                           is_builtin,
+                           substr(model_args_template_json,1,?),
+                           substr(suggested_models_json,1,?),
+                           allow_custom_model,
+                           revision
                     FROM command_presets
                     ORDER BY is_builtin DESC,created_at ASC
                     LIMIT 138
@@ -61,6 +66,8 @@ public final class JdbcConfigurationRepository implements ConfigurationRepositor
                 statement.setInt(6, ConfigurationInputLimits.MAX_RESUME_TEMPLATE_CHARACTERS + 1);
                 statement.setInt(7, MAX_LEGACY_JSON_CHARACTERS + 1);
                 statement.setInt(8, MAX_LEGACY_JSON_CHARACTERS + 1);
+                statement.setInt(9, MAX_LEGACY_JSON_CHARACTERS + 1);
+                statement.setInt(10, MAX_LEGACY_JSON_CHARACTERS + 1);
                 try (var rows = statement.executeQuery()) {
                     while (rows.next()) {
                         String id=rows.getString(1);
@@ -81,7 +88,9 @@ public final class JdbcConfigurationRepository implements ConfigurationRepositor
                                 ConfigurationInputLimits.boundedSessionCapture(
                                         readNullableLegacy(rows.getString(7), OBJECT)),
                                 yolo == null ? null : ConfigurationInputLimits.boundedArguments(yolo),
-                                rows.getInt(9) == 1));
+                                rows.getInt(9) == 1,
+                                modelCapability(rows.getString(10),rows.getString(11),rows.getInt(12)==1),
+                                Math.max(1,rows.getLong(13))));
                     }
                 }
             }
@@ -95,8 +104,9 @@ public final class JdbcConfigurationRepository implements ConfigurationRepositor
             String sql = """
                     INSERT INTO command_presets(
                       id,display_name,command,args_json,env,resume_args_template,
-                      session_id_capture_json,yolo_args_json,is_builtin,created_at,updated_at)
-                    SELECT ?,?,?,?,?,?,?,?,0,?,?
+                      session_id_capture_json,yolo_args_json,model_args_template_json,
+                      suggested_models_json,allow_custom_model,revision,is_builtin,created_at,updated_at)
+                    SELECT ?,?,?,?,?,?,?,?,?,?,?,1,0,?,?
                     WHERE (SELECT COUNT(*) FROM command_presets WHERE is_builtin=0) < ?
                     """;
             try (var statement = connection.prepareStatement(sql)) {
@@ -108,9 +118,12 @@ public final class JdbcConfigurationRepository implements ConfigurationRepositor
                 statement.setString(6, value.resumeArgsTemplate());
                 statement.setString(7, writeNullable(value.sessionIdCapture()));
                 statement.setString(8, writeNullable(value.yoloArgsTemplate()));
-                statement.setLong(9, at.toEpochMilli());
-                statement.setLong(10, at.toEpochMilli());
-                statement.setInt(11, MAX_CUSTOM_COMMAND_PRESETS);
+                statement.setString(9,writeNullable(value.modelCapability()==null?null:value.modelCapability().argumentTemplate()));
+                statement.setString(10,write(value.modelCapability()==null?List.of():value.modelCapability().suggestedModels()));
+                statement.setInt(11,value.modelCapability()!=null&&value.modelCapability().allowCustom()?1:0);
+                statement.setLong(12, at.toEpochMilli());
+                statement.setLong(13, at.toEpochMilli());
+                statement.setInt(14, MAX_CUSTOM_COMMAND_PRESETS);
                 if (statement.executeUpdate() != 1) {
                     throw new ConfigurationConflict(
                             "Custom command preset limit reached: " + MAX_CUSTOM_COMMAND_PRESETS);
@@ -126,7 +139,8 @@ public final class JdbcConfigurationRepository implements ConfigurationRepositor
             String sql = """
                     UPDATE command_presets
                     SET display_name=?,command=?,args_json=?,env=?,resume_args_template=?,
-                        session_id_capture_json=?,yolo_args_json=?,updated_at=?
+                        session_id_capture_json=?,yolo_args_json=?,model_args_template_json=?,
+                        suggested_models_json=?,allow_custom_model=?,revision=revision+1,updated_at=?
                     WHERE id=? AND is_builtin=0
                     """;
             try (var statement = connection.prepareStatement(sql)) {
@@ -137,8 +151,11 @@ public final class JdbcConfigurationRepository implements ConfigurationRepositor
                 statement.setString(5, value.resumeArgsTemplate());
                 statement.setString(6, writeNullable(value.sessionIdCapture()));
                 statement.setString(7, writeNullable(value.yoloArgsTemplate()));
-                statement.setLong(8, at.toEpochMilli());
-                statement.setString(9, value.id());
+                statement.setString(8,writeNullable(value.modelCapability()==null?null:value.modelCapability().argumentTemplate()));
+                statement.setString(9,write(value.modelCapability()==null?List.of():value.modelCapability().suggestedModels()));
+                statement.setInt(10,value.modelCapability()!=null&&value.modelCapability().allowCustom()?1:0);
+                statement.setLong(11, at.toEpochMilli());
+                statement.setString(12, value.id());
                 if (statement.executeUpdate() == 1) return MutationResult.CHANGED;
             }
             return mutationMiss(connection, "command_presets", value.id());
@@ -147,6 +164,14 @@ public final class JdbcConfigurationRepository implements ConfigurationRepositor
 
     @Override public MutationResult deleteCommandPreset(String id) {
         return delete("command_presets", id);
+    }
+
+    private ModelCapability modelCapability(String templateJson,String suggestionsJson,boolean allowCustom) {
+        List<String> template=readNullableLegacy(templateJson,STRINGS);
+        if(template==null||template.isEmpty())return null;
+        List<String> suggestions=readLegacy(suggestionsJson,STRINGS,List.of());
+        return new ModelCapability(ConfigurationInputLimits.boundedArguments(template),
+                ConfigurationInputLimits.boundedSuggestedModels(suggestions),allowCustom);
     }
 
     @Override

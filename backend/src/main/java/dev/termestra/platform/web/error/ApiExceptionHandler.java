@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 @RestControllerAdvice
 public final class ApiExceptionHandler {
@@ -135,7 +136,9 @@ public final class ApiExceptionHandler {
     @ExceptionHandler(TeamScenarioWorkspaceNotFound.class) @ResponseStatus(HttpStatus.NOT_FOUND)
     public Map<String,String> scenarioWorkspaceNotFound(TeamScenarioWorkspaceNotFound error){return Map.of("error",error.getMessage());}
     @ExceptionHandler(ExecutionConflict.class) @ResponseStatus(HttpStatus.CONFLICT)
-    public Map<String,String> executionConflict(ExecutionConflict error){return Map.of("error",error.getMessage());}
+    public Map<String,String> executionConflict(ExecutionConflict error){return coded(error,error.errorCode());}
+    @ExceptionHandler(InvalidLaunchRequest.class) @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String,String> invalidLaunchRequest(InvalidLaunchRequest error){return coded(error,error.errorCode());}
     @ExceptionHandler(RunNotFound.class) @ResponseStatus(HttpStatus.NOT_FOUND)
     public Map<String,String> runNotFound(RunNotFound error){return Map.of("error",error.getMessage());}
     @ExceptionHandler(TasksWorkspaceNotFound.class) @ResponseStatus(HttpStatus.NOT_FOUND)
@@ -160,4 +163,11 @@ public final class ApiExceptionHandler {
     public Map<String,String> requestTooLarge(DataBufferLimitException error){return Map.of("error","Request body too large");}
     @ExceptionHandler(ServerWebInputException.class) @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String,String> invalidRequestBody(ServerWebInputException error){return Map.of("error","Invalid request body");}
+
+    private static Map<String,String> coded(RuntimeException error,String errorCode){
+        String message=error.getMessage()==null?error.getClass().getSimpleName():error.getMessage();
+        Map<String,String> body=new LinkedHashMap<>();body.put("error",message);
+        if(errorCode!=null)body.put("error_code",errorCode);
+        return body;
+    }
 }

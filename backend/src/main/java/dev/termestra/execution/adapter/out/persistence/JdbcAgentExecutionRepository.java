@@ -24,14 +24,18 @@ public final class JdbcAgentExecutionRepository implements AgentExecutionReposit
                     + 6 * ExecutionInputLimits.MAX_ENVIRONMENT_ENTRIES + 2;
     private final SqliteDatabase database;private final ObjectMapper json;
     public JdbcAgentExecutionRepository(SqliteDatabase database,ObjectMapper json){this.database=database;this.json=json;}
-    @Override public boolean saveConfiguration(String workspace,String agent,AgentLaunchConfiguration config,Instant at){return database.write("save launch configuration",c->{String sql="""
-            INSERT INTO agent_launch_configs(workspace_id,agent_id,command,args_json,command_preset_id,interactive_command,preset_augmentation_disabled,resume_args_template,session_id_capture_json,env_json,created_at,updated_at)
-            SELECT ?,?,?,?,?,?,?,?,?,?,?,?
+    @Override public boolean saveConfiguration(String workspace,String agent,AgentLaunchConfiguration config,Instant at){return database.write("save launch configuration",c->saveConfiguration(c,workspace,agent,config,at));}
+
+    private boolean saveConfiguration(Connection c,String workspace,String agent,AgentLaunchConfiguration config,Instant at)throws SQLException{String sql="""
+            INSERT INTO agent_launch_configs(workspace_id,agent_id,command,args_json,command_preset_id,interactive_command,preset_augmentation_disabled,resume_args_template,session_id_capture_json,env_json,model_id,revision,created_at,updated_at)
+            SELECT ?,?,?,?,?,?,?,?,?,?,?,1,?,?
             WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL AND lifecycle_state='active')
               AND (?=?||':orchestrator' OR ?=?||':shell' OR EXISTS(
                 SELECT 1 FROM workers WHERE workspace_id=? AND id=? AND deleted_at IS NULL))
-            ON CONFLICT(workspace_id,agent_id) DO UPDATE SET command=excluded.command,args_json=excluded.args_json,command_preset_id=excluded.command_preset_id,interactive_command=excluded.interactive_command,preset_augmentation_disabled=excluded.preset_augmentation_disabled,resume_args_template=excluded.resume_args_template,session_id_capture_json=excluded.session_id_capture_json,env_json=excluded.env_json,updated_at=excluded.updated_at
-            """;try(PreparedStatement ps=c.prepareStatement(sql)){ps.setString(1,workspace);ps.setString(2,agent);ps.setString(3,config.command());ps.setString(4,json(config.arguments()));ps.setString(5,config.commandPresetId());ps.setString(6,config.interactiveCommand());ps.setInt(7,config.presetAugmentationDisabled()?1:0);ps.setString(8,config.resumeArgsTemplate());ps.setString(9,config.sessionIdCaptureJson());ps.setString(10,json(config.environment()));ps.setLong(11,at.toEpochMilli());ps.setLong(12,at.toEpochMilli());ps.setString(13,workspace);ps.setString(14,agent);ps.setString(15,workspace);ps.setString(16,agent);ps.setString(17,workspace);ps.setString(18,workspace);ps.setString(19,agent);return ps.executeUpdate()==1;}});}
+            ON CONFLICT(workspace_id,agent_id) DO UPDATE SET command=excluded.command,args_json=excluded.args_json,command_preset_id=excluded.command_preset_id,interactive_command=excluded.interactive_command,preset_augmentation_disabled=excluded.preset_augmentation_disabled,resume_args_template=excluded.resume_args_template,session_id_capture_json=excluded.session_id_capture_json,env_json=excluded.env_json,model_id=excluded.model_id,revision=agent_launch_configs.revision+1,updated_at=excluded.updated_at
+            """;try(PreparedStatement ps=c.prepareStatement(sql)){ps.setString(1,workspace);ps.setString(2,agent);ps.setString(3,config.command());ps.setString(4,json(config.arguments()));ps.setString(5,config.commandPresetId());ps.setString(6,config.interactiveCommand());ps.setInt(7,config.presetAugmentationDisabled()?1:0);ps.setString(8,config.resumeArgsTemplate());ps.setString(9,config.sessionIdCaptureJson());ps.setString(10,json(config.environment()));ps.setString(11,config.modelId());ps.setLong(12,at.toEpochMilli());ps.setLong(13,at.toEpochMilli());ps.setString(14,workspace);ps.setString(15,agent);ps.setString(16,workspace);ps.setString(17,agent);ps.setString(18,workspace);ps.setString(19,workspace);ps.setString(20,agent);return ps.executeUpdate()==1;}}
+
+    @Override public Optional<AgentLaunchConfiguration> copyConfigurationSnapshot(String workspace,String sourceAgent,String targetAgent,Long expectedSourceRevision,Instant at){return database.write("copy launch configuration snapshot",connection->{AgentLaunchConfiguration source=findConfiguration(connection,workspace,sourceAgent).orElse(null);if(source==null||source.commandPresetId()==null)return Optional.empty();if(expectedSourceRevision!=null&&source.revision()!=expectedSourceRevision)return Optional.empty();AgentLaunchConfiguration snapshot=new AgentLaunchConfiguration(source.command(),source.arguments(),source.commandPresetId(),source.interactiveCommand(),source.presetAugmentationDisabled(),source.resumeArgsTemplate(),source.sessionIdCaptureJson(),source.environment(),source.modelId(),1);return saveConfiguration(connection,workspace,targetAgent,snapshot,at)?findConfiguration(connection,workspace,targetAgent):Optional.empty();});}
     @Override public Optional<AgentLaunchConfiguration> findConfiguration(String workspace,String agent){
         return database.read("find launch configuration",connection->{
             String sql="""
@@ -42,7 +46,9 @@ public final class JdbcAgentExecutionRepository implements AgentExecutionReposit
                            preset_augmentation_disabled,
                            substr(resume_args_template,1,?) resume_args_template,
                            substr(session_id_capture_json,1,?) session_id_capture_json,
-                           substr(env_json,1,?) env_json
+                           substr(env_json,1,?) env_json,
+                           substr(model_id,1,?) model_id,
+                           revision
                     FROM agent_launch_configs WHERE workspace_id=? AND agent_id=?
                     """;
             try(PreparedStatement statement=connection.prepareStatement(sql)){
@@ -53,12 +59,21 @@ public final class JdbcAgentExecutionRepository implements AgentExecutionReposit
                 statement.setInt(5,ExecutionInputLimits.MAX_COMMAND_CHARACTERS+1);
                 statement.setInt(6,ExecutionInputLimits.MAX_CAPTURE_JSON_CHARACTERS+1);
                 statement.setInt(7,MAX_ENVIRONMENT_JSON_CHARACTERS+1);
-                statement.setString(8,workspace);statement.setString(9,agent);
+                statement.setInt(8,ExecutionInputLimits.MAX_MODEL_ID_CHARACTERS+1);
+                statement.setString(9,workspace);statement.setString(10,agent);
                 try(ResultSet result=statement.executeQuery()){
                     return result.next()?Optional.of(configuration(result,workspace,agent)):Optional.empty();
                 }
             }
         });
+    }
+    private Optional<AgentLaunchConfiguration> findConfiguration(Connection connection,String workspace,String agent)throws SQLException{
+        String sql="""
+                SELECT command,args_json,command_preset_id,interactive_command,preset_augmentation_disabled,
+                       resume_args_template,session_id_capture_json,env_json,model_id,revision
+                FROM agent_launch_configs WHERE workspace_id=? AND agent_id=?
+                """;
+        try(PreparedStatement statement=connection.prepareStatement(sql)){statement.setString(1,workspace);statement.setString(2,agent);try(ResultSet result=statement.executeQuery()){return result.next()?Optional.of(configuration(result,workspace,agent)):Optional.empty();}}
     }
     @Override public boolean insertRun(String runId,String workspaceId,String agentId,long pid,RunStatus status,Instant started){return database.write("insert agent run",c->{String sql="""
             INSERT INTO agent_runs(run_id,workspace_id,agent_id,pid,status,started_at,created_at,updated_at)
@@ -95,8 +110,11 @@ public final class JdbcAgentExecutionRepository implements AgentExecutionReposit
             String capture=ExecutionInputLimits.optionalCaptureJson(result.getString("session_id_capture_json"));
             validateCaptureJson(capture);
             Map<String,String> environment=environment(result.getString("env_json"));
+            String modelId=ExecutionInputLimits.optionalModelId(result.getString("model_id"));
+            long revision=result.getLong("revision");
             return new AgentLaunchConfiguration(command,arguments,preset,interactive,
-                    result.getInt("preset_augmentation_disabled")==1,resume,capture,environment);
+                    result.getInt("preset_augmentation_disabled")==1,resume,capture,environment,modelId,
+                    Math.max(1,revision));
         }catch(IllegalArgumentException|IOException invalid){
             throw new ExecutionConflict("Invalid persisted launch configuration for agent "+agent+
                     " in workspace "+workspace,invalid);

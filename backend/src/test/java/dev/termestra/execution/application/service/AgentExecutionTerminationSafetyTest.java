@@ -533,6 +533,9 @@ class AgentExecutionTerminationSafetyTest {
         private final AtomicBoolean rejectNextInsert=new AtomicBoolean();
         @Override public boolean saveConfiguration(String workspaceId,String agentId,
                                                    AgentLaunchConfiguration configuration,Instant at){return true;}
+        @Override public Optional<AgentLaunchConfiguration> copyConfigurationSnapshot(
+                String workspaceId,String sourceAgentId,String targetAgentId,Long expectedSourceRevision,
+                Instant at){return Optional.empty();}
         @Override public Optional<AgentLaunchConfiguration> findConfiguration(String workspaceId,String agentId){return Optional.of(configuration);}
         @Override public boolean insertRun(String runId,String workspaceId,String agentId,long pid,
                                            RunStatus status,Instant startedAt){return !rejectNextInsert.compareAndSet(true,false);}

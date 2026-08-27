@@ -46,7 +46,10 @@ class SqliteSchemaMigratorTest {
                     .containsAll(Set.of("dispatch_id", "state", "attempt_id", "attempt_count",
                             "input_attempted", "next_attempt_at", "lease_owner", "lease_expires_at")));
             assertTrue(columns(connection.createStatement(), "agent_launch_configs")
-                    .containsAll(Set.of("interactive_command", "env_json")));
+                    .containsAll(Set.of("interactive_command", "env_json", "model_id", "revision")));
+            assertTrue(columns(connection.createStatement(), "command_presets")
+                    .containsAll(Set.of("model_args_template_json", "suggested_models_json",
+                            "allow_custom_model", "revision")));
             assertTrue(columns(connection.createStatement(), "agent_runs").contains("workspace_id"));
             assertTrue(columns(connection.createStatement(), "workspaces").contains("deleted_at"));
             assertTrue(columns(connection.createStatement(), "workspaces")

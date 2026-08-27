@@ -53,7 +53,6 @@ class WorkspaceApplicationServiceTest {
         }
 
         @Override public List<Workspace> findAll() { return List.of(); }
-
         @Override public Optional<Workspace> find(String workspaceId) { return Optional.empty(); }
 
         @Override public boolean delete(String workspaceId) {

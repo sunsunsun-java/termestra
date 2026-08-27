@@ -5,5 +5,6 @@ import dev.termestra.workspace.domain.model.Workspace;
 
 public interface OrchestratorStarter {
     OrchestratorStartView prepare(Workspace workspace, String startupCommand,
-                                  String commandPresetId, boolean autostart);
+                                  String commandPresetId,String modelId,
+                                  Long expectedPresetRevision,boolean autostart);
 }

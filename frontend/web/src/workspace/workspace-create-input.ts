@@ -1,16 +1,18 @@
-import type { WorkspaceRevisionSelectionPayload } from '../api.js'
+import type { AgentLaunchInput, WorkspaceRevisionSelectionPayload } from '../api.js'
 
 export interface WorkspaceCreateInput {
-  commandPresetId: string | null
+  launch: AgentLaunchInput
   name: string
   path: string
   registrationId: string
   revisionSelection: WorkspaceRevisionSelectionPayload
-  startupCommand?: string
 }
 
 type WorkspaceCreateDraft = {
   commandPresetId: string
+  commandPresetRevision: number | undefined
+  modelId: string
+  modelMode: 'default' | 'explicit'
   name: string
   path: string
   registrationId: string
@@ -20,6 +22,9 @@ type WorkspaceCreateDraft = {
 
 export const buildWorkspaceCreateInput = ({
   commandPresetId,
+  commandPresetRevision,
+  modelId,
+  modelMode,
   name,
   path,
   registrationId,
@@ -27,12 +32,25 @@ export const buildWorkspaceCreateInput = ({
   startupCommand,
 }: WorkspaceCreateDraft): WorkspaceCreateInput => {
   const command = startupCommand.trim()
+  const launch: AgentLaunchInput = command
+    ? {
+        type: 'startup',
+        startup_command: command,
+        ...(commandPresetId ? { recovery_preset_id: commandPresetId } : {}),
+      }
+    : {
+        type: 'preset',
+        preset_id: commandPresetId,
+        ...(modelMode === 'explicit' && modelId.trim() ? { model_id: modelId.trim() } : {}),
+        ...(commandPresetRevision === undefined
+          ? {}
+          : { expected_preset_revision: commandPresetRevision }),
+      }
   return {
-    commandPresetId: commandPresetId || null,
+    launch,
     name: name.trim(),
     path: path.trim(),
     registrationId,
     revisionSelection,
-    ...(command ? { startupCommand: command } : {}),
   }
 }

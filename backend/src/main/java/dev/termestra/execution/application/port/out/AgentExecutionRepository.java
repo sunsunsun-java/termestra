@@ -6,6 +6,9 @@ import java.util.Optional;
 
 public interface AgentExecutionRepository {
     boolean saveConfiguration(String workspaceId,String agentId,AgentLaunchConfiguration configuration,Instant at);
+    Optional<AgentLaunchConfiguration> copyConfigurationSnapshot(String workspaceId,String sourceAgentId,
+                                                                 String targetAgentId,Long expectedSourceRevision,
+                                                                 Instant at);
     Optional<AgentLaunchConfiguration> findConfiguration(String workspaceId,String agentId);
     boolean insertRun(String runId,String workspaceId,String agentId,long pid,RunStatus status,Instant startedAt);
     boolean markRunning(String runId,Instant at);

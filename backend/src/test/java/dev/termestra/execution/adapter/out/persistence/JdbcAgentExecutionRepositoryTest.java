@@ -73,4 +73,32 @@ class JdbcAgentExecutionRepositoryTest {
             return null;
         });
     }
+
+    @Test void copiesTheModelAndFinalArgumentsAsARevisionCheckedSnapshot() {
+        SqliteDatabase database = new SqliteDatabase(temporaryDirectory.resolve("snapshot.db"));
+        new SqliteSchemaMigrator(database, Clock.systemUTC()).migrate();
+        String workspace=UUID.randomUUID().toString();String worker=UUID.randomUUID().toString();
+        long now=System.currentTimeMillis();
+        database.write("seed snapshot agents",connection->{try(var statement=connection.createStatement()){
+            statement.executeUpdate("INSERT INTO workspaces(id,name,path,created_at) VALUES('"+workspace+"','Lab','/tmp/lab',"+now+")");
+            statement.executeUpdate("INSERT INTO workers(id,workspace_id,name,role,description,created_at) VALUES('"+worker+"','"+workspace+"','Worker','coder','',"+now+")");
+        }return null;});
+        JdbcAgentExecutionRepository repository=new JdbcAgentExecutionRepository(database,new ObjectMapper());
+        String orchestrator=workspace+":orchestrator";
+        AgentLaunchConfiguration source=new AgentLaunchConfiguration("codex",List.of("--model","gpt-test"),
+                "codex",null,false,"resume {session_id}",null,Map.of("A","B"),"gpt-test",1);
+        assertTrue(repository.saveConfiguration(workspace,orchestrator,source,Instant.now()));
+
+        AgentLaunchConfiguration snapshot=repository.copyConfigurationSnapshot(
+                workspace,orchestrator,worker,1L,Instant.now()).orElseThrow();
+        assertEquals(List.of("--model","gpt-test"),snapshot.arguments());
+        assertEquals("gpt-test",snapshot.modelId());
+        assertEquals(Map.of("A","B"),snapshot.environment());
+        assertEquals(1,snapshot.revision());
+
+        assertTrue(repository.saveConfiguration(workspace,orchestrator,source,Instant.now()));
+        assertTrue(repository.copyConfigurationSnapshot(
+                workspace,orchestrator,worker,1L,Instant.now()).isEmpty());
+        assertEquals("gpt-test",repository.findConfiguration(workspace,worker).orElseThrow().modelId());
+    }
 }

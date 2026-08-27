@@ -7,7 +7,8 @@ roles, and retaining small UI preferences.
 
 **Command Preset**:
 A named, reusable Agent CLI launch definition with command, arguments,
-environment, availability, and optional recovery behavior.
+environment, availability, optional model argument capability, revision, and
+optional recovery behavior.
 _Avoid_: Launch Configuration, shell alias
 
 **Role Template**:

@@ -90,8 +90,7 @@ public final class JdbcTeamMemberRepository implements TeamMemberRepository {
                     SELECT w.id,
                       w.name,
                       w.role,
-                      CASE WHEN alc.preset_augmentation_disabled=0
-                             AND length(alc.command_preset_id) BETWEEN 1 AND ?
+                      CASE WHEN length(alc.command_preset_id) BETWEEN 1 AND ?
                            THEN alc.command_preset_id ELSE NULL END command_preset_id
                     FROM workers w LEFT JOIN agent_launch_configs alc ON alc.workspace_id=w.workspace_id AND alc.agent_id=w.id
                     WHERE w.workspace_id=? AND w.deleted_at IS NULL

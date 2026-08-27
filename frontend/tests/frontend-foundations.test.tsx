@@ -121,7 +121,10 @@ describe('workspace creation input', () => {
     const registrationId = crypto.randomUUID()
     expect(
       buildWorkspaceCreateInput({
-        commandPresetId: '',
+        commandPresetId: 'claude',
+        commandPresetRevision: 4,
+        modelId: '',
+        modelMode: 'default',
         name: '  Alpha  ',
         path: '  /work/alpha  ',
         registrationId,
@@ -129,7 +132,7 @@ describe('workspace creation input', () => {
         startupCommand: '   ',
       })
     ).toEqual({
-      commandPresetId: null,
+      launch: { type: 'preset', preset_id: 'claude', expected_preset_revision: 4 },
       name: 'Alpha',
       path: '/work/alpha',
       registrationId,
@@ -139,6 +142,34 @@ describe('workspace creation input', () => {
     expect(
       buildWorkspaceCreateInput({
         commandPresetId: 'codex',
+        commandPresetRevision: 2,
+        modelId: '  model-a  ',
+        modelMode: 'explicit',
+        name: 'Alpha',
+        path: '/work/alpha',
+        registrationId,
+        revisionSelection: { kind: 'current' },
+        startupCommand: '',
+      })
+    ).toEqual({
+      launch: {
+        type: 'preset',
+        preset_id: 'codex',
+        model_id: 'model-a',
+        expected_preset_revision: 2,
+      },
+      name: 'Alpha',
+      path: '/work/alpha',
+      registrationId,
+      revisionSelection: { kind: 'current' },
+    })
+
+    expect(
+      buildWorkspaceCreateInput({
+        commandPresetId: 'codex',
+        commandPresetRevision: 2,
+        modelId: 'ignored-for-startup',
+        modelMode: 'explicit',
         name: 'Alpha',
         path: '/work/alpha',
         registrationId,
@@ -146,12 +177,15 @@ describe('workspace creation input', () => {
         startupCommand: '  codex --resume  ',
       })
     ).toEqual({
-      commandPresetId: 'codex',
+      launch: {
+        type: 'startup',
+        startup_command: 'codex --resume',
+        recovery_preset_id: 'codex',
+      },
       name: 'Alpha',
       path: '/work/alpha',
       registrationId,
       revisionSelection: { kind: 'current' },
-      startupCommand: 'codex --resume',
     })
   })
 })

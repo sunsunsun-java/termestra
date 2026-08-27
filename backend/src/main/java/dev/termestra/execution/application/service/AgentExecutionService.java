@@ -82,7 +82,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
         }
     }
 
-    @Override public Optional<AgentLaunchConfigurationView> find(String workspaceId,String agentId){return repository.findConfiguration(workspaceId,agentId).map(value->new AgentLaunchConfigurationView(value.command(),value.arguments(),value.commandPresetId(),value.interactiveCommand(),value.presetAugmentationDisabled(),value.resumeArgsTemplate(),value.sessionIdCaptureJson(),value.environment()));}
+    @Override public Optional<AgentLaunchConfigurationView> find(String workspaceId,String agentId){return repository.findConfiguration(workspaceId,agentId).map(value->new AgentLaunchConfigurationView(value.command(),value.arguments(),value.commandPresetId(),value.interactiveCommand(),value.presetAugmentationDisabled(),value.resumeArgsTemplate(),value.sessionIdCaptureJson(),value.environment(),value.modelId(),value.revision()));}
 
     @Override public AgentRunView start(StartAgentCommand command){
         return operations.withAgent(command.workspaceId(),command.agentId(),()->startCoordinated(command));
@@ -114,7 +114,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
         List<String> yoloArguments=stored.presetAugmentationDisabled()?List.of():presetPolicy.yoloArguments(stored.commandPresetId(),stored.command());
         List<String> effectiveArguments=LaunchArguments.prependUnique(yoloArguments,stored.arguments());
         if(resumedSession!=null&&stored.resumeArgsTemplate()!=null&&!hasResumeArgs(effectiveArguments)){List<String> resumeArguments=new ArrayList<>(List.of(stored.resumeArgsTemplate().replace("{session_id}",resumedSession).trim().split("\\s+")));resumeArguments.addAll(stored.arguments());effectiveArguments=LaunchArguments.prependUnique(yoloArguments,resumeArguments);capture=Optional.empty();}
-        AgentLaunchConfiguration config=new AgentLaunchConfiguration(stored.command(),effectiveArguments,stored.commandPresetId(),stored.interactiveCommand(),stored.presetAugmentationDisabled(),stored.resumeArgsTemplate(),stored.sessionIdCaptureJson(),stored.environment());
+        AgentLaunchConfiguration config=new AgentLaunchConfiguration(stored.command(),effectiveArguments,stored.commandPresetId(),stored.interactiveCommand(),stored.presetAugmentationDisabled(),stored.resumeArgsTemplate(),stored.sessionIdCaptureJson(),stored.environment(),stored.modelId(),stored.revision());
         RunCapacityBudget.Lease capacity=runCapacity.reserve(command.workspaceId());
         String token=null;PseudoTerminalHandle process=null;LiveRun live=null;
         String runId=RunId.newId().toString();Instant started=Instant.now(clock);

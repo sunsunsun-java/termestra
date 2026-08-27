@@ -86,7 +86,8 @@ class WorkspaceHttpIntegrationTest {
                 .jsonPath("$.error").value(value -> assertTrue(value.toString().contains("input prompt")));
 
         client.get().uri("/api/workspaces").header(HttpHeaders.COOKIE, token).exchange()
-                .expectStatus().isOk().expectBody().jsonPath("$[0].name").isEqualTo("Learning Lab");
+                .expectStatus().isOk().expectBody()
+                .jsonPath("$[?(@.name == 'Learning Lab')]").isNotEmpty();
 
         client.post().uri("/api/workspaces/missing/open").header(HttpHeaders.COOKIE, token)
                 .bodyValue(Map.of("target_id", "intellij-idea")).exchange().expectStatus().isNotFound()
@@ -119,7 +120,7 @@ class WorkspaceHttpIntegrationTest {
         String workspaceId = workspace.get("id").toString();
         database.read("verify default orchestrator configuration", connection -> {
             try (var statement = connection.prepareStatement(
-                    "SELECT command,args_json,env_json FROM agent_launch_configs WHERE workspace_id=? AND agent_id=?")) {
+                    "SELECT command,args_json,env_json,command_preset_id FROM agent_launch_configs WHERE workspace_id=? AND agent_id=?")) {
                 statement.setString(1, workspaceId);
                 statement.setString(2, workspaceId + ":orchestrator");
                 try (var result = statement.executeQuery()) {
@@ -127,10 +128,120 @@ class WorkspaceHttpIntegrationTest {
                     assertFalse(result.getString("command").isBlank());
                     assertNotNull(result.getString("args_json"));
                     assertNotNull(result.getString("env_json"));
+                    assertEquals("claude",result.getString("command_preset_id"));
                 }
             }
             return null;
         });
+    }
+
+    @Test void persistsAnExplicitWorkspaceModelAndLetsAWorkerInheritItsSnapshot() throws IOException {
+        WebTestClient client=WebTestClient.bindToServer().baseUrl("http://127.0.0.1:"+port).build();
+        String header=client.get().uri("/api/ui/session").exchange().expectStatus().isOk()
+                .expectBody(Map.class).returnResult().getResponseHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        String cookie=Objects.requireNonNull(header).substring(0,header.indexOf(';'));
+        Map<?,?> preset=client.post().uri("/api/settings/command-presets").header(HttpHeaders.COOKIE,cookie)
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(Map.ofEntries(
+                        Map.entry("display_name","Model Test CLI"),Map.entry("command","/bin/sh"),
+                        Map.entry("args",List.of("-c","exit 0")),Map.entry("env",Map.of()),
+                        Map.entry("yolo_args_template",List.of("--frozen-yolo")),
+                        Map.entry("model_args_template",List.of("--model","{model_id}")),
+                        Map.entry("suggested_models",List.of("model-test")),
+                        Map.entry("allow_custom_model",true)))
+                .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
+        String presetId=Objects.requireNonNull(preset).get("id").toString();
+        Path path=Files.createTempDirectory("termestra-model-workspace-").toRealPath();
+
+        Map<?,?> workspace=client.post().uri("/api/workspaces").header(HttpHeaders.COOKIE,cookie)
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(Map.of(
+                        "name","Model Workspace","path",path.toString(),"autostart_orchestrator",false,
+                        "launch",Map.of("type","preset","preset_id",presetId,"model_id","model-test",
+                                "expected_preset_revision",1)))
+                .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
+        String workspaceId=Objects.requireNonNull(workspace).get("id").toString();
+
+        Map<?,?> options=client.get().uri("/api/ui/workspaces/"+workspaceId+"/agent-launch-options")
+                .header(HttpHeaders.COOKIE,cookie).exchange().expectStatus().isOk()
+                .expectBody(Map.class).returnResult().getResponseBody();
+        assertEquals(java.util.Set.of("orchestrator","presets"),Objects.requireNonNull(options).keySet());
+        Map<?,?> orchestrator=(Map<?,?>)options.get("orchestrator");
+        assertEquals(java.util.Set.of("preset_id","model_id","revision","inheritable"),
+                Objects.requireNonNull(orchestrator).keySet());
+        assertEquals(presetId,orchestrator.get("preset_id"));
+        assertEquals("model-test",orchestrator.get("model_id"));
+        assertEquals(1,((Number)orchestrator.get("revision")).intValue());
+        assertEquals(true,orchestrator.get("inheritable"));
+        Map<?,?> presetOption=((List<?>)options.get("presets")).stream()
+                .map(value->(Map<?,?>)value).filter(value->presetId.equals(value.get("id")))
+                .findFirst().orElseThrow();
+        assertEquals(java.util.Set.of("id","display_name","available","model_picker","revision"),
+                presetOption.keySet());
+        assertEquals(1,((Number)presetOption.get("revision")).intValue());
+        Map<?,?> modelPicker=(Map<?,?>)presetOption.get("model_picker");
+        assertEquals(java.util.Set.of("supported","allow_custom","suggested_models"),modelPicker.keySet());
+        assertEquals(true,modelPicker.get("supported"));
+        assertEquals(true,modelPicker.get("allow_custom"));
+        assertEquals(List.of("model-test"),modelPicker.get("suggested_models"));
+
+        client.patch().uri("/api/settings/command-presets/"+presetId)
+                .header(HttpHeaders.COOKIE,cookie).contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.ofEntries(Map.entry("display_name","Model Test CLI"),
+                        Map.entry("command","/bin/sh"),Map.entry("args",List.of("-c","exit 0")),
+                        Map.entry("env",Map.of()),Map.entry("yolo_args_template",List.of("--changed-yolo")),
+                        Map.entry("model_args_template",List.of("--model","{model_id}")),
+                        Map.entry("suggested_models",List.of("model-test")),
+                        Map.entry("allow_custom_model",true)))
+                .exchange().expectStatus().isOk();
+
+        client.post().uri("/api/workspaces/"+workspaceId+"/workers")
+                .header(HttpHeaders.COOKIE,cookie).contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("name","Inherited Worker","role","coder","launch",
+                        Map.of("type","inherit_orchestrator","expected_source_revision",1)))
+                .exchange().expectStatus().isCreated();
+
+        database.read("verify structured launch snapshots",connection->{try(var statement=connection.prepareStatement(
+                "SELECT agent_id,args_json,model_id,revision FROM agent_launch_configs WHERE workspace_id=? ORDER BY agent_id")){
+            statement.setString(1,workspaceId);try(var rows=statement.executeQuery()){
+                int count=0;while(rows.next()){
+                    count++;assertEquals("model-test",rows.getString("model_id"));
+                    assertTrue(rows.getString("args_json").contains("--model"));
+                    assertTrue(rows.getString("args_json").contains("model-test"));
+                    assertTrue(rows.getString("args_json").contains("--frozen-yolo"));
+                    assertFalse(rows.getString("args_json").contains("--changed-yolo"));
+                    assertEquals(1,rows.getLong("revision"));
+                }assertEquals(2,count);
+            }}return null;});
+    }
+
+    @Test void stalePresetRevisionKeepsActivatedWorkspaceRegistration() throws IOException {
+        WebTestClient client=WebTestClient.bindToServer().baseUrl("http://127.0.0.1:"+port).build();
+        String header=client.get().uri("/api/ui/session").exchange().expectStatus().isOk()
+                .expectBody(Map.class).returnResult().getResponseHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        String cookie=Objects.requireNonNull(header).substring(0,header.indexOf(';'));
+        Map<?,?> preset=client.post().uri("/api/settings/command-presets").header(HttpHeaders.COOKIE,cookie)
+                .bodyValue(Map.of("display_name","Revision CLI","command","/bin/sh","args",List.of(),"env",Map.of()))
+                .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
+        String presetId=Objects.requireNonNull(preset).get("id").toString();
+        client.patch().uri("/api/settings/command-presets/"+presetId).header(HttpHeaders.COOKIE,cookie)
+                .bodyValue(Map.of("display_name","Revision CLI 2","command","/bin/sh","args",List.of(),"env",Map.of()))
+                .exchange().expectStatus().isOk();
+        Path path=Files.createTempDirectory("termestra-stale-preset-").toRealPath();
+
+        client.post().uri("/api/workspaces").header(HttpHeaders.COOKIE,cookie)
+                .bodyValue(Map.of("name","Stale Workspace","path",path.toString(),
+                        "autostart_orchestrator",false,"launch",Map.of("type","preset",
+                                "preset_id",presetId,"expected_preset_revision",1)))
+                .exchange().expectStatus().isEqualTo(409).expectBody()
+                .jsonPath("$.error_code").isEqualTo("COMMAND_PRESET_CHANGED");
+
+        assertEquals("active",database.<String>read("verify stale workspace remains active",connection->{
+            try(var statement=connection.prepareStatement(
+                    "SELECT lifecycle_state FROM workspaces WHERE canonical_path=?")){
+                statement.setString(1,path.toString());try(var rows=statement.executeQuery()){
+                    assertTrue(rows.next());return rows.getString(1);
+                }
+            }
+        }));
     }
 
     @Test void rejectsWorkspaceAccessWithoutAUiSession() {

@@ -57,6 +57,13 @@ public final class ExecutionTeamScenarioRuntime implements TeamScenarioRuntime {
                 .find(workspaceId, workspaceId + ":orchestrator").orElse(null);
         String inheritedId = inheritedPresetId(orchestrator, presets);
         CommandPreset inherited = available(byId.get(inheritedId));
+        if (orchestrator != null && orchestrator.commandPresetId()!=null
+                && !orchestrator.commandPresetId().isBlank()) {
+            return new WorkerLaunchPlan(orchestrator.command(),orchestrator.arguments(),
+                    orchestrator.commandPresetId(),orchestrator.resumeArgsTemplate(),
+                    orchestrator.sessionIdCaptureJson(),orchestrator.environment(),orchestrator.modelId(),
+                    orchestrator.presetAugmentationDisabled());
+        }
         if (inherited != null) return plan(inherited);
         for (String id : BUILTIN_ORDER) {
             CommandPreset candidate = available(byId.get(id));
@@ -64,7 +71,7 @@ public final class ExecutionTeamScenarioRuntime implements TeamScenarioRuntime {
         }
         CommandPreset claude = byId.get("claude");
         return claude == null
-                ? new WorkerLaunchPlan("claude", List.of(), null, null, null,Map.of())
+                ? new WorkerLaunchPlan("claude", List.of(), null, null, null,Map.of(),null,true)
                 : plan(claude);
     }
 
@@ -83,8 +90,15 @@ public final class ExecutionTeamScenarioRuntime implements TeamScenarioRuntime {
     }
 
     private WorkerLaunchPlan plan(CommandPreset preset) {
-        return new WorkerLaunchPlan(preset.command(), preset.arguments(), preset.id(),
-                preset.resumeArgsTemplate(), capture(preset),preset.environment());
+        return new WorkerLaunchPlan(preset.command(), prependUnique(preset.yoloArgsTemplate(),preset.arguments()),
+                preset.id(),preset.resumeArgsTemplate(),capture(preset),preset.environment(),null,true);
+    }
+
+    private static List<String> prependUnique(List<String> prefix,List<String> arguments){
+        if(prefix==null||prefix.isEmpty())return List.copyOf(arguments);
+        List<String> result=new ArrayList<>(prefix);Set<String> prefixValues=new HashSet<>(prefix);
+        for(String argument:arguments)if(!prefixValues.contains(argument))result.add(argument);
+        return List.copyOf(result);
     }
 
     private String capture(CommandPreset preset) {

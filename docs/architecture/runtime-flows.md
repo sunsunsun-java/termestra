@@ -13,6 +13,7 @@ sequenceDiagram
     participant Git as Local Git worktree
     participant T as TasksDocumentStore
     participant E as Agent Execution
+    participant C as Configuration
     participant DB as SQLite
 
     UI->>W: inspect(opaque token)
@@ -30,9 +31,14 @@ sequenceDiagram
     W->>T: initialize `.termestra/` files
     T-->>W: tasks.md + refreshed PROTOCOL.md
     W->>WR: atomically activate Workspace + complete attempt
+    alt new Workspace
+        W->>E: configure Orchestrator launch intent
+        E->>C: resolve preset + model capability + revision
+        E->>DB: persist final Launch Configuration snapshot
+    end
     alt new Workspace and autostart enabled
-        W->>E: configureAndStart Orchestrator
-        E->>DB: persist launch config and Run
+        W->>E: start Orchestrator
+        E->>DB: persist Run
         E->>E: activate PTY and inject startup/recovery input
     end
     W-->>UI: Workspace + orchestrator_start
@@ -42,6 +48,10 @@ sequenceDiagram
 Workspace。Git 拒绝或元数据初始化失败时只释放 `preparing` Workspace；若 Git
 结果未知则保留 `uncertain` 证据并禁止自动重试。Workspace 激活后才准备
 Orchestrator，因此 Orchestrator 失败不会删除已经有效的 Workspace。
+
+创建 Worker 时，`preset` 走相同解析路径；`inherit_orchestrator` 则在单个 SQLite
+事务内校验来源 revision 并复制其最终命令、参数、环境、preset、model 与恢复元数据。
+这是创建时快照，不是后续联动配置。
 
 ## 可靠派单
 
@@ -141,7 +151,7 @@ sequenceDiagram
 
 后端重启后的恢复顺序是：
 
-1. 打开数据目录并把 SQLite schema 迁移到 v30；
+1. 打开数据目录并把 SQLite schema 迁移到 v31；
 2. 恢复 Workspace Registration：未开始 Git 的 `reserved` 可安全失败释放；
    遗留 `switching` 隔离为 `uncertain`；已记录 `checkout_applied` 的注册继续初始化
    元数据并激活；

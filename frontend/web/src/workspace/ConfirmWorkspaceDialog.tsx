@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 
 import type { CommandPreset, FsProbeResponse, WorkspaceRevisionSelectionPayload } from '../api.js'
 import { useI18n } from '../i18n.js'
+import { AgentModelSelect, type ModelSelectionMode } from '../launch/AgentModelSelect.js'
 import { WorkspaceCommandPresetSelect } from './WorkspaceCommandPresetSelect.js'
 import { GitBranchSelect } from './GitBranchSelect.js'
 import {
@@ -19,8 +20,11 @@ type ConfirmWorkspaceDialogProps = {
   commandPresetError: string | null
   commandPresetId: string
   commandPresets: CommandPreset[]
+  modelId: string
+  modelMode: Exclude<ModelSelectionMode, 'inherit'>
   onCancel: () => void
   onCommandPresetChange: (value: string) => void
+  onModelChange: (mode: ModelSelectionMode, modelId: string) => void
   onCreate: (input: WorkspaceCreateInput) => void
   onOpenServerBrowse: () => void
   open?: boolean
@@ -41,8 +45,11 @@ export const ConfirmWorkspaceDialog = ({
   commandPresetError,
   commandPresetId,
   commandPresets,
+  modelId,
+  modelMode,
   onCancel,
   onCommandPresetChange,
+  onModelChange,
   onCreate,
   onOpenServerBrowse,
   open = true,
@@ -73,6 +80,7 @@ export const ConfirmWorkspaceDialog = ({
   const presetsLoading = commandPresets.length === 0 && !commandPresetError
   const genericPresetNeedsStartup = !commandPresetId && startupClean.length === 0
   const selectedPresetUnavailable = selectedPreset?.available === false && startupClean.length === 0
+  const explicitModelMissing = startupClean.length === 0 && modelMode === 'explicit' && !modelId.trim()
   const presetAvailabilityError = genericPresetNeedsStartup
     ? t('workspace.preset.genericRequiresStartup')
     : selectedPresetUnavailable
@@ -83,12 +91,16 @@ export const ConfirmWorkspaceDialog = ({
     resolvedPath.length > 0 &&
     !presetsLoading &&
     !genericPresetNeedsStartup &&
-    !selectedPresetUnavailable
+    !selectedPresetUnavailable &&
+    !explicitModelMissing
 
   const handleCreate = () => {
     if (!canCreate || submitting) return
     onCreate(buildWorkspaceCreateInput({
       commandPresetId,
+      commandPresetRevision: selectedPreset?.revision,
+      modelId,
+      modelMode,
       name,
       path: resolvedPath,
       registrationId,
@@ -189,6 +201,14 @@ export const ConfirmWorkspaceDialog = ({
                 onChange={onCommandPresetChange}
                 presets={commandPresets}
                 value={commandPresetId}
+              />
+
+              <AgentModelSelect
+                disabled={submitting || startupClean.length > 0}
+                mode={modelMode}
+                modelId={modelId}
+                onChange={onModelChange}
+                preset={selectedPreset}
               />
 
               <button

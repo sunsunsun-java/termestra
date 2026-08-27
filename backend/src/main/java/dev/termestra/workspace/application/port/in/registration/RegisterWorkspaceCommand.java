@@ -10,6 +10,8 @@ public record RegisterWorkspaceCommand(
         String name,
         String startupCommand,
         String commandPresetId,
+        String modelId,
+        Long expectedPresetRevision,
         boolean autostartOrchestrator,
         RevisionSelection revisionSelection) {
 

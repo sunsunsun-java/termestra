@@ -157,7 +157,7 @@ public final class WorkspaceRegistrationService implements WorkspaceRegistration
             RegisterWorkspaceCommand command, Workspace activated, boolean created) {
         OrchestratorStartView start = operations.withWorkspace(activated.id().toString(), () ->
                 orchestrator.prepare(activated, command.startupCommand(), command.commandPresetId(),
-                        command.autostartOrchestrator()));
+                        command.modelId(),command.expectedPresetRevision(),command.autostartOrchestrator()));
         return new CreateWorkspaceResult(WorkspaceView.from(activated), start, created);
     }
 
@@ -549,6 +549,8 @@ public final class WorkspaceRegistrationService implements WorkspaceRegistration
         String value = String.join("\0", path.value(), Objects.requireNonNullElse(command.name(), ""),
                 Objects.requireNonNullElse(command.startupCommand(), ""),
                 Objects.requireNonNullElse(command.commandPresetId(), ""),
+                Objects.requireNonNullElse(command.modelId(), ""),
+                Objects.toString(command.expectedPresetRevision(), ""),
                 Boolean.toString(command.autostartOrchestrator()), revision.kind(),
                 Objects.requireNonNullElse(revision.branch(), ""),
                 Objects.requireNonNullElse(revision.targetOid(), ""));

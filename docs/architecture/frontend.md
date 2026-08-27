@@ -36,6 +36,7 @@ frontend/
 | Tasks Document | Workspace 文件 | HTTP 初读/写入 + WebSocket 更新 + revision 冲突 |
 | active Workspace 等偏好 | Configuration `app_state` | 后端保存，浏览器持有当前副本 |
 | 创建/启动后的短暂状态 | 后端结果尚未进入下一次轮询 | 有界 optimistic map，权威结果到达后收敛 |
+| Agent launch options | Configuration preset + Orchestrator Launch Snapshot | 打开创建弹窗时读取一次；提交携带所见 revision |
 | Demo | `demo-fixture.ts` | 本地只读，不发 Agent/Workspace 变更请求 |
 
 前端不会把 Terminal detail 作为 TeamMember 或 Run list 的来源。卡片上的
@@ -53,6 +54,12 @@ frontend/
 
 UI 组件不应重复发明 fetch、认证刷新或 wire 映射。新增 endpoint 时在 adapter
 层定义 payload 类型和大小预期，再向 hook 暴露 UI 语义。
+
+Workspace 与 Worker 创建复用 `launch/AgentModelSelect`。Workspace 默认选择
+“CLI 默认模型”；Worker 在来源可继承时默认选择 Orchestrator 的创建时快照，并在
+界面展示来源 preset/model。切换 CLI 会重置模型选择；填写自定义启动命令时结构化
+模型入口禁用，模型必须由命令自身表达。创建返回 preset/source revision 冲突时，界面
+刷新启动选项但不自动重试，必须由用户确认新选项后再次提交。
 
 ## 轮询与并发
 

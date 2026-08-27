@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react'
 import type { CommandPreset } from '../api.js'
 import type { WorkspaceRevisionSelectionPayload } from '../api.js'
 import { useI18n } from '../i18n.js'
+import { AgentModelSelect, type ModelSelectionMode } from '../launch/AgentModelSelect.js'
 import { FsEntryList } from './FsEntryList.js'
 import { FsSelectionPreview } from './FsSelectionPreview.js'
 import { buildBreadcrumbs } from './path-breadcrumbs.js'
@@ -28,9 +29,12 @@ type ServerBrowseDialogProps = {
   commandPresetError: string | null
   commandPresetId: string
   commandPresets: CommandPreset[]
+  modelId: string
+  modelMode: Exclude<ModelSelectionMode, 'inherit'>
   onClose: () => void
   onBack: () => void
   onCommandPresetChange: (value: string) => void
+  onModelChange: (mode: ModelSelectionMode, modelId: string) => void
   onCreate: (input: WorkspaceCreateInput) => void
   open: boolean
   registrationId: string
@@ -49,9 +53,12 @@ export const ServerBrowseDialog = ({
   commandPresetError,
   commandPresetId,
   commandPresets,
+  modelId,
+  modelMode,
   onClose,
   onBack,
   onCommandPresetChange,
+  onModelChange,
   onCreate,
   open,
   registrationId,
@@ -91,6 +98,7 @@ export const ServerBrowseDialog = ({
   const presetsLoading = commandPresets.length === 0 && !commandPresetError
   const genericPresetNeedsStartup = !commandPresetId && startupClean.length === 0
   const selectedPresetUnavailable = selectedPreset?.available === false && startupClean.length === 0
+  const explicitModelMissing = startupClean.length === 0 && modelMode === 'explicit' && !modelId.trim()
   const presetAvailabilityError = genericPresetNeedsStartup
     ? t('workspace.preset.genericRequiresStartup')
     : selectedPresetUnavailable
@@ -101,7 +109,8 @@ export const ServerBrowseDialog = ({
     (probe?.is_dir === true || (advanced && manualPath.trim().length > 0)) &&
     !presetsLoading &&
     !genericPresetNeedsStartup &&
-    !selectedPresetUnavailable
+    !selectedPresetUnavailable &&
+    !explicitModelMissing
 
   const handleCreate = () => {
     if (!canCreate || submitting) return
@@ -109,6 +118,9 @@ export const ServerBrowseDialog = ({
     if (!path) return
     onCreate(buildWorkspaceCreateInput({
       commandPresetId,
+      commandPresetRevision: selectedPreset?.revision,
+      modelId,
+      modelMode,
       name,
       path,
       registrationId,
@@ -257,6 +269,13 @@ export const ServerBrowseDialog = ({
                   onChange={onCommandPresetChange}
                   presets={commandPresets}
                   value={commandPresetId}
+                />
+                <AgentModelSelect
+                  disabled={submitting || startupClean.length > 0}
+                  mode={modelMode}
+                  modelId={modelId}
+                  onChange={onModelChange}
+                  preset={selectedPreset}
                 />
                 <button
                   type="button"

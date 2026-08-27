@@ -832,6 +832,9 @@ class AgentExecutionServiceConcurrencyTest {
             if ("racing-command".equals(configuration.command())) racingConfigurationSaved.countDown();
             return true;
         }
+        @Override public Optional<AgentLaunchConfiguration> copyConfigurationSnapshot(
+                String workspaceId,String sourceAgentId,String targetAgentId,Long expectedSourceRevision,
+                Instant at){return Optional.empty();}
         @Override public Optional<AgentLaunchConfiguration> findConfiguration(String workspaceId, String agentId) {
             return Optional.of(configuration);
         }

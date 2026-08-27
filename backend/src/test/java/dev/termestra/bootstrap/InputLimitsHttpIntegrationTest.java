@@ -251,6 +251,33 @@ class InputLimitsHttpIntegrationTest {
         assertEquals(true, legacyDispatch.get("truncated"));
     }
 
+    @Test void validatesWorkerLaunchBeforePersistenceAndKeepsLegacyStartupCompatibility(){
+        WebTestClient client=client();String cookie=uiCookie(client);
+        String workspaceId=createWorkspace(client,cookie,"Worker Launch Limits");
+
+        client.post().uri("/api/workspaces/{id}/workers",workspaceId).header(HttpHeaders.COOKIE,cookie)
+                .bodyValue(Map.of("name","Oversized launch","role","coder","launch",Map.of(
+                        "type","startup","startup_command","x".repeat(
+                                dev.termestra.execution.application.port.in.ExecutionInputLimits.MAX_ARGUMENT_CHARACTERS+1))))
+                .exchange().expectStatus().isBadRequest().expectBody()
+                .jsonPath("$.error").value(value->org.junit.jupiter.api.Assertions.assertTrue(
+                        value.toString().contains("argument exceeds")));
+        assertEquals(0,count("workers",workspaceId));
+
+        client.post().uri("/api/workspaces/{id}/workers",workspaceId).header(HttpHeaders.COOKIE,cookie)
+                .bodyValue(Map.of("name","Mixed launch","role","coder","launch",Map.of(
+                        "type","preset","preset_id","claude","startup_command","echo no")))
+                .exchange().expectStatus().isBadRequest().expectBody()
+                .jsonPath("$.error_code").isEqualTo("LAUNCH_CONTRACT_CONFLICT");
+        assertEquals(0,count("workers",workspaceId));
+
+        client.post().uri("/api/workspaces/{id}/workers",workspaceId).header(HttpHeaders.COOKIE,cookie)
+                .bodyValue(Map.of("name","Legacy launch","role","coder","startup_command","echo ok",
+                        "command_preset_id","removed-preset"))
+                .exchange().expectStatus().isCreated();
+        assertEquals(1,count("workers",workspaceId));
+    }
+
     @Test void enforcesConfigurationLimitsAndBoundsLegacySettingsResponsesWithoutChangingStoredValues() {
         WebTestClient client = client();
         String cookie = uiCookie(client);

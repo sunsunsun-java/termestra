@@ -31,6 +31,7 @@ Auth、Marketplace 等简单上下文可以使用较小结构；是否分层由�
 | `WorkspaceRegistrationLedger` | 规范路径 claim、容量、注册状态机与恢复 | `JdbcWorkspaceRegistrationLedger` |
 | `TeamLedger` | Message/Dispatch/Delivery 原子事务、查询投影、claim 和状态保护 | `JdbcTeamLedger` |
 | `AgentExecutionUseCase` / `AgentMessagingUseCase` | Run 容量、PTY 生命周期、输入串行、恢复与持久状态 | `AgentExecutionService` |
+| `ConfigureAgentLaunchUseCase` | preset/model 解析、最终参数生成、revision 校验与继承快照 | `AgentLaunchConfigurator` |
 | `PseudoTerminalLauncher` | 平台 PTY 启动、进程组/Job Object 终止 | `Pty4jProcessLauncher` |
 | `TerminalRuntimeGateway` | Terminal 与 Run 所有权隔离 | `RuntimeWiring` 中的 Execution adapter |
 | `TasksDocumentStore` | 真实目录/文件校验、大小限制、原子替换 | `NioTasksDocumentStore` |
@@ -43,11 +44,19 @@ Auth、Marketplace 等简单上下文可以使用较小结构；是否分层由�
 
 `dev.termestra.bootstrap.config.RuntimeWiring` 是唯一组合根，负责：
 
-- 创建 SQLite 数据库并在其他 Bean 之前迁移到 schema v30；
+- 创建 SQLite 数据库并在其他 Bean 之前迁移到 schema v31；
 - 把各上下文的 application interface 连接到 adapter；
 - 在组合层实现小型跨上下文 adapter，例如 Terminal 到 Agent Execution；
 - 启动/关闭 Dispatch delivery runtime、Agent execution 和 Tasks watcher；
 - 根据配置、操作系统和环境变量构造 Orchestrator 启动计划。
+
+`AgentLaunchConfigurator` 是 Workspace 和手工 Worker 共用的启动配置深模块。
+`preset` 请求在写入前校验 preset revision，并把 yolo 与模型模板展开为最终参数；
+`inherit_orchestrator` 在一个 SQLite 事务中读取来源 revision 并写入新的独立
+Launch Snapshot。Scenario 为保留“成员与启动配置一次提交”的现有事务语义，先解析
+Orchestrator 快照，再由 `JdbcScenarioMemberProvisioningRepository` 原子写入 TeamMember
+和独立 Launch Snapshot。新配置运行时只消费 `agent_launch_configs`，不会在启动时重新解释
+已经改变的 Configuration preset；迁移前、尚未重新配置的旧记录继续保留动态增强兼容行为。
 
 业务代码不得通过 Spring 容器查找依赖；依赖由构造器显式传入。
 

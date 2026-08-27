@@ -187,7 +187,7 @@ class WorkspaceBranchRegistrationHttpIntegrationTest {
             return new OrchestratorStarter() {
                 @Override public OrchestratorStartView prepare(
                         Workspace workspace, String startupCommand, String commandPresetId,
-                        boolean autostart) {
+                        String modelId, Long expectedPresetRevision, boolean autostart) {
                     return OrchestratorStartView.disabled();
                 }
             };

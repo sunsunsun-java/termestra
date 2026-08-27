@@ -25,6 +25,7 @@ controller/DTO、前端 wire type 和边界测试为准。
 | `/api/workspaces`, `/api/workspace-registrations`, `/api/fs`, Workspace `open` | Browser UI | Workspace |
 | `/api/workspaces/*/team`, `/workers`, `/scenarios`, `/api/team/*` | Browser / managed CLI | Team |
 | `/api/workspaces/*/agents`, `/api/runtime/runs`, `user-input`, `shell` | Browser UI | Agent Execution |
+| `GET /api/ui/workspaces/{workspace_id}/agent-launch-options` | Browser UI | Agent Execution |
 | `/api/workspaces/*/tasks` | Browser UI | Tasks |
 | `/api/settings`, `/api/ui/settings` | Browser UI | Configuration |
 | `/api/marketplace` | Browser UI | Marketplace |
@@ -56,6 +57,15 @@ Terminal 的 snapshot-to-live handoff 以 output sequence 为游标，不能丢�
 - 409 busy 明确 `retryable=true` 和 `retry_after_ms`；未知 PTY 副作用不能被降级成
   普通可重试错误。
 - 请求体、字符串、参数个数、集合、错误文本和 transport frame 都有代码级上限。
+
+Workspace 与 Worker 创建接受 `launch` tagged union：`preset`、`startup`，Worker
+另支持 `inherit_orchestrator`。`preset` 可携带 `model_id` 和
+`expected_preset_revision`；继承可携带 `expected_source_revision`。结构化 launch 与
+legacy `command_preset_id` / `startup_command` 同时出现时返回
+`LAUNCH_CONTRACT_CONFLICT`；tagged union 中出现不属于当前 `type` 的字段也返回同一错误。
+旧版 Worker `startup_command` 遇到已删除的 recovery preset 时继续按原始命令启动，结构化
+`startup` 则严格拒绝。preset 或来源 revision 变化返回 409，客户端必须刷新
+options 后由用户重新确认，不能静默改用新配置。
 
 ## 公共状态机
 
@@ -129,10 +139,10 @@ terminal。停止或 PTY 退出必须先确认进程树终止并持久化 termin
 | `messages` | Team | send/report/status 的有界审计记录与 Dispatch 关联 |
 | `dispatches` | Team | 公开业务状态与 idempotency key |
 | `dispatch_deliveries` | Team | Team-owned outbox、attempt/lease/错误恢复状态 |
-| `agent_launch_configs` | Agent Execution | 命令、参数、环境、preset 和 session capture 配置 |
+| `agent_launch_configs` | Agent Execution | 命令、含 yolo/model 展开的最终参数、环境、preset、model、revision 和 session capture 配置 |
 | `agent_runs` | Agent Execution | Run/PID/终态/时间证据 |
 | `agent_sessions` | Agent Execution | 每 Agent 最近可恢复 provider session |
-| `command_presets` | Configuration | 内建与自定义 CLI 启动预设 |
+| `command_presets` | Configuration | 内建与自定义 CLI 启动预设、model capability 与 revision |
 | `role_templates` | Configuration | 内建与自定义角色模板 |
 | `app_state` | Configuration | 小型本地 UI key/value 状态 |
 | `schema_version` | Platform persistence | 已应用 migration 版本 |

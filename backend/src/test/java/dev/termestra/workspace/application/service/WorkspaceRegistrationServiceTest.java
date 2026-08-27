@@ -132,14 +132,15 @@ class WorkspaceRegistrationServiceTest {
         WorkspaceRegistrationTokenCodec tokens = new WorkspaceRegistrationTokenCodec(CLOCK);
         WorkspaceRegistrationService service = new WorkspaceRegistrationService(
                 serviceLedger, workspaces, raw -> new WorkspacePath(raw), git, tokens, metadata,
-                (workspace, startupCommand, commandPresetId, autostart) -> OrchestratorStartView.disabled(),
+                (workspace,startupCommand,commandPresetId,modelId,expectedPresetRevision,autostart) ->
+                        OrchestratorStartView.disabled(),
                 new RuntimeOperationCoordinator(), CLOCK);
         return new Fixture(service, ledger, workspaces, git, tokens);
     }
 
     private RegisterWorkspaceCommand command(String registrationId, String token) {
-        return new RegisterWorkspaceCommand(registrationId, workspacePath().value(), "Test", null,
-                null, false, new RevisionSelection.LocalBranch("feature", token));
+        return new RegisterWorkspaceCommand(registrationId,workspacePath().value(),"Test",null,
+                null,null,null,false,new RevisionSelection.LocalBranch("feature",token));
     }
 
     private WorkspacePath workspacePath() {

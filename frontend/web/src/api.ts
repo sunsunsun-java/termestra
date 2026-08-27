@@ -125,7 +125,18 @@ export interface CommandPreset {
   command: string
   displayName: string
   id: string
+  modelPicker: {
+    allowCustom: boolean
+    suggestedModels: string[]
+    supported: boolean
+  }
+  revision: number
 }
+
+export type AgentLaunchInput =
+  | { type: 'inherit_orchestrator'; expected_source_revision?: number }
+  | { type: 'preset'; preset_id: string; model_id?: string; expected_preset_revision?: number }
+  | { type: 'startup'; startup_command: string; recovery_preset_id?: string }
 
 export interface RoleTemplate {
   description: string
@@ -147,6 +158,22 @@ interface CommandPresetPayload {
   command: string
   display_name: string
   id: string
+  model_picker: {
+    allow_custom: boolean
+    suggested_models: string[]
+    supported: boolean
+  }
+  revision: number
+}
+
+interface AgentLaunchOptionsPayload {
+  orchestrator: { preset_id: string | null; model_id: string | null; revision: number; inheritable: boolean } | null
+  presets: CommandPresetPayload[]
+}
+
+export interface AgentLaunchOptions {
+  orchestrator: { presetId: string | null; modelId: string | null; revision: number; inheritable: boolean } | null
+  presets: CommandPreset[]
 }
 
 interface RoleTemplatePayload {
@@ -227,6 +254,7 @@ export const createWorkspace = async (input: {
   command_preset_id?: string | null
   startup_command?: string | null
   revision_selection: WorkspaceRevisionSelectionPayload
+  launch?: AgentLaunchInput
 }): Promise<CreateWorkspaceResponse> => {
   const response = await apiFetch('/api/workspaces', {
     method: 'POST',
@@ -424,13 +452,46 @@ export const listCommandPresets = async (): Promise<CommandPreset[]> => {
     await response.json(),
     'command presets',
     COLLECTION_LIMITS.commandPresets
-  ).map((preset) => ({
-    args: preset.args,
-    available: preset.available,
-    command: preset.command,
-    displayName: preset.display_name,
-    id: preset.id,
-  }))
+  ).map(mapCommandPreset)
+}
+
+const mapCommandPreset = (preset: CommandPresetPayload): CommandPreset => ({
+  args: preset.args ?? [],
+  available: preset.available,
+  command: preset.command ?? '',
+  displayName: preset.display_name,
+  id: preset.id,
+  modelPicker: {
+    allowCustom: preset.model_picker.allow_custom,
+    suggestedModels: preset.model_picker.suggested_models,
+    supported: preset.model_picker.supported,
+  },
+  revision: preset.revision,
+})
+
+export const getWorkerLaunchOptions = async (workspaceId: string): Promise<AgentLaunchOptions> => {
+  const response = await apiFetch(
+    `/api/ui/workspaces/${encodeURIComponent(workspaceId)}/agent-launch-options`,
+    undefined,
+    INTERACTIVE_QUERY_TIMEOUT_MS
+  )
+  if (!response.ok) throw new Error('Failed to load agent launch options')
+  const payload = (await response.json()) as AgentLaunchOptionsPayload
+  return {
+    orchestrator: payload.orchestrator
+      ? {
+          presetId: payload.orchestrator.preset_id,
+          modelId: payload.orchestrator.model_id,
+          revision: payload.orchestrator.revision,
+          inheritable: payload.orchestrator.inheritable,
+        }
+      : null,
+    presets: requireBoundedList<CommandPresetPayload>(
+      payload.presets,
+      'command presets',
+      COLLECTION_LIMITS.commandPresets
+    ).map(mapCommandPreset),
+  }
 }
 
 export type TerminalInputProfile = 'default' | 'opencode'
@@ -635,6 +696,7 @@ export const createWorker = async (
     description?: string
     role: WorkerRole
     startup_command?: string | null
+    launch?: AgentLaunchInput
   }
 ): Promise<CreateWorkerResult> => {
   const response = await apiFetch(`/api/workspaces/${workspaceId}/workers`, {
@@ -644,7 +706,7 @@ export const createWorker = async (
   })
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, 'Failed to create worker'))
+    throw await readApiRequestError(response, 'Failed to create worker')
   }
 
   const payload = (await response.json()) as CreateWorkerPayload

@@ -339,6 +339,9 @@ export const WorkspaceDetail = ({
           <AddWorkerDialog
             commandPresets={composer.commandPresets}
             commandPresetId={composer.commandPresetId}
+            modelId={composer.modelId}
+            modelMode={composer.modelMode}
+            orchestratorModelLabel={composer.orchestratorModelLabel}
             creating={composer.creating}
             customTemplates={composer.customTemplates}
             onApplyMarketplaceImport={composer.applyMarketplaceImport}
@@ -346,6 +349,7 @@ export const WorkspaceDetail = ({
             onDeleteTemplate={composer.deleteTemplate}
             onNameChange={composer.setWorkerName}
             onPresetChange={composer.setCommandPresetId}
+            onModelChange={composer.setModelSelection}
             onRandomName={composer.randomizeWorkerName}
             onRoleDescriptionChange={composer.setRoleDescription}
             onRoleDescriptionReset={composer.resetRoleDescription}

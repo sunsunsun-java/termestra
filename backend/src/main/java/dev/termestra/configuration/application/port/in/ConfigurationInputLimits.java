@@ -1,6 +1,7 @@
 package dev.termestra.configuration.application.port.in;
 
 import dev.termestra.configuration.domain.model.CommandPreset;
+import dev.termestra.configuration.domain.model.ModelCapability;
 import dev.termestra.configuration.domain.model.RoleTemplate;
 
 import java.util.ArrayList;
@@ -29,6 +30,8 @@ public final class ConfigurationInputLimits {
     public static final int MAX_ROLE_NAME_CHARACTERS = 128;
     public static final int MAX_ROLE_TYPE_CHARACTERS = 64;
     public static final int MAX_ROLE_DESCRIPTION_CHARACTERS = 4_096;
+    public static final int MAX_SUGGESTED_MODELS = 32;
+    public static final int MAX_MODEL_ID_CHARACTERS = 128;
 
     private ConfigurationInputLimits() { }
 
@@ -42,6 +45,7 @@ public final class ConfigurationInputLimits {
                 MAX_RESUME_TEMPLATE_CHARACTERS);
         if (value.sessionIdCapture() != null) validateStructured(value.sessionIdCapture());
         if (value.yoloArgsTemplate() != null) validateStringList(value.yoloArgsTemplate(), "yolo_args_template");
+        validateModelCapability(value.modelCapability());
     }
 
     public static void validate(RoleTemplate value) {
@@ -91,6 +95,38 @@ public final class ConfigurationInputLimits {
             remaining -= bounded.length();
         }
         return List.copyOf(result);
+    }
+
+    public static List<String> boundedSuggestedModels(List<String> values) {
+        if(values==null||values.isEmpty())return List.of();
+        List<String> result=new ArrayList<>(Math.min(values.size(),MAX_SUGGESTED_MODELS));
+        for(String value:values){
+            if(result.size()==MAX_SUGGESTED_MODELS)break;
+            String bounded=bounded(value,MAX_MODEL_ID_CHARACTERS);
+            if(!bounded.isBlank())result.add(bounded);
+        }
+        return List.copyOf(result);
+    }
+
+    private static void validateModelCapability(ModelCapability capability) {
+        if(capability==null)return;
+        validateStringList(capability.argumentTemplate(),"model_args_template");
+        long placeholders=capability.argumentTemplate().stream()
+                .filter(value->value.contains(ModelCapability.MODEL_PLACEHOLDER)).count();
+        if(placeholders!=1)throw new IllegalArgumentException(
+                "model_args_template must contain exactly one {model_id} entry");
+        if(capability.suggestedModels().size()>MAX_SUGGESTED_MODELS)throw new IllegalArgumentException(
+                "suggested_models exceeds "+MAX_SUGGESTED_MODELS+" entries");
+        if(!capability.allowCustom()&&capability.suggestedModels().isEmpty())throw new IllegalArgumentException(
+                "suggested_models must not be empty when allow_custom_model is false");
+        capability.suggestedModels().forEach(ConfigurationInputLimits::validateModelId);
+    }
+
+    private static void validateModelId(String value) {
+        requireText(value,"suggested_models",MAX_MODEL_ID_CHARACTERS);
+        for(int index=0;index<value.length();index++)if(Character.isISOControl(value.charAt(index))
+                ||Character.isWhitespace(value.charAt(index)))throw new IllegalArgumentException(
+                "suggested_models entries must not contain whitespace or control characters");
     }
 
     public static Map<String, String> boundedEnvironment(Map<String, String> values) {

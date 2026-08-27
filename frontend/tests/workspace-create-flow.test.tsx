@@ -264,7 +264,7 @@ describe('Workspace creation feedback', () => {
     let response: Awaited<ReturnType<typeof result.current.createNewWorkspace>> | undefined
     await act(async () => {
       response = await result.current.createNewWorkspace({
-        commandPresetId: 'codex',
+        launch: { type: 'preset', preset_id: 'codex' },
         name: 'Requested rename',
         path: PICKED_PATH,
         registrationId: crypto.randomUUID(),

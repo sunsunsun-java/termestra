@@ -2,8 +2,15 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { AlertTriangle, FolderSearch } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiRequestError, type CommandPreset, type FsProbeResponse, listCommandPresets, pickFolder } from '../api.js'
+import {
+  ApiRequestError,
+  type CommandPreset,
+  type FsProbeResponse,
+  listCommandPresets,
+  pickFolder,
+} from '../api.js'
 import { useI18n } from '../i18n.js'
+import type { ModelSelectionMode } from '../launch/AgentModelSelect.js'
 import { ConfirmWorkspaceDialog } from './ConfirmWorkspaceDialog.js'
 import { ServerBrowseDialog } from './ServerBrowseDialog.js'
 import type { WorkspaceCreateInput } from './workspace-create-input.js'
@@ -25,6 +32,9 @@ type Stage =
   | { kind: 'error'; message: string; title?: string }
 
 const DEFAULT_COMMAND_PRESET_ID = 'claude'
+type WorkspaceModelSelectionMode = Exclude<ModelSelectionMode, 'inherit'>
+type WorkspaceModelSelection = { mode: WorkspaceModelSelectionMode; modelId: string }
+const DEFAULT_MODEL_SELECTION: WorkspaceModelSelection = { mode: 'default', modelId: '' }
 
 const chooseDefaultCommandPresetId = (presets: CommandPreset[]) =>
   presets.some((preset) => preset.id === DEFAULT_COMMAND_PRESET_ID && preset.available)
@@ -46,6 +56,9 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
   const [serverBrowseOpen, setServerBrowseOpen] = useState(false)
   const [commandPresets, setCommandPresets] = useState<CommandPreset[]>([])
   const [commandPresetId, setCommandPresetId] = useState(DEFAULT_COMMAND_PRESET_ID)
+  const [modelSelection, setModelSelection] = useState<WorkspaceModelSelection>(
+    DEFAULT_MODEL_SELECTION
+  )
   const [commandPresetError, setCommandPresetError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -74,6 +87,7 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
       !cancelled && pickerFlowGenerationRef.current === flowGeneration
     setServerBrowseOpen(false)
     setCommandPresetError(null)
+    setModelSelection(DEFAULT_MODEL_SELECTION)
     setSubmitError(null)
     registrationIdRef.current = crypto.randomUUID()
     const presetsReady = listCommandPresets()
@@ -178,6 +192,24 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
         }
         const message = error instanceof Error ? error.message : t('workspace.error.createFailed')
         setSubmitError(message)
+        if (error instanceof ApiRequestError && error.code === 'COMMAND_PRESET_CHANGED') {
+          void listCommandPresets()
+            .then((presets) => {
+              const nextId = presets.some(
+                (preset) => preset.id === commandPresetSnapshotRef.current.id && preset.available
+              )
+                ? commandPresetSnapshotRef.current.id
+                : chooseDefaultCommandPresetId(presets)
+              commandPresetSnapshotRef.current = { error: null, id: nextId, presets }
+              setCommandPresets(presets)
+              setCommandPresetId(nextId)
+              setModelSelection(DEFAULT_MODEL_SELECTION)
+              setCommandPresetError(null)
+            })
+            .catch(() => {
+              // Keep the conflict visible; reopening the flow retries the preset query.
+            })
+        }
       })
   }
 
@@ -185,6 +217,11 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
     if (createInFlightRef.current) return
     commandPresetSnapshotRef.current = { ...commandPresetSnapshotRef.current, id: value }
     setCommandPresetId(value)
+    setModelSelection(DEFAULT_MODEL_SELECTION)
+  }
+
+  const handleModelChange = (mode: ModelSelectionMode, modelId: string) => {
+    setModelSelection({ mode: mode === 'inherit' ? 'default' : mode, modelId })
   }
 
   const renderedCommandPresets =
@@ -299,10 +336,13 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
         commandPresetError={renderedCommandPresetError}
         commandPresetId={renderedCommandPresetId}
         commandPresets={renderedCommandPresets}
+        modelId={modelSelection.modelId}
+        modelMode={modelSelection.mode}
         pasteFallbackDefault={stage.pasteDefault}
         probe={stage.probe}
         onCancel={handleCancel}
         onCommandPresetChange={handleCommandPresetChange}
+        onModelChange={handleModelChange}
         onCreate={handleCreate}
         onOpenServerBrowse={() => !createInFlightRef.current && setServerBrowseOpen(true)}
         open={!serverBrowseOpen}
@@ -314,9 +354,12 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
         commandPresetError={renderedCommandPresetError}
         commandPresetId={renderedCommandPresetId}
         commandPresets={renderedCommandPresets}
+        modelId={modelSelection.modelId}
+        modelMode={modelSelection.mode}
         onBack={() => setServerBrowseOpen(false)}
         onClose={handleCancel}
         onCommandPresetChange={handleCommandPresetChange}
+        onModelChange={handleModelChange}
         onCreate={handleCreate}
         open={serverBrowseOpen}
         registrationId={registrationIdRef.current}

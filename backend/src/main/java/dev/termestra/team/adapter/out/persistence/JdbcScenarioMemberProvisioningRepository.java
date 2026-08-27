@@ -43,19 +43,22 @@ public final class JdbcScenarioMemberProvisioningRepository implements ScenarioM
             try (PreparedStatement launch = connection.prepareStatement("""
                     INSERT INTO agent_launch_configs(
                       workspace_id,agent_id,command,args_json,command_preset_id,interactive_command,
-                      preset_augmentation_disabled,resume_args_template,session_id_capture_json,env_json,created_at,updated_at)
-                    VALUES(?,?,?,?,?,NULL,0,?,?,?,?,?)
+                      preset_augmentation_disabled,resume_args_template,session_id_capture_json,env_json,
+                      model_id,revision,created_at,updated_at)
+                    VALUES(?,?,?,?,?,NULL,?,?,?,?,?,1,?,?)
                     """)) {
                 launch.setString(1, member.workspaceId().toString());
                 launch.setString(2, member.id().toString());
                 launch.setString(3, launchPlan.command());
                 launch.setString(4, writeArguments(launchPlan));
                 launch.setString(5, launchPlan.commandPresetId());
-                launch.setString(6, launchPlan.resumeArgsTemplate());
-                launch.setString(7, launchPlan.sessionIdCaptureJson());
-                launch.setString(8, writeEnvironment(launchPlan));
-                launch.setLong(9, member.createdAt().toEpochMilli());
-                launch.setLong(10, member.createdAt().toEpochMilli());
+                launch.setInt(6,launchPlan.presetAugmentationDisabled()?1:0);
+                launch.setString(7, launchPlan.resumeArgsTemplate());
+                launch.setString(8, launchPlan.sessionIdCaptureJson());
+                launch.setString(9, writeEnvironment(launchPlan));
+                launch.setString(10, launchPlan.modelId());
+                launch.setLong(11, member.createdAt().toEpochMilli());
+                launch.setLong(12, member.createdAt().toEpochMilli());
                 launch.executeUpdate();
             }
             return null;

@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 
 import type { TeamListItem, WorkerRole } from '../../../src/shared/types.js'
 import {
+  type AgentLaunchInput,
   createWorker,
   deleteWorker,
   startAgentRun,
@@ -33,7 +34,7 @@ export interface CreateWorkerActionInput {
   name: string
   role: WorkerRole
   roleDescription: string
-  startupCommand: string
+  launch: AgentLaunchInput
 }
 
 export interface WorkerActions {
@@ -53,16 +54,14 @@ export const useWorkerActions = ({
   setWorkersByWorkspaceId,
 }: UseWorkerActionsInput): WorkerActions => {
   const createWorkerAction = useCallback<WorkerActions['createWorker']>(
-    async ({ commandPresetId, name, role, roleDescription, startupCommand }) => {
+    async ({ commandPresetId, name, role, roleDescription, launch }) => {
       if (!activeWorkspaceId) return { error: 'No active workspace', runId: null }
-      const startupClean = startupCommand.trim()
       const result = await createWorker(activeWorkspaceId, {
         autostart: true,
-        command_preset_id: commandPresetId || null,
         description: roleDescription.trim(),
+        launch,
         name,
         role,
-        startup_command: startupClean || null,
       })
       setWorkersByWorkspaceId((current) => ({
         ...current,

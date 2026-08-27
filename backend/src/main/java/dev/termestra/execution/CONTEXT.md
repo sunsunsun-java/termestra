@@ -11,9 +11,14 @@ Runs.
 _Avoid_: Run, TeamMember, model call
 
 **Launch Configuration**:
-The durable command, arguments, environment, preset association, and recovery
-metadata used to start an Agent.
+The durable command, final arguments, environment, preset and model association,
+revision, and recovery metadata used to start an Agent.
 _Avoid_: Run, shell command string
+
+**Launch Snapshot**:
+A creation-time copy of one Agent's structured Launch Configuration used by a
+new Agent; later source changes do not mutate it.
+_Avoid_: live inheritance, Command Preset
 
 **Run**:
 One supervised lifetime of an Agent's local CLI process, identified by a stable

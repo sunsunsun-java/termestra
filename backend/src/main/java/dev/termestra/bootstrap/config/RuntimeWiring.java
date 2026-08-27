@@ -7,10 +7,13 @@ import dev.termestra.execution.adapter.out.persistence.JdbcAgentDirectory;
 import dev.termestra.execution.adapter.out.persistence.JdbcAgentExecutionRepository;
 import dev.termestra.execution.adapter.out.persistence.JdbcAgentRecoveryContextProvider;
 import dev.termestra.execution.adapter.out.pty.Pty4jProcessLauncher;
+import dev.termestra.execution.adapter.out.system.SystemShellCommandResolver;
 import dev.termestra.execution.adapter.out.session.FilesystemAgentSessionCapture;
 import dev.termestra.execution.application.port.in.*;
 import dev.termestra.execution.application.port.out.*;
 import dev.termestra.execution.application.service.AgentExecutionService;
+import dev.termestra.execution.application.service.AgentLaunchConfigurator;
+import dev.termestra.execution.application.service.AgentLaunchOptionsService;
 import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
 import dev.termestra.platform.persistence.sqlite.*;
 import dev.termestra.workspace.adapter.out.filesystem.NioWorkspacePathResolver;
@@ -27,9 +30,11 @@ import dev.termestra.workspace.application.service.WorkspaceRegistrationService;
 import dev.termestra.workspace.application.service.WorkspaceRegistrationTokenCodec;
 import dev.termestra.team.adapter.out.persistence.*;
 import dev.termestra.team.adapter.out.runtime.ExecutionTeamScenarioRuntime;
+import dev.termestra.team.adapter.out.runtime.ExecutionWorkerExecution;
 import dev.termestra.team.adapter.out.runtime.DispatchDeliveryRuntime;
 import dev.termestra.team.application.port.in.DispatchDeliveryUseCase;
 import dev.termestra.team.application.port.in.ApplyTeamScenarioUseCase;
+import dev.termestra.team.application.port.in.CreateWorkerUseCase;
 import dev.termestra.team.application.port.in.RemoveWorkerUseCase;
 import dev.termestra.team.application.port.in.TeamAdminUseCase;
 import dev.termestra.team.application.port.out.*;
@@ -38,6 +43,7 @@ import dev.termestra.team.application.service.DispatchDeliveryApplicationService
 import dev.termestra.team.application.service.TeamApplicationService;
 import dev.termestra.team.application.service.TeamScenarioApplicationService;
 import dev.termestra.team.application.service.WorkerRemovalService;
+import dev.termestra.team.application.service.CreateWorkerService;
 import dev.termestra.team.domain.model.*;
 import dev.termestra.terminal.application.port.in.*;
 import dev.termestra.terminal.application.port.out.TerminalRuntimeGateway;
@@ -75,7 +81,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 @Configuration
@@ -96,68 +101,42 @@ public class RuntimeWiring {
     @Bean WorkspaceOpener workspaceOpener(){return new ProcessWorkspaceOpener();}
     @Bean OpenWorkspaceUseCase openWorkspaceUseCase(WorkspaceRepository repository,WorkspaceOpener opener){return new OpenWorkspaceService(repository,opener);}
     @Bean OrchestratorStarter orchestratorStarter(AgentExecutionUseCase execution,
-                                                   ConfigurationUseCase configuration,ObjectMapper json) {
-        return (workspace, startupCommand, commandPresetId, autostart) -> {
-            try {
-                var presets = configuration.commandPresets();
-                String command;
-                List<String> arguments;
-                String effectivePresetId = null;
-                String interactiveCommand = null;
-                String resumeArgsTemplate = null;
-                String sessionIdCaptureJson = null;
-                Map<String,String> environment = Map.of();
-                boolean augmentationDisabled = false;
-                if (startupCommand != null && !startupCommand.isBlank()) {
-                    var selected = commandPresetId == null ? java.util.Optional.<dev.termestra.configuration.domain.model.CommandPreset>empty()
-                            : presets.stream().filter(value -> value.id().equals(commandPresetId)).findFirst();
-                    if(commandPresetId!=null&&selected.isEmpty())throw new IllegalArgumentException("Command preset not found: "+commandPresetId);
-                    interactiveCommand = selected.map(dev.termestra.configuration.domain.model.CommandPreset::command)
-                            .orElseGet(startupCommand::trim);
-                    resumeArgsTemplate = selected.map(dev.termestra.configuration.domain.model.CommandPreset::resumeArgsTemplate).orElse(null);
-                    sessionIdCaptureJson = selected.map(dev.termestra.configuration.domain.model.CommandPreset::sessionIdCapture)
-                            .filter(Objects::nonNull).map(value->{try{return json.writeValueAsString(value);}catch(com.fasterxml.jackson.core.JsonProcessingException error){throw new IllegalStateException("Invalid session capture configuration",error);}}).orElse(null);
-                    augmentationDisabled = true;
-                    environment = selected.map(dev.termestra.configuration.domain.model.CommandPreset::environment).orElse(Map.of());
-                    command = System.getenv().getOrDefault("SHELL", "/bin/sh");
-                    String shellName = Path.of(command).getFileName().toString().toLowerCase();
-                    arguments = List.of(shellName.contains("bash") || shellName.contains("zsh") || shellName.contains("ksh") ? "-lic" : "-ic", startupCommand.trim());
-                } else if (commandPresetId != null && !commandPresetId.isBlank()) {
-                    var preset = presets.stream().filter(value -> value.id().equals(commandPresetId)).findFirst()
-                            .orElseThrow(() -> new IllegalArgumentException("Command preset not found: " + commandPresetId));
-                    command = preset.command();
-                    arguments = preset.arguments();
-                    effectivePresetId = preset.id();
-                    resumeArgsTemplate = preset.resumeArgsTemplate();
-                    sessionIdCaptureJson = serializeCapture(preset.sessionIdCapture(),json);
-                    environment = preset.environment();
+                                                   ConfigureAgentLaunchUseCase launches,
+                                                   ObjectMapper json) {
+        return new OrchestratorStarter(){
+          @Override public OrchestratorStartView prepare(dev.termestra.workspace.domain.model.Workspace workspace,
+                                                         String startupCommand,String commandPresetId,String modelId,
+                                                         Long expectedPresetRevision,boolean autostart){
+            String workspaceId=workspace.id().toString();
+            String agentId=workspace.id()+":orchestrator";
+            if(startupCommand!=null&&!startupCommand.isBlank()){
+                launches.configure(new ConfigureAgentLaunchCommand(workspaceId,agentId,
+                        new LaunchSource.Startup(startupCommand,commandPresetId,true)));
+            }else if(commandPresetId!=null&&!commandPresetId.isBlank()){
+                launches.configure(new ConfigureAgentLaunchCommand(workspaceId,agentId,
+                        new LaunchSource.Preset(commandPresetId,modelId,expectedPresetRevision)));
+            }else {
+                String configuredCommand=environmentValue("TERMESTRA_ORCHESTRATOR_COMMAND");
+                if(configuredCommand!=null){
+                    String configuredArguments=environmentValue("TERMESTRA_ORCHESTRATOR_ARGS_JSON");
+                    execution.configure(new ConfigureAgentCommand(workspaceId,agentId,configuredCommand,
+                            parseArguments(configuredArguments,json),null,null));
                 } else {
-                    var template = configuration.roleTemplates().stream().filter(value -> "orchestrator".equals(value.roleType())).findFirst()
-                            .orElseThrow(() -> new IllegalArgumentException("Orchestrator role template not found"));
-                    String configuredCommand = environmentValue("TERMESTRA_ORCHESTRATOR_COMMAND");
-                    command = configuredCommand == null ? template.defaultCommand() : configuredCommand;
-                    String configuredArguments = environmentValue("TERMESTRA_ORCHESTRATOR_ARGS_JSON");
-                    arguments = configuredCommand == null ? template.defaultArguments() : parseArguments(configuredArguments,json);
-                    environment = template.defaultEnvironment();
+                    launches.configure(new ConfigureAgentLaunchCommand(workspaceId,agentId,
+                            new LaunchSource.RoleDefault("orchestrator")));
                 }
-                String agentId = workspace.id() + ":orchestrator";
-                ConfigureAgentCommand launchConfiguration = new ConfigureAgentCommand(workspace.id().toString(), agentId,
-                        command, arguments, effectivePresetId, interactiveCommand,augmentationDisabled,
-                        resumeArgsTemplate,sessionIdCaptureJson,environment);
-                if (!autostart) {
-                    execution.configure(launchConfiguration);
-                    return OrchestratorStartView.disabled();
-                }
-                AgentRunView run = execution.configureAndStart(launchConfiguration,
-                        new StartAgentCommand(workspace.id().toString(), agentId, null));
+            }
+            if(!autostart)return OrchestratorStartView.disabled();
+            try {
+                AgentRunView run=execution.start(new StartAgentCommand(workspaceId,agentId,null));
                 return new OrchestratorStartView(true, null, run.runId());
             } catch (RuntimeException error) {
                 return new OrchestratorStartView(false, error.getMessage(), null);
             }
+          }
         };
     }
     private static List<String> parseArguments(String raw,ObjectMapper json){if(raw==null||raw.isBlank())return List.of();try{return json.readValue(raw,new com.fasterxml.jackson.core.type.TypeReference<List<String>>(){});}catch(com.fasterxml.jackson.core.JsonProcessingException invalidJson){return List.of(raw.trim().split("\\s+"));}}
-    private static String serializeCapture(Map<String,Object> capture,ObjectMapper json){if(capture==null)return null;try{return json.writeValueAsString(capture);}catch(com.fasterxml.jackson.core.JsonProcessingException error){throw new IllegalStateException("Invalid session capture configuration",error);}}
     @Bean WorkspaceRuntimeCleaner workspaceRuntimeCleaner(AgentExecutionUseCase execution,
                                                             PendingTaskProjection pendingTasks,
                                                             TasksUseCase tasks){
@@ -193,6 +172,21 @@ public class RuntimeWiring {
     @Bean AgentCredentialService agentCredentialService() { return new AgentCredentialService(); }
     @Bean AgentExecutionRepository agentExecutionRepository(SqliteDatabase database, ObjectMapper json) {
         return new JdbcAgentExecutionRepository(database, json);
+    }
+    @Bean LaunchPresetCatalog launchPresetCatalog(ConfigurationUseCase configuration,
+                                                   CommandAvailabilityUseCase availability,ObjectMapper json){
+        return new ConfigurationLaunchPresetCatalog(configuration,availability,json);
+    }
+    @Bean ConfigureAgentLaunchUseCase configureAgentLaunchUseCase(AgentExecutionRepository repository,
+                                                                   LaunchPresetCatalog presets,
+                                                                   ShellCommandResolver shells,Clock clock,
+                                                                   RuntimeOperationCoordinator operations){
+        return new AgentLaunchConfigurator(repository,presets,shells,clock,operations);
+    }
+    @Bean ShellCommandResolver shellCommandResolver(){return new SystemShellCommandResolver();}
+    @Bean AgentLaunchOptionsQuery agentLaunchOptionsQuery(LaunchPresetCatalog presets,
+                                                           AgentLaunchConfigurationQuery configurations){
+        return new AgentLaunchOptionsService(presets,configurations);
     }
     @Bean AgentRecoveryContextProvider agentRecoveryContextProvider(SqliteDatabase database) { return new JdbcAgentRecoveryContextProvider(database); }
     @Bean AgentDirectory agentDirectory(SqliteDatabase database) { return new JdbcAgentDirectory(database); }
@@ -330,6 +324,12 @@ public class RuntimeWiring {
                                                    AgentExecutionUseCase execution,
                                                    RuntimeOperationCoordinator operations) {
         return new WorkerRemovalService(team, execution::forgetAgent,operations);
+    }
+    @Bean WorkerExecution workerExecution(ConfigureAgentLaunchUseCase launches,AgentExecutionUseCase execution){
+        return new ExecutionWorkerExecution(launches,execution);
+    }
+    @Bean CreateWorkerUseCase createWorkerUseCase(TeamAdminUseCase team,WorkerExecution execution){
+        return new CreateWorkerService(team,execution);
     }
     @Bean TeamScenarioRuntime teamScenarioRuntime(AgentLaunchConfigurationQuery configurations,
                                                    AgentExecutionUseCase execution,

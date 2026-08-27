@@ -20,6 +20,7 @@ public final class ExecutionInputLimits {
     public static final int MAX_CAPTURE_JSON_CHARACTERS = 65_536;
     public static final int MAX_SESSION_ID_CHARACTERS = 4_096;
     public static final int MAX_USER_INPUT_CHARACTERS = 65_536;
+    public static final int MAX_MODEL_ID_CHARACTERS = 128;
 
     private ExecutionInputLimits() { }
 
@@ -34,6 +35,20 @@ public final class ExecutionInputLimits {
 
     public static String optionalPresetId(String value) {
         return value == null ? null : bounded(value, "command_preset_id", MAX_PRESET_ID_CHARACTERS);
+    }
+
+    public static String optionalModelId(String value) {
+        if(value==null)return null;
+        String normalized=value.trim();
+        if(normalized.isEmpty())return null;
+        bounded(normalized,"model_id",MAX_MODEL_ID_CHARACTERS);
+        for(int index=0;index<normalized.length();index++){
+            char character=normalized.charAt(index);
+            if(Character.isISOControl(character)||Character.isWhitespace(character)){
+                throw new IllegalArgumentException("model_id must not contain whitespace or control characters");
+            }
+        }
+        return normalized;
     }
 
     public static String optionalCaptureJson(String value) {

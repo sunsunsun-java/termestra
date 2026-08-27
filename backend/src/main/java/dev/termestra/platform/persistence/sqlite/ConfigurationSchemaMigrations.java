@@ -8,6 +8,7 @@ import java.util.List;
 
 import static dev.termestra.platform.persistence.sqlite.SchemaSupport.execute;
 import static dev.termestra.platform.persistence.sqlite.SchemaSupport.hasColumn;
+import static dev.termestra.platform.persistence.sqlite.SchemaSupport.hasTable;
 
 final class ConfigurationSchemaMigrations {
     private final Clock clock;
@@ -26,7 +27,8 @@ final class ConfigurationSchemaMigrations {
                 new SchemaMigration(19, this::extendSettingsTables),
                 new SchemaMigration(22, this::refreshRoles),
                 new SchemaMigration(23, this::refreshPresets),
-                new SchemaMigration(24, this::refreshPresets));
+                new SchemaMigration(24, this::refreshPresets),
+                new SchemaMigration(31, this::addStructuredModelSelection));
     }
 
     private void v7(Connection c) throws SQLException {
@@ -94,6 +96,26 @@ final class ConfigurationSchemaMigrations {
         addColumnUnlessPresent(c,"role_templates","default_args","TEXT NOT NULL DEFAULT '[]'");
         addColumnUnlessPresent(c,"role_templates","default_env","TEXT NOT NULL DEFAULT '{}'");
         execute(c,"UPDATE role_templates SET role_type=id WHERE id IN ('orchestrator','coder','reviewer','tester') AND is_builtin=1");
+    }
+
+    private void addStructuredModelSelection(Connection connection) throws SQLException {
+        if(hasTable(connection,"command_presets")){
+            addColumnUnlessPresent(connection,"command_presets","model_args_template_json","TEXT");
+            addColumnUnlessPresent(connection,"command_presets","suggested_models_json","TEXT NOT NULL DEFAULT '[]'");
+            addColumnUnlessPresent(connection,"command_presets","allow_custom_model","INTEGER NOT NULL DEFAULT 0");
+            addColumnUnlessPresent(connection,"command_presets","revision","INTEGER NOT NULL DEFAULT 1");
+            execute(connection,"""
+                UPDATE command_presets
+                SET model_args_template_json='["--model","{model_id}"]',
+                    suggested_models_json='[]',
+                    allow_custom_model=1
+                WHERE is_builtin=1 AND id IN ('codex','claude')
+                """);
+        }
+        if(hasTable(connection,"agent_launch_configs")){
+            addColumnUnlessPresent(connection,"agent_launch_configs","model_id","TEXT");
+            addColumnUnlessPresent(connection,"agent_launch_configs","revision","INTEGER NOT NULL DEFAULT 1");
+        }
     }
 
     private static void addColumnUnlessPresent(Connection connection, String table, String column, String definition)

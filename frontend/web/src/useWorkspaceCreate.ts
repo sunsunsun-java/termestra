@@ -78,9 +78,8 @@ export const useWorkspaceCreate = ({
         name: input.name,
         path: input.path,
         autostart_orchestrator: true,
-        command_preset_id: input.commandPresetId,
-        startup_command: input.startupCommand ?? null,
         revision_selection: input.revisionSelection,
+        launch: input.launch,
       })
       // A 200 response means the canonical path already exists. Its no-op
       // orchestrator_start payload must not erase a prior run id or sticky error.

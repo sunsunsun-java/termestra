@@ -1,6 +1,7 @@
 package dev.termestra.team.adapter.in.http;
 
 import dev.termestra.team.application.exception.TeamBadRequest;
+import dev.termestra.execution.application.exception.InvalidLaunchRequest;
 import dev.termestra.team.application.port.in.*;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -11,9 +12,8 @@ import java.util.*;
 @RestController
 public final class TeamQueryController {
     private static final Set<String> STATES=Set.of("queued","submitted","reported","cancelled");
-    private final TeamUseCase team; private final TeamAdminUseCase admin; private final RemoveWorkerUseCase removeWorker; private final DispatchQuery dispatches;private final TeamMemberOutputEnricher outputEnricher;
-    private final dev.termestra.execution.application.port.in.AgentExecutionUseCase execution;private final dev.termestra.configuration.application.port.in.ConfigurationUseCase settings;private final com.fasterxml.jackson.databind.ObjectMapper json;
-    public TeamQueryController(TeamUseCase team,TeamAdminUseCase admin,RemoveWorkerUseCase removeWorker,DispatchQuery dispatches,TeamMemberOutputEnricher outputEnricher,dev.termestra.execution.application.port.in.AgentExecutionUseCase execution,dev.termestra.configuration.application.port.in.ConfigurationUseCase settings,com.fasterxml.jackson.databind.ObjectMapper json){this.team=team;this.admin=admin;this.removeWorker=removeWorker;this.dispatches=dispatches;this.outputEnricher=outputEnricher;this.execution=execution;this.settings=settings;this.json=json;}
+    private final TeamUseCase team; private final TeamAdminUseCase admin; private final CreateWorkerUseCase createWorker;private final RemoveWorkerUseCase removeWorker; private final DispatchQuery dispatches;private final TeamMemberOutputEnricher outputEnricher;
+    public TeamQueryController(TeamUseCase team,TeamAdminUseCase admin,CreateWorkerUseCase createWorker,RemoveWorkerUseCase removeWorker,DispatchQuery dispatches,TeamMemberOutputEnricher outputEnricher){this.team=team;this.admin=admin;this.createWorker=createWorker;this.removeWorker=removeWorker;this.dispatches=dispatches;this.outputEnricher=outputEnricher;}
 
     @GetMapping("/api/workspaces/{workspaceId}/team")
     Mono<List<TeamMemberResponse>> listForAgent(@PathVariable String workspaceId,
@@ -28,25 +28,18 @@ public final class TeamQueryController {
 
     @PostMapping("/api/workspaces/{workspaceId}/workers") @ResponseStatus(HttpStatus.CREATED)
     Mono<Map<String,Object>> addWorker(@PathVariable String workspaceId,@RequestBody TeamRequests.Worker request,org.springframework.http.server.reactive.ServerHttpRequest serverRequest){return blocking(()->{
-        boolean startup=request.startupCommand()!=null&&!request.startupCommand().isBlank();
-        var selected=request.commandPresetId()==null?Optional.<dev.termestra.configuration.domain.model.CommandPreset>empty():settings.commandPresets().stream().filter(item->item.id().equals(request.commandPresetId())).findFirst();
-        if(!startup&&request.commandPresetId()!=null&&selected.isEmpty())throw new TeamBadRequest("Command preset not found: "+request.commandPresetId());
-        TeamMemberView created=admin.addWorker(new AddWorkerCommand(workspaceId,request.name(),request.description(),request.role()));
-        try {
-            if(startup){String shell=Objects.requireNonNullElse(System.getenv("SHELL"),"/bin/sh");String shellName=java.nio.file.Path.of(shell).getFileName().toString().toLowerCase();List<String> args=List.of(shellName.contains("bash")||shellName.contains("zsh")||shellName.contains("ksh")?"-lic":"-ic",request.startupCommand().trim());String interactive=selected.map(dev.termestra.configuration.domain.model.CommandPreset::command).orElse(request.startupCommand().trim());execution.configure(new dev.termestra.execution.application.port.in.ConfigureAgentCommand(workspaceId,created.id(),shell,args,null,interactive,true,selected.map(dev.termestra.configuration.domain.model.CommandPreset::resumeArgsTemplate).orElse(null),capture(selected.orElse(null)),selected.map(dev.termestra.configuration.domain.model.CommandPreset::environment).orElse(Map.of())));}
-            else if(selected.isPresent()){var preset=selected.orElseThrow();execution.configure(new dev.termestra.execution.application.port.in.ConfigureAgentCommand(workspaceId,created.id(),preset.command(),preset.arguments(),preset.id(),null,false,preset.resumeArgsTemplate(),capture(preset),preset.environment()));}
-        } catch (RuntimeException configurationFailure) {
-            try { admin.deleteWorker(workspaceId,created.id()); }
-            catch (RuntimeException rollbackFailure) { configurationFailure.addSuppressed(rollbackFailure); }
-            throw configurationFailure;
-        }
-        TeamMemberResponse worker=TeamMemberResponse.from(admin.listForUi(workspaceId).stream().filter(value->value.id().equals(created.id())).findFirst().orElseThrow());
+        if(request.launch()!=null&&(request.startupCommand()!=null||request.commandPresetId()!=null))throw new InvalidLaunchRequest("LAUNCH_CONTRACT_CONFLICT","launch cannot be combined with legacy fields");
+        boolean autostart=Boolean.TRUE.equals(request.autostart());
+        String port=autostart?Integer.toString(Objects.requireNonNull(serverRequest.getLocalAddress()).getPort()):null;
+        var result=createWorker.create(new CreateWorkerCommand(workspaceId,request.name(),request.description(),
+                request.role(),launchIntent(request),autostart,port));
+        TeamMemberResponse worker=TeamMemberResponse.from(result.worker());
         Map<String,Object> body=new LinkedHashMap<>();body.put("id",worker.id());body.put("name",worker.name());body.put("role",worker.role());body.put("status",worker.status());
         body.put("pending_task_count",worker.pendingTaskCount());body.put("last_pty_line",worker.lastPtyLine());body.put("command_preset_id",worker.commandPresetId());
-        AgentStart start=new AgentStart(false,null,null);if(Boolean.TRUE.equals(request.autostart()))try{String port=Integer.toString(Objects.requireNonNull(serverRequest.getLocalAddress()).getPort());var run=execution.start(new dev.termestra.execution.application.port.in.StartAgentCommand(workspaceId,worker.id(),port));start=new AgentStart(true,null,run.runId());}catch(RuntimeException error){start=new AgentStart(false,error.getMessage(),null);}
+        AgentStart start=new AgentStart(result.start().ok(),result.start().error(),result.start().runId());
         body.put("agent_start",start);return body;});}
 
-    private String capture(dev.termestra.configuration.domain.model.CommandPreset preset){if(preset==null||preset.sessionIdCapture()==null)return null;try{return json.writeValueAsString(preset.sessionIdCapture());}catch(com.fasterxml.jackson.core.JsonProcessingException error){throw new IllegalStateException("Invalid session capture configuration",error);}}
+    private static WorkerLaunchIntent launchIntent(TeamRequests.Worker request){if(request.launch()!=null){var launch=request.launch();launch.validate();if("inherit_orchestrator".equals(launch.type()))return new WorkerLaunchIntent.OrchestratorSnapshot(launch.expectedSourceRevision());if("preset".equals(launch.type()))return new WorkerLaunchIntent.Preset(launch.presetId(),launch.modelId(),launch.expectedPresetRevision());return new WorkerLaunchIntent.Startup(launch.startupCommand(),launch.recoveryPresetId());}if(request.startupCommand()!=null&&!request.startupCommand().isBlank())return new WorkerLaunchIntent.LegacyStartup(request.startupCommand(),request.commandPresetId());if(request.commandPresetId()!=null)return new WorkerLaunchIntent.Preset(request.commandPresetId(),null,null);return null;}
     @PatchMapping("/api/workspaces/{workspaceId}/workers/{workerId}")
     Mono<TeamMemberResponse> renameWorker(@PathVariable String workspaceId,@PathVariable String workerId,@RequestBody Map<String,Object> body){return blocking(()->TeamMemberResponse.from(admin.renameWorker(workspaceId,workerId,body.get("name") instanceof String name?name:null)));}
     @DeleteMapping("/api/workspaces/{workspaceId}/workers/{workerId}") @ResponseStatus(HttpStatus.NO_CONTENT)

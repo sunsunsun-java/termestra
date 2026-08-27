@@ -157,7 +157,8 @@ class WorkspaceCreationIdempotencyHttpIntegrationTest {
         private final AtomicInteger calls = new AtomicInteger();
 
         @Override public OrchestratorStartView prepare(Workspace workspace, String startupCommand,
-                                                       String commandPresetId, boolean autostart) {
+                                                       String commandPresetId,String modelId,
+                                                       Long expectedPresetRevision,boolean autostart) {
             Path metadata = Path.of(workspace.path().value()).resolve(".termestra");
             if (!Files.isRegularFile(metadata.resolve("tasks.md"))
                     || !Files.isRegularFile(metadata.resolve("PROTOCOL.md"))) {

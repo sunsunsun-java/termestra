@@ -2,6 +2,7 @@ package dev.termestra.workspace.adapter.in.http;
 
 import dev.termestra.workspace.application.port.in.*;
 import dev.termestra.workspace.application.port.in.registration.*;
+import dev.termestra.execution.application.exception.InvalidLaunchRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -35,9 +36,15 @@ public final class WorkspaceController {
                             : "local_branch".equals(requested.kind())
                                 ? new RevisionSelection.LocalBranch(requested.name(), requested.selectionToken())
                                 : throwInvalidSelection(requested.kind());
+                    if(request.launch()!=null&&(request.startupCommand()!=null||request.commandPresetId()!=null)){
+                        throw new InvalidLaunchRequest("LAUNCH_CONTRACT_CONFLICT",
+                                "launch cannot be combined with legacy fields");
+                    }
+                    String startup=request.startupCommand();String preset=request.commandPresetId();String model=null;Long revision=null;
+                    if(request.launch()!=null){var launch=request.launch();launch.validate();if("inherit_orchestrator".equals(launch.type()))throw new InvalidLaunchRequest("LAUNCH_CONTRACT_CONFLICT","Workspace cannot inherit an Orchestrator launch");if("startup".equals(launch.type())){startup=launch.startupCommand();preset=launch.recoveryPresetId();}else {preset=launch.presetId();model=launch.modelId();revision=launch.expectedPresetRevision();}}
                     CreateWorkspaceResult result = createWorkspace.register(new RegisterWorkspaceCommand(
-                            request.registrationId(), request.path(), request.name(), request.startupCommand(),
-                            request.commandPresetId(), request.shouldAutostart(), selection));
+                            request.registrationId(),request.path(),request.name(),startup,preset,model,revision,
+                            request.shouldAutostart(),selection));
                     HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
                     return ResponseEntity.status(status).body(WorkspaceResponse.from(result));
                 })

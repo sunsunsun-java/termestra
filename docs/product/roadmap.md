@@ -1,6 +1,6 @@
 # Product delivery status
 
-> Last reconciled with the current source tree: 2026-08-24.
+> Last reconciled with the current source tree: 2026-08-27.
 
 Termestra now has an executable vertical slice through every core product
 surface. Checked items have automated coverage in the Maven reactor unless a
@@ -31,6 +31,7 @@ platform validation item explicitly says otherwise.
 
 - [x] pty4j process adapter and output bus.
 - [x] Launch resolution, provider presets, YOLO augmentation, startup-command shell semantics.
+- [x] Workspace/Worker model selection with revision-checked presets and creation-time Orchestrator snapshots.
 - [x] Claude/Codex/Gemini/OpenCode session capture and resume.
 - [x] Prompt-aware bracketed-paste startup instructions and DB-first run lifecycle.
 - [x] Two-layer restart policy: native provider session resume first, persisted recovery summary fallback otherwise.

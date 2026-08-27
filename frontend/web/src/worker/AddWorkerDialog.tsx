@@ -5,6 +5,7 @@ import { type FormEvent, useMemo, useState } from 'react'
 import type { WorkerRole } from '../../../src/shared/types.js'
 import type { CommandPreset, RoleTemplate } from '../api.js'
 import { useI18n } from '../i18n.js'
+import { AgentModelSelect, type ModelSelectionMode } from '../launch/AgentModelSelect.js'
 import { MarketplaceDrawer } from '../marketplace/MarketplaceDrawer.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { useToast } from '../ui/useToast.js'
@@ -20,6 +21,9 @@ import {
 type AddWorkerDialogProps = {
   commandPresets: CommandPreset[]
   commandPresetId: string
+  modelId: string
+  modelMode: ModelSelectionMode
+  orchestratorModelLabel: string | null
   creating?: boolean
   customTemplates: RoleTemplate[]
   onApplyMarketplaceImport: (input: { name: string; description: string }) => void
@@ -27,6 +31,7 @@ type AddWorkerDialogProps = {
   onDeleteTemplate: (templateId: string) => Promise<void> | void
   onNameChange: (value: string) => void
   onPresetChange: (value: string) => void
+  onModelChange: (mode: ModelSelectionMode,modelId: string) => void
   onRandomName: () => void
   onRoleDescriptionChange: (value: string) => void
   onRoleDescriptionReset: () => void
@@ -69,6 +74,7 @@ export const AddWorkerDialog = (props: AddWorkerDialogProps) => {
     if (chosenPreset?.available === false && !startupOverride) {
       return t('addWorker.unavailable', { name: chosenPreset.displayName })
     }
+    if(!startupOverride&&props.modelMode==='explicit'&&!props.modelId.trim())return t('addWorker.pickCliOrStartup')
     if (!props.roleDescription.trim()) return t('addWorker.emptyInstructions')
     return null
   }
@@ -184,6 +190,14 @@ export const AddWorkerDialog = (props: AddWorkerDialogProps) => {
                   commandPresetId={props.commandPresetId}
                   commandPresets={props.commandPresets}
                   onPresetChange={props.onPresetChange}
+                />
+                <AgentModelSelect
+                  disabled={Boolean(startupOverride)}
+                  inheritLabel={props.orchestratorModelLabel}
+                  mode={props.modelMode}
+                  modelId={props.modelId}
+                  onChange={props.onModelChange}
+                  preset={chosenPreset}
                 />
                 <StartupCommandField
                   onChange={props.onStartupCommandChange}
