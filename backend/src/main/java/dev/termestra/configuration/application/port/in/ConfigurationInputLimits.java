@@ -112,7 +112,7 @@ public final class ConfigurationInputLimits {
         if(capability==null)return;
         validateStringList(capability.argumentTemplate(),"model_args_template");
         long placeholders=capability.argumentTemplate().stream()
-                .filter(value->value.contains(ModelCapability.MODEL_PLACEHOLDER)).count();
+                .mapToLong(ConfigurationInputLimits::modelPlaceholderCount).sum();
         if(placeholders!=1)throw new IllegalArgumentException(
                 "model_args_template must contain exactly one {model_id} entry");
         if(capability.suggestedModels().size()>MAX_SUGGESTED_MODELS)throw new IllegalArgumentException(
@@ -120,6 +120,14 @@ public final class ConfigurationInputLimits {
         if(!capability.allowCustom()&&capability.suggestedModels().isEmpty())throw new IllegalArgumentException(
                 "suggested_models must not be empty when allow_custom_model is false");
         capability.suggestedModels().forEach(ConfigurationInputLimits::validateModelId);
+    }
+
+    private static long modelPlaceholderCount(String value){
+        long count=0;int from=0;
+        while((from=value.indexOf(ModelCapability.MODEL_PLACEHOLDER,from))>=0){
+            count++;from+=ModelCapability.MODEL_PLACEHOLDER.length();
+        }
+        return count;
     }
 
     private static void validateModelId(String value) {

@@ -161,6 +161,15 @@ public final class WorkspaceRegistrationService implements WorkspaceRegistration
         return new CreateWorkspaceResult(WorkspaceView.from(activated), start, created);
     }
 
+    private CreateWorkspaceResult prepareMissingOrchestrator(
+            RegisterWorkspaceCommand command, Workspace workspace) {
+        OrchestratorStartView start = operations.withWorkspace(workspace.id().toString(), () ->
+                orchestrator.prepareIfMissing(workspace, command.startupCommand(),
+                        command.commandPresetId(), command.modelId(),
+                        command.expectedPresetRevision(), command.autostartOrchestrator()));
+        return new CreateWorkspaceResult(WorkspaceView.from(workspace), start, false);
+    }
+
     @Override
     public RegistrationStatusView status(String registrationId) {
         String normalized;
@@ -306,8 +315,7 @@ public final class WorkspaceRegistrationService implements WorkspaceRegistration
             }
         }
         metadata.initialize(workspace.path());
-        return new CreateWorkspaceResult(WorkspaceView.from(workspace),
-                OrchestratorStartView.disabled(), false);
+        return prepareMissingOrchestrator(command, workspace);
     }
 
     private CreateWorkspaceResult replay(RegisterWorkspaceCommand command,
@@ -315,8 +323,7 @@ public final class WorkspaceRegistrationService implements WorkspaceRegistration
         if ("completed".equals(attempt.state()) && attempt.workspaceId() != null) {
             Workspace workspace = workspaces.find(attempt.workspaceId())
                     .orElseThrow(() -> new IllegalStateException("Completed registration lost its Workspace"));
-            return new CreateWorkspaceResult(WorkspaceView.from(workspace),
-                    OrchestratorStartView.disabled(), false);
+            return prepareMissingOrchestrator(command, workspace);
         }
         if (List.of("failed", "uncertain").contains(attempt.state())) {
             throw failure(command.registrationId(),

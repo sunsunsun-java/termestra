@@ -287,6 +287,18 @@ class InputLimitsHttpIntegrationTest {
                                 ConfigurationInputLimits.MAX_DISPLAY_NAME_CHARACTERS + 1),
                         "command", "tool", "args", List.of(), "env", Map.of()))
                 .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.error").exists();
+        for(String field:List.of("model_args_template","suggested_models")){
+            Map<String,Object> invalid=new java.util.LinkedHashMap<>();
+            invalid.put("display_name","Null model metadata");invalid.put("command","tool");
+            invalid.put("args",List.of());invalid.put("env",Map.of());
+            invalid.put("model_args_template",List.of("--model","{model_id}"));
+            invalid.put("suggested_models",List.of("model"));invalid.put("allow_custom_model",true);
+            invalid.put(field,java.util.Arrays.asList("value",null));
+            client.post().uri("/api/settings/command-presets").header(HttpHeaders.COOKIE,cookie)
+                    .bodyValue(invalid).exchange().expectStatus().isBadRequest().expectBody()
+                    .jsonPath("$.error").value(value->org.junit.jupiter.api.Assertions.assertTrue(
+                            value.toString().contains(field)));
+        }
         client.post().uri("/api/settings/command-presets").header(HttpHeaders.COOKIE, cookie)
                 .bodyValue(Map.of("display_name", "Too many args", "command", "tool",
                         "args", java.util.Collections.nCopies(

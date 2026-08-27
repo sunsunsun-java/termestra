@@ -1,6 +1,7 @@
 package dev.termestra.configuration.application.port.in;
 
 import dev.termestra.configuration.domain.model.CommandPreset;
+import dev.termestra.configuration.domain.model.ModelCapability;
 import dev.termestra.configuration.domain.model.RoleTemplate;
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +15,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConfigurationInputLimitsTest {
+    @Test void rejectsRepeatedModelPlaceholdersWithinOneArgument(){
+        CommandPreset preset=new CommandPreset(null,"Model","tool",List.of(),Map.of(),null,null,
+                List.of(),false,new ModelCapability(
+                        List.of("--model={model_id}:{model_id}"),List.of("model"),true),1);
+        assertThrows(IllegalArgumentException.class,()->ConfigurationInputLimits.validate(preset));
+    }
+
     @Test void acceptsCommandAndRoleValuesExactlyAtTheirWriteBoundaries() {
         Map<String, String> environment = Map.of(
                 "A", "a".repeat(2_047), "B", "b".repeat(2_047),

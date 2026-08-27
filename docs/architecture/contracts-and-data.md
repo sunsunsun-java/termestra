@@ -129,7 +129,7 @@ terminal。停止或 PTY 退出必须先确认进程树终止并持久化 termin
 
 ## SQLite 所有权
 
-当前 schema 版本为 30，由 `SqliteSchemaMigrator` 在启动时事务迁移。
+当前 schema 版本为 31，由 `SqliteSchemaMigrator` 在启动时事务迁移。
 
 | 表 | 所有者 | 说明 |
 | --- | --- | --- |

@@ -81,6 +81,36 @@ class SqliteSchemaMigratorTest {
         });
     }
 
+    @Test void migratesVersionThirtyLaunchDataToStructuredModelSelection(){
+        SqliteDatabase database=new SqliteDatabase(tempDirectory.resolve("v30-launch.db"));
+        database.write("create v30 launch fixture",connection->{
+            try(Statement statement=connection.createStatement()){
+                statement.execute("CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)");
+                statement.execute("INSERT INTO schema_version VALUES(30,1)");
+                statement.execute("CREATE TABLE command_presets(id TEXT PRIMARY KEY,is_builtin INTEGER NOT NULL)");
+                statement.execute("INSERT INTO command_presets VALUES('codex',1)");
+                statement.execute("CREATE TABLE agent_launch_configs(workspace_id TEXT NOT NULL,agent_id TEXT NOT NULL,command TEXT NOT NULL,args_json TEXT NOT NULL,PRIMARY KEY(workspace_id,agent_id))");
+                statement.execute("INSERT INTO agent_launch_configs VALUES('workspace','worker','codex','[\"legacy\"]')");
+            }
+            return null;
+        });
+
+        new SqliteSchemaMigrator(database,CLOCK).migrate();
+
+        database.read("verify v31 launch migration",connection->{
+            assertEquals(31,scalar(connection.createStatement(),"SELECT MAX(version) FROM schema_version"));
+            assertTrue(columns(connection.createStatement(),"command_presets").containsAll(Set.of(
+                    "model_args_template_json","suggested_models_json","allow_custom_model","revision")));
+            assertTrue(columns(connection.createStatement(),"agent_launch_configs").containsAll(Set.of(
+                    "model_id","revision")));
+            assertEquals("[\"legacy\"]",text(connection.createStatement(),
+                    "SELECT args_json FROM agent_launch_configs WHERE agent_id='worker'"));
+            assertEquals(1,scalar(connection.createStatement(),
+                    "SELECT revision FROM agent_launch_configs WHERE agent_id='worker'"));
+            return null;
+        });
+    }
+
     @Test void migratesLegacyOpenDispatchesWithoutAutomaticallyReplayingUnknownInput() {
         SqliteDatabase database = new SqliteDatabase(tempDirectory.resolve("v28-open-dispatches.db"));
         new SqliteSchemaMigrator(database, CLOCK).migrate();

@@ -41,9 +41,27 @@ class AgentLaunchConfiguratorTest {
         configurator.configure(new ConfigureAgentLaunchCommand("workspace","worker",
                 new LaunchSource.Preset("codex","gpt-test",7L)));
 
-        assertEquals(List.of("--full-auto","--model","gpt-test","--quiet"),saved.getValue().arguments());
+        assertEquals(List.of("--full-auto","--quiet","--model","gpt-test"),saved.getValue().arguments());
         assertTrue(saved.getValue().presetAugmentationDisabled());
         assertEquals("gpt-test",saved.getValue().modelId());
+    }
+
+    @Test void explicitModelReplacesAConflictingPresetModelArgument(){
+        AgentExecutionRepository repository=mock(AgentExecutionRepository.class);
+        LaunchPresetCatalog presets=mock(LaunchPresetCatalog.class);
+        when(presets.require("codex")).thenReturn(new LaunchPresetDescriptor("codex","Codex","codex",
+                List.of("--model","old","--quiet"),Map.of(),null,null,
+                List.of("--model","yolo-old","--full-auto"),
+                List.of("--model","{model_id}"),List.of(),true,true,1));
+        ArgumentCaptor<AgentLaunchConfiguration> saved=ArgumentCaptor.forClass(AgentLaunchConfiguration.class);
+        when(repository.saveConfiguration(any(),any(),saved.capture(),any())).thenReturn(true);
+        AgentLaunchConfigurator configurator=new AgentLaunchConfigurator(repository,presets,shells(),CLOCK,
+                new RuntimeOperationCoordinator());
+
+        configurator.configure(new ConfigureAgentLaunchCommand("workspace","worker",
+                new LaunchSource.Preset("codex","new",1L)));
+
+        assertEquals(List.of("--full-auto","--quiet","--model","new"),saved.getValue().arguments());
     }
 
     @Test void rejectsAStaleOrUnavailableOrchestratorSnapshot(){

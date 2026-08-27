@@ -279,4 +279,34 @@ describe('Workspace creation feedback', () => {
       'Previous startup failed'
     )
   })
+
+  test('records autostart performed while repairing an existing workspace launch', async () => {
+    const workspace = { id: 'workspace-repaired', name: 'Repaired', path: PICKED_PATH }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            ...workspace,
+            orchestrator_start: { error: null, ok: true, run_id: 'run-repaired' },
+          },
+          200
+        )
+      )
+    )
+    const { result } = renderHook(() => useWorkspaceCreate({ onWorkspaceCreated: vi.fn() }))
+
+    await act(async () => {
+      await result.current.createNewWorkspace({
+        launch: { type: 'preset', preset_id: 'codex' },
+        name: workspace.name,
+        path: workspace.path,
+        registrationId: crypto.randomUUID(),
+        revisionSelection: { kind: 'current' },
+      })
+    })
+
+    expect(result.current.orchestratorAutostartRunIds[workspace.id]).toBe('run-repaired')
+    expect(result.current.orchestratorAutostartErrors[workspace.id]).toBeNull()
+  })
 })

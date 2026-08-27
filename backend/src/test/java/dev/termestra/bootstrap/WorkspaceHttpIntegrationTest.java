@@ -242,6 +242,22 @@ class WorkspaceHttpIntegrationTest {
                 }
             }
         }));
+
+        client.post().uri("/api/workspaces").header(HttpHeaders.COOKIE,cookie)
+                .bodyValue(Map.of("registration_id",UUID.randomUUID().toString(),
+                        "name","Stale Workspace","path",path.toString(),
+                        "autostart_orchestrator",false,"launch",Map.of("type","preset",
+                                "preset_id",presetId,"expected_preset_revision",2)))
+                .exchange().expectStatus().isOk();
+
+        assertEquals(presetId,database.<String>read("verify recovered orchestrator launch",connection->{
+            try(var statement=connection.prepareStatement(
+                    "SELECT command_preset_id FROM agent_launch_configs WHERE workspace_id=(SELECT id FROM workspaces WHERE canonical_path=?)")){
+                statement.setString(1,path.toString());try(var rows=statement.executeQuery()){
+                    assertTrue(rows.next());return rows.getString(1);
+                }
+            }
+        }));
     }
 
     @Test void rejectsWorkspaceAccessWithoutAUiSession() {

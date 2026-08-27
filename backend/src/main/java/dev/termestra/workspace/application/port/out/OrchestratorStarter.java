@@ -7,4 +7,11 @@ public interface OrchestratorStarter {
     OrchestratorStartView prepare(Workspace workspace, String startupCommand,
                                   String commandPresetId,String modelId,
                                   Long expectedPresetRevision,boolean autostart);
+
+    /** Completes preparation without replacing an existing launch or starting a duplicate Run. */
+    default OrchestratorStartView prepareIfMissing(
+            Workspace workspace, String startupCommand, String commandPresetId,
+            String modelId, Long expectedPresetRevision, boolean autostart) {
+        return OrchestratorStartView.disabled();
+    }
 }

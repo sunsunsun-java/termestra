@@ -160,15 +160,7 @@ public final class TeamApplicationService implements TeamUseCase, TeamAdminUseCa
     }
 
     private TeamMemberView addWorkerCoordinated(AddWorkerCommand command) {
-        if (!members.workspaceExists(command.workspaceId())) throw new TeamConflict("Workspace not found: " + command.workspaceId());
-        String name = TeamInputLimits.memberName(command.name());
-        String description = TeamInputLimits.memberDescription(command.description());
-        AgentRole role;
-        try { role = AgentRole.parse(command.role() == null ? "coder" : command.role()); }
-        catch (IllegalArgumentException error) { throw new TeamBadRequest(error.getMessage()); }
-        if (!role.isWorker()) throw new TeamBadRequest("Unsupported worker role: " + command.role());
-        if (members.findByName(command.workspaceId(), name).isPresent()) throw new TeamConflict("Worker already exists: " + name);
-        TeamMember member = TeamMember.create(WorkspaceId.parse(command.workspaceId()), name, description, role, Instant.now(clock));
+        TeamMember member = TeamMemberCreator.create(members,command,clock);
         members.save(member);
         return listViews(command.workspaceId()).stream().filter(item -> item.id().equals(member.id().toString())).findFirst().orElseThrow();
     }

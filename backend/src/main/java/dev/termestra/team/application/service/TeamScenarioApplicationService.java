@@ -12,19 +12,19 @@ import java.util.*;
 
 public final class TeamScenarioApplicationService implements ApplyTeamScenarioUseCase {
     private final TeamMemberRepository members;
-    private final ScenarioMemberProvisioningRepository provisioning;
+    private final MemberProvisioningRepository provisioning;
     private final TeamScenarioRuntime runtime;
     private final Clock clock;
     private final RuntimeOperationCoordinator operations;
 
     public TeamScenarioApplicationService(TeamMemberRepository members,
-                                          ScenarioMemberProvisioningRepository provisioning,
+                                          MemberProvisioningRepository provisioning,
                                           TeamScenarioRuntime runtime, Clock clock) {
         this(members,provisioning,runtime,clock,new RuntimeOperationCoordinator());
     }
 
     public TeamScenarioApplicationService(TeamMemberRepository members,
-                                          ScenarioMemberProvisioningRepository provisioning,
+                                          MemberProvisioningRepository provisioning,
                                           TeamScenarioRuntime runtime, Clock clock,
                                           RuntimeOperationCoordinator operations) {
         this.members = members;
@@ -63,7 +63,7 @@ public final class TeamScenarioApplicationService implements ApplyTeamScenarioUs
             TeamMember member = TeamMember.create(WorkspaceId.parse(workspaceId), name,
                     spec.description(locale), spec.role(), Instant.now(clock));
             TeamMemberSummary worker = operations.withAgent(workspaceId, member.id().toString(), () -> {
-                provisioning.saveWithLaunch(member, launchPlan);
+                provisioning.saveWithLaunch(member, new WorkerLaunchProvisioning.Resolved(launchPlan));
                 return members.list(workspaceId).stream()
                         .filter(value -> value.id().equals(member.id().toString()))
                         .findFirst().orElseThrow();

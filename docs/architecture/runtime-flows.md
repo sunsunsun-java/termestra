@@ -47,7 +47,9 @@ sequenceDiagram
 同一规范路径的并发注册由引用计数 path single-flight 和数据库唯一约束收敛为一个
 Workspace。Git 拒绝或元数据初始化失败时只释放 `preparing` Workspace；若 Git
 结果未知则保留 `uncertain` 证据并禁止自动重试。Workspace 激活后才准备
-Orchestrator，因此 Orchestrator 失败不会删除已经有效的 Workspace。
+Orchestrator，因此 Orchestrator 失败不会删除已经有效的 Workspace。若准备失败前尚未
+写入 Launch Configuration，重复注册只补齐缺失配置；已有配置时保持 no-op，避免覆盖
+快照或重复启动 Run。
 
 创建 Worker 时，`preset` 走相同解析路径；`inherit_orchestrator` 则在单个 SQLite
 事务内校验来源 revision 并复制其最终命令、参数、环境、preset、model 与恢复元数据。

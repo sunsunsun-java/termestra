@@ -102,6 +102,7 @@ public class RuntimeWiring {
     @Bean OpenWorkspaceUseCase openWorkspaceUseCase(WorkspaceRepository repository,WorkspaceOpener opener){return new OpenWorkspaceService(repository,opener);}
     @Bean OrchestratorStarter orchestratorStarter(AgentExecutionUseCase execution,
                                                    ConfigureAgentLaunchUseCase launches,
+                                                   AgentLaunchConfigurationQuery configurations,
                                                    ObjectMapper json) {
         return new OrchestratorStarter(){
           @Override public OrchestratorStartView prepare(dev.termestra.workspace.domain.model.Workspace workspace,
@@ -133,6 +134,19 @@ public class RuntimeWiring {
             } catch (RuntimeException error) {
                 return new OrchestratorStartView(false, error.getMessage(), null);
             }
+          }
+
+          @Override public OrchestratorStartView prepareIfMissing(
+                  dev.termestra.workspace.domain.model.Workspace workspace,
+                  String startupCommand,String commandPresetId,String modelId,
+                  Long expectedPresetRevision,boolean autostart) {
+              String workspaceId=workspace.id().toString();
+              String agentId=workspace.id()+":orchestrator";
+              if(configurations.find(workspaceId,agentId).isPresent()){
+                  return OrchestratorStartView.disabled();
+              }
+              return prepare(workspace,startupCommand,commandPresetId,modelId,
+                      expectedPresetRevision,autostart);
           }
         };
     }
@@ -177,10 +191,10 @@ public class RuntimeWiring {
                                                    CommandAvailabilityUseCase availability,ObjectMapper json){
         return new ConfigurationLaunchPresetCatalog(configuration,availability,json);
     }
-    @Bean ConfigureAgentLaunchUseCase configureAgentLaunchUseCase(AgentExecutionRepository repository,
-                                                                   LaunchPresetCatalog presets,
-                                                                   ShellCommandResolver shells,Clock clock,
-                                                                   RuntimeOperationCoordinator operations){
+    @Bean AgentLaunchConfigurator agentLaunchConfigurator(AgentExecutionRepository repository,
+                                                           LaunchPresetCatalog presets,
+                                                           ShellCommandResolver shells,Clock clock,
+                                                           RuntimeOperationCoordinator operations){
         return new AgentLaunchConfigurator(repository,presets,shells,clock,operations);
     }
     @Bean ShellCommandResolver shellCommandResolver(){return new SystemShellCommandResolver();}
@@ -268,7 +282,7 @@ public class RuntimeWiring {
     @Bean NativeFolderPicker nativeFolderPicker(){return new ProcessNativeFolderPicker();}
     @Bean FilesystemPickerUseCase filesystemPickerUseCase(NativeFolderPicker picker,SelectedDirectoryProbe selectedDirectoryProbe){return new FilesystemPickerService(picker,selectedDirectoryProbe);}
     @Bean TeamMemberRepository teamMemberRepository(SqliteDatabase database) { return new JdbcTeamMemberRepository(database); }
-    @Bean ScenarioMemberProvisioningRepository scenarioMemberProvisioningRepository(SqliteDatabase database,ObjectMapper json){return new JdbcScenarioMemberProvisioningRepository(database,json);}
+    @Bean MemberProvisioningRepository memberProvisioningRepository(SqliteDatabase database,ObjectMapper json){return new JdbcMemberProvisioningRepository(database,json);}
     @Bean JdbcTeamLedger teamLedger(SqliteDatabase database, ObjectMapper json) { return new JdbcTeamLedger(database, json); }
     @Bean PendingTaskProjection pendingTaskProjection(OpenDispatchCountSource source) { return new PendingTaskProjection(source); }
     @Bean WorkerRuntimeStatus workerRuntimeStatus(AgentExecutionUseCase execution) {
@@ -325,11 +339,14 @@ public class RuntimeWiring {
                                                    RuntimeOperationCoordinator operations) {
         return new WorkerRemovalService(team, execution::forgetAgent,operations);
     }
-    @Bean WorkerExecution workerExecution(ConfigureAgentLaunchUseCase launches,AgentExecutionUseCase execution){
+    @Bean WorkerExecution workerExecution(AgentLaunchPlanningUseCase launches,AgentExecutionUseCase execution){
         return new ExecutionWorkerExecution(launches,execution);
     }
-    @Bean CreateWorkerUseCase createWorkerUseCase(TeamAdminUseCase team,WorkerExecution execution){
-        return new CreateWorkerService(team,execution);
+    @Bean CreateWorkerUseCase createWorkerUseCase(TeamAdminUseCase team,TeamMemberRepository members,
+                                                   MemberProvisioningRepository provisioning,
+                                                   WorkerExecution execution,Clock clock,
+                                                   RuntimeOperationCoordinator operations){
+        return new CreateWorkerService(team,members,provisioning,execution,clock,operations);
     }
     @Bean TeamScenarioRuntime teamScenarioRuntime(AgentLaunchConfigurationQuery configurations,
                                                    AgentExecutionUseCase execution,
@@ -338,7 +355,7 @@ public class RuntimeWiring {
                                                    CommandAvailabilityUseCase availability,
                                                    ObjectMapper json){return new ExecutionTeamScenarioRuntime(configurations,execution,messaging,settings,availability,json);}
     @Bean ApplyTeamScenarioUseCase applyTeamScenarioUseCase(TeamMemberRepository members,
-                                                             ScenarioMemberProvisioningRepository provisioning,
+                                                             MemberProvisioningRepository provisioning,
                                                              TeamScenarioRuntime runtime,Clock clock,
                                                              RuntimeOperationCoordinator operations){return new TeamScenarioApplicationService(members,provisioning,runtime,clock,operations);}
 

@@ -60,7 +60,7 @@ public final class ExecutionTeamScenarioRuntime implements TeamScenarioRuntime {
         if (orchestrator != null && orchestrator.commandPresetId()!=null
                 && !orchestrator.commandPresetId().isBlank()) {
             return new WorkerLaunchPlan(orchestrator.command(),orchestrator.arguments(),
-                    orchestrator.commandPresetId(),orchestrator.resumeArgsTemplate(),
+                    orchestrator.commandPresetId(),orchestrator.interactiveCommand(),orchestrator.resumeArgsTemplate(),
                     orchestrator.sessionIdCaptureJson(),orchestrator.environment(),orchestrator.modelId(),
                     orchestrator.presetAugmentationDisabled());
         }
@@ -71,7 +71,7 @@ public final class ExecutionTeamScenarioRuntime implements TeamScenarioRuntime {
         }
         CommandPreset claude = byId.get("claude");
         return claude == null
-                ? new WorkerLaunchPlan("claude", List.of(), null, null, null,Map.of(),null,true)
+                ? new WorkerLaunchPlan("claude", List.of(), null, null,null, null,Map.of(),null,true)
                 : plan(claude);
     }
 
@@ -91,7 +91,7 @@ public final class ExecutionTeamScenarioRuntime implements TeamScenarioRuntime {
 
     private WorkerLaunchPlan plan(CommandPreset preset) {
         return new WorkerLaunchPlan(preset.command(), prependUnique(preset.yoloArgsTemplate(),preset.arguments()),
-                preset.id(),preset.resumeArgsTemplate(),capture(preset),preset.environment(),null,true);
+                preset.id(),null,preset.resumeArgsTemplate(),capture(preset),preset.environment(),null,true);
     }
 
     private static List<String> prependUnique(List<String> prefix,List<String> arguments){

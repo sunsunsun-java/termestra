@@ -10,7 +10,15 @@ public record ModelCapability(List<String> argumentTemplate,
     public static final String MODEL_PLACEHOLDER = "{model_id}";
 
     public ModelCapability {
-        argumentTemplate = List.copyOf(Objects.requireNonNullElse(argumentTemplate, List.of()));
-        suggestedModels = List.copyOf(Objects.requireNonNullElse(suggestedModels, List.of()));
+        argumentTemplate = copy(argumentTemplate,"model_args_template");
+        suggestedModels = copy(suggestedModels,"suggested_models");
+    }
+
+    private static List<String> copy(List<String> values,String field){
+        List<String> safe=Objects.requireNonNullElse(values,List.of());
+        if(safe.stream().anyMatch(Objects::isNull)){
+            throw new IllegalArgumentException(field+" entries must not be null");
+        }
+        return List.copyOf(safe);
     }
 }

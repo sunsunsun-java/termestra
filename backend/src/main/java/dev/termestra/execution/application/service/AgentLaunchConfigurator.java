@@ -12,7 +12,7 @@ import java.time.Instant;
 import java.util.*;
 
 /** Resolves launch intent into one durable Agent Execution-owned snapshot. */
-public final class AgentLaunchConfigurator implements ConfigureAgentLaunchUseCase {
+public final class AgentLaunchConfigurator implements ConfigureAgentLaunchUseCase, AgentLaunchPlanningUseCase {
     private static final String MODEL_PLACEHOLDER="{model_id}";
     private final AgentExecutionRepository repository;
     private final LaunchPresetCatalog presets;
@@ -55,6 +55,13 @@ public final class AgentLaunchConfigurator implements ConfigureAgentLaunchUseCas
         }
     }
 
+    @Override public AgentLaunchConfigurationView plan(LaunchSource source){
+        Resolved resolved=resolve(source);
+        return new AgentLaunchConfigurationView(resolved.command(),resolved.arguments(),resolved.presetId(),
+                resolved.interactiveCommand(),resolved.augmentationDisabled(),resolved.resumeArgsTemplate(),
+                resolved.sessionIdCaptureJson(),resolved.environment(),resolved.modelId(),1);
+    }
+
     private Resolved resolve(LaunchSource source){
         if(source instanceof LaunchSource.Preset preset)return preset(preset);
         if(source instanceof LaunchSource.Startup startup)return startup(startup);
@@ -79,7 +86,9 @@ public final class AgentLaunchConfigurator implements ConfigureAgentLaunchUseCas
     }
 
     private Resolved resolvedPreset(LaunchPresetDescriptor descriptor,String modelId){
-        List<String> arguments=new ArrayList<>();
+        List<String> presetArguments=new ArrayList<>(descriptor.arguments());
+        List<String> yoloArguments=new ArrayList<>(Objects.requireNonNullElse(
+                descriptor.yoloArguments(),List.of()));
         if(modelId!=null){
             List<String> template=descriptor.modelArgumentTemplate();
             if(template==null||template.isEmpty())throw new InvalidLaunchRequest(
@@ -88,12 +97,41 @@ public final class AgentLaunchConfigurator implements ConfigureAgentLaunchUseCas
                 throw new InvalidLaunchRequest("MODEL_ID_INVALID",
                         "model is not allowed by preset "+descriptor.id());
             }
-            for(String token:template)arguments.add(token.replace(MODEL_PLACEHOLDER,modelId));
+            removeConflictingModelArguments(presetArguments,template);
+            removeConflictingModelArguments(yoloArguments,template);
         }
-        arguments.addAll(descriptor.arguments());
-        List<String> frozenArguments=LaunchArguments.prependUnique(descriptor.yoloArguments(),arguments);
-        return new Resolved(descriptor.command(),ExecutionInputLimits.arguments(frozenArguments),descriptor.id(),null,true,
+        List<String> arguments=new ArrayList<>(LaunchArguments.prependUnique(yoloArguments,presetArguments));
+        if(modelId!=null)for(String token:descriptor.modelArgumentTemplate()){
+            arguments.add(token.replace(MODEL_PLACEHOLDER,modelId));
+        }
+        return new Resolved(descriptor.command(),ExecutionInputLimits.arguments(arguments),descriptor.id(),null,true,
                 descriptor.resumeArgsTemplate(),descriptor.sessionIdCaptureJson(),descriptor.environment(),modelId);
+    }
+
+    private static void removeConflictingModelArguments(List<String> arguments,List<String> template){
+        int placeholderIndex=-1;
+        for(int index=0;index<template.size();index++){
+            if(template.get(index).contains(MODEL_PLACEHOLDER)){placeholderIndex=index;break;}
+        }
+        if(placeholderIndex<0)return;
+        String placeholderToken=template.get(placeholderIndex);
+        if(placeholderIndex>0){
+            String option=template.get(placeholderIndex-1);
+            if(!option.contains(MODEL_PLACEHOLDER)&&option.startsWith("-")){
+                for(int index=0;index<arguments.size();){
+                    if(arguments.get(index).equals(option)){
+                        arguments.remove(index);
+                        if(index<arguments.size())arguments.remove(index);
+                    }else index++;
+                }
+            }
+        }
+        String prefix=placeholderToken.substring(0,placeholderToken.indexOf(MODEL_PLACEHOLDER));
+        String suffix=placeholderToken.substring(placeholderToken.indexOf(MODEL_PLACEHOLDER)
+                +MODEL_PLACEHOLDER.length());
+        if(!prefix.isEmpty()||!suffix.isEmpty())arguments.removeIf(value->
+                value.startsWith(prefix)&&value.endsWith(suffix)
+                        &&value.length()>=prefix.length()+suffix.length());
     }
 
     private Resolved startup(LaunchSource.Startup source){

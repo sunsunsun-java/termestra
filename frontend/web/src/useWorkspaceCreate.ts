@@ -81,9 +81,15 @@ export const useWorkspaceCreate = ({
         revision_selection: input.revisionSelection,
         launch: input.launch,
       })
-      // A 200 response means the canonical path already exists. Its no-op
-      // orchestrator_start payload must not erase a prior run id or sticky error.
-      if (response.created) recordOrchestratorResult(response.id, response.orchestrator_start)
+      // A 200 response normally means a no-op replay, but it may also have
+      // repaired a previously missing launch and attempted autostart.
+      if (
+        response.created ||
+        response.orchestrator_start.run_id !== null ||
+        response.orchestrator_start.error !== null
+      ) {
+        recordOrchestratorResult(response.id, response.orchestrator_start)
+      }
       const workspace = { id: response.id, name: response.name, path: response.path }
       onWorkspaceCreated(workspace)
       if (!response.created) onWorkspaceExisting?.(workspace)

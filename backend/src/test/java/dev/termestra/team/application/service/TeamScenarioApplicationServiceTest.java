@@ -91,7 +91,7 @@ class TeamScenarioApplicationServiceTest {
             @Override public boolean hasActiveOrchestrator(String ignored) { return true; }
             @Override public String resolveAndStoreLocale(String ignored, String requested) { return "en"; }
             @Override public WorkerLaunchPlan resolveDefaultWorkerLaunch(String ignored) {
-                return new WorkerLaunchPlan("agent", List.of(), "preset", null, null,Map.of(),null,true);
+                return new WorkerLaunchPlan("agent", List.of(), "preset", null,null, null,Map.of(),null,true);
             }
             @Override public StartedRun startWorker(String workspace, String workerId, String runtimePort) {
                 String role = members.findById(workspace, workerId).orElseThrow().role().wireValue();
