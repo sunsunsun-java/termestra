@@ -31,7 +31,7 @@ type Stage =
   | { kind: 'confirm'; probe: FsProbeResponse | null; pasteDefault: boolean }
   | { kind: 'error'; message: string; title?: string }
 
-const DEFAULT_COMMAND_PRESET_ID = 'claude'
+const DEFAULT_COMMAND_PRESET_ID = 'codex'
 type WorkspaceModelSelectionMode = Exclude<ModelSelectionMode, 'inherit'>
 type WorkspaceModelSelection = { mode: WorkspaceModelSelectionMode; modelId: string }
 const DEFAULT_MODEL_SELECTION: WorkspaceModelSelection = { mode: 'default', modelId: '' }

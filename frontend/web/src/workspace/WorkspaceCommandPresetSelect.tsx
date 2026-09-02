@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Terminal } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { CommandPreset } from '../api.js'
 import { useI18n } from '../i18n.js'
@@ -33,6 +33,16 @@ export const WorkspaceCommandPresetSelect = ({
   const containerRef = useRef<HTMLDivElement>(null)
   const selected = presets.find((preset) => preset.id === value)
   const genericSelected = value === ''
+  const orderedPresets = useMemo(
+    () =>
+      [...presets].sort((left, right) => {
+        if (left.available !== right.available) return left.available ? -1 : 1
+        if (left.id === 'codex') return -1
+        if (right.id === 'codex') return 1
+        return 0
+      }),
+    [presets]
+  )
   const commandPreview = selected
     ? [selected.command, ...selected.args].join(' ').trim()
     : genericSelected
@@ -92,7 +102,7 @@ export const WorkspaceCommandPresetSelect = ({
             className="cli-select__menu"
             data-testid="workspace-command-preset-menu"
           >
-            {presets.map((preset) => {
+            {orderedPresets.map((preset) => {
               const isSelected = preset.id === value
               const isUnavailable = preset.available === false
               return (
