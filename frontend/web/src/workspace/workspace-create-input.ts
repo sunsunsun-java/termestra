@@ -1,11 +1,10 @@
-import type { AgentLaunchInput, WorkspaceRevisionSelectionPayload } from '../api.js'
+import type { AgentLaunchInput } from '../api.js'
 
 export interface WorkspaceCreateInput {
   launch: AgentLaunchInput
   name: string
   path: string
   registrationId: string
-  revisionSelection: WorkspaceRevisionSelectionPayload
 }
 
 type WorkspaceCreateDraft = {
@@ -16,7 +15,6 @@ type WorkspaceCreateDraft = {
   name: string
   path: string
   registrationId: string
-  revisionSelection: WorkspaceRevisionSelectionPayload
   startupCommand: string
 }
 
@@ -28,7 +26,6 @@ export const buildWorkspaceCreateInput = ({
   name,
   path,
   registrationId,
-  revisionSelection,
   startupCommand,
 }: WorkspaceCreateDraft): WorkspaceCreateInput => {
   const command = startupCommand.trim()
@@ -51,6 +48,5 @@ export const buildWorkspaceCreateInput = ({
     name: name.trim(),
     path: path.trim(),
     registrationId,
-    revisionSelection,
   }
 }

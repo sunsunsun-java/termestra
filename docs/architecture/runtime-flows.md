@@ -10,24 +10,16 @@ sequenceDiagram
     participant UI as Browser UI
     participant W as WorkspaceRegistrationService
     participant WR as WorkspaceRegistrationLedger
-    participant Git as Local Git worktree
     participant T as TasksDocumentStore
     participant E as Agent Execution
     participant C as Configuration
     participant DB as SQLite
 
-    UI->>W: inspect(opaque token)
-    W->>Git: list bounded local branches + HEAD
-    W-->>UI: branch options + selection tokens
     UI->>W: RegisterWorkspaceCommand + registration_id
     W->>W: resolve canonical path + path single-flight
     W->>WR: reserve preparing Workspace + intent
     WR->>DB: commit registration attempt
-    opt existing local branch selected
-        W->>Git: revalidate token and switch without force
-        Git-->>W: applied / rejected / unknown
-        W->>WR: persist checkout evidence
-    end
+    W->>WR: mark source ready (legacy-compatible phase; no Git inspection/mutation)
     W->>T: initialize `.termestra/` files
     T-->>W: tasks.md + refreshed PROTOCOL.md
     W->>WR: atomically activate Workspace + complete attempt
@@ -45,8 +37,8 @@ sequenceDiagram
 ```
 
 同一规范路径的并发注册由引用计数 path single-flight 和数据库唯一约束收敛为一个
-Workspace。Git 拒绝或元数据初始化失败时只释放 `preparing` Workspace；若 Git
-结果未知则保留 `uncertain` 证据并禁止自动重试。Workspace 激活后才准备
+Workspace。注册沿用目录当前 checkout，不扫描或切换 Git 分支；元数据初始化失败时只
+释放 `preparing` Workspace。Workspace 激活后才准备
 Orchestrator，因此 Orchestrator 失败不会删除已经有效的 Workspace。若准备失败前尚未
 写入 Launch Configuration，重复注册只补齐缺失配置；已有配置时保持 no-op，避免覆盖
 快照或重复启动 Run。
@@ -154,9 +146,9 @@ sequenceDiagram
 后端重启后的恢复顺序是：
 
 1. 打开数据目录并把 SQLite schema 迁移到 v31；
-2. 恢复 Workspace Registration：未开始 Git 的 `reserved` 可安全失败释放；
-   遗留 `switching` 隔离为 `uncertain`；已记录 `checkout_applied` 的注册继续初始化
-   元数据并激活；
+2. 恢复 Workspace Registration：尚未开始元数据初始化的 `reserved` 可安全失败释放；
+   旧版本遗留的 `switching/uncertain` 保留诊断证据但失败并释放路径 claim；已记录
+   `checkout_applied` 的注册继续初始化元数据并激活；
 3. 将未完成的旧 Run 标记为 terminal/stale；活进程不会自动重新收编；
 4. 把遗留 `delivering` Delivery 隔离为 `uncertain`，恢复 `pending` 和到期
    `retry_wait`；

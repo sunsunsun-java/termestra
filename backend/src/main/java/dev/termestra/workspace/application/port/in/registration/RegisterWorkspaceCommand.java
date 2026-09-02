@@ -12,8 +12,7 @@ public record RegisterWorkspaceCommand(
         String commandPresetId,
         String modelId,
         Long expectedPresetRevision,
-        boolean autostartOrchestrator,
-        RevisionSelection revisionSelection) {
+        boolean autostartOrchestrator) {
 
     public RegisterWorkspaceCommand {
         WorkspaceInputLimits.validateName(name);
@@ -28,7 +27,5 @@ public record RegisterWorkspaceCommand(
         } catch (IllegalArgumentException invalid) {
             throw new IllegalArgumentException("registration_id must be a UUID", invalid);
         }
-        revisionSelection = revisionSelection == null
-                ? new RevisionSelection.Current(null) : revisionSelection;
     }
 }

@@ -28,22 +28,19 @@ class JdbcWorkspaceRegistrationLedgerTest {
                 new WorkspacePath("/tmp/alpha-registration"), now);
 
         WorkspaceRegistrationLedger.BeginResult result = ledger.begin(
-                new WorkspaceRegistrationLedger.Intent("registration-1", "request-hash", workspace,
-                        "local_branch", "feature", "abc", now));
+                new WorkspaceRegistrationLedger.Intent(
+                        "registration-1", "request-hash", workspace, now));
 
         assertInstanceOf(WorkspaceRegistrationLedger.Begun.class, result);
         assertTrue(workspaces.findAll().isEmpty());
-        ledger.markSwitching("registration-1", now.plusMillis(1));
-        ledger.recordCheckout("registration-1",
-                new WorkspaceRegistrationLedger.CheckoutEvidence(
-                        "applied", "branch", "feature", "abc"), now.plusMillis(2));
-        Workspace activated = ledger.activate("registration-1", now.plusMillis(3));
+        ledger.markSourceReady("registration-1", now.plusMillis(1));
+        Workspace activated = ledger.activate("registration-1", now.plusMillis(2));
 
         assertEquals(workspace.id(), activated.id());
         assertEquals(java.util.List.of(workspace), workspaces.findAll());
         WorkspaceRegistrationLedger.Attempt completed = ledger.find("registration-1").orElseThrow();
         assertEquals("completed", completed.state());
-        assertEquals("applied", completed.checkoutOutcome());
+        assertEquals("not_attempted", completed.checkoutOutcome());
     }
 
     @Test void aTerminalFailureReleasesOnlyThePreparingWorkspaceClaim() {
@@ -52,12 +49,12 @@ class JdbcWorkspaceRegistrationLedgerTest {
         Instant now = Instant.parse("2026-08-27T00:00:00Z");
         Workspace workspace = Workspace.create(new WorkspaceName("Failed"),
                 new WorkspacePath("/tmp/failed-registration"), now);
-        ledger.begin(new WorkspaceRegistrationLedger.Intent("registration-failed", "hash", workspace,
-                "current", null, null, now));
+        ledger.begin(new WorkspaceRegistrationLedger.Intent(
+                "registration-failed", "hash", workspace, now));
 
         ledger.fail("registration-failed",
                 new WorkspaceRegistrationLedger.Failure("failed", "not_attempted",
-                        "GIT_SWITCH_REJECTED", null, null, null, true), now.plusMillis(1));
+                        "WORKSPACE_REGISTRATION_FAILED", true), now.plusMillis(1));
         WorkspaceRegistrationLedger.Attempt failed = ledger.find("registration-failed").orElseThrow();
 
         assertEquals("failed", failed.state());
@@ -66,48 +63,7 @@ class JdbcWorkspaceRegistrationLedgerTest {
         assertInstanceOf(WorkspaceRegistrationLedger.Begun.class,
                 ledger.begin(new WorkspaceRegistrationLedger.Intent("registration-retry", "hash-2",
                         Workspace.create(new WorkspaceName("Retry"), workspace.path(), now.plusMillis(2)),
-                        "current", null, null, now.plusMillis(2))));
-    }
-
-    @Test void explicitlyConfirmsAnUncertainCheckoutWithoutExecutingAnotherMutation() {
-        SqliteDatabase database = database();
-        JdbcWorkspaceRegistrationLedger ledger = new JdbcWorkspaceRegistrationLedger(database);
-        Instant now = Instant.parse("2026-08-27T00:00:00Z");
-        Workspace workspace = Workspace.create(new WorkspaceName("Uncertain"),
-                new WorkspacePath("/tmp/uncertain-registration"), now);
-        ledger.begin(new WorkspaceRegistrationLedger.Intent("registration-uncertain", "hash",
-                workspace, "local_branch", "feature", "abc", now));
-        ledger.markSwitching("registration-uncertain", now.plusMillis(1));
-        ledger.fail("registration-uncertain", new WorkspaceRegistrationLedger.Failure(
-                "uncertain", "unknown", "GIT_OPERATION_OUTCOME_UNKNOWN",
-                "branch", "main", "def", false), now.plusMillis(2));
-
-        ledger.confirmCheckout(
-                "registration-uncertain", new WorkspaceRegistrationLedger.CheckoutEvidence(
-                        "applied", "branch", "feature", "abc"), now.plusMillis(3));
-        WorkspaceRegistrationLedger.Attempt confirmed = ledger.find("registration-uncertain").orElseThrow();
-
-        assertEquals("checkout_applied", confirmed.state());
-        assertEquals("applied", confirmed.checkoutOutcome());
-        assertEquals(workspace.id(), ledger.activate("registration-uncertain", now.plusMillis(4)).id());
-    }
-
-    @Test void rejectsFailureOutcomesFromTheSuccessfulCheckoutTransition() {
-        SqliteDatabase database = database();
-        JdbcWorkspaceRegistrationLedger ledger = new JdbcWorkspaceRegistrationLedger(database);
-        Instant now = Instant.parse("2026-08-27T00:00:00Z");
-        Workspace workspace = Workspace.create(new WorkspaceName("Failure evidence"),
-                new WorkspacePath("/tmp/failure-evidence"), now);
-        ledger.begin(new WorkspaceRegistrationLedger.Intent("registration-outcome", "hash",
-                workspace, "local_branch", "feature", "abc", now));
-        ledger.markSwitching("registration-outcome", now.plusMillis(1));
-
-        assertThrows(IllegalArgumentException.class, () -> ledger.recordCheckout(
-                "registration-outcome",
-                new WorkspaceRegistrationLedger.CheckoutEvidence(
-                        "unknown", "branch", "feature", "abc"), now.plusMillis(2)));
-
-        assertEquals("switching", ledger.find("registration-outcome").orElseThrow().state());
+                        now.plusMillis(2))));
     }
 
     @Test void recordsCurrentSelectionWithoutEnteringTheMutationState() {
@@ -115,10 +71,10 @@ class JdbcWorkspaceRegistrationLedgerTest {
         Instant now = Instant.parse("2026-08-27T00:00:00Z");
         Workspace workspace = Workspace.create(new WorkspaceName("Current"),
                 new WorkspacePath("/tmp/current-registration"), now);
-        ledger.begin(new WorkspaceRegistrationLedger.Intent("registration-current", "hash",
-                workspace, "current", null, null, now));
+        ledger.begin(new WorkspaceRegistrationLedger.Intent(
+                "registration-current", "hash", workspace, now));
 
-        ledger.recordCurrent("registration-current", now.plusMillis(1));
+        ledger.markSourceReady("registration-current", now.plusMillis(1));
 
         WorkspaceRegistrationLedger.Attempt attempt =
                 ledger.find("registration-current").orElseThrow();
@@ -126,23 +82,23 @@ class JdbcWorkspaceRegistrationLedgerTest {
         assertEquals("not_attempted", attempt.checkoutOutcome());
     }
 
-    @Test void recoveryExcludesUncertainAttemptsThatRequireAnExplicitRetry() {
+    @Test void recoveryIncludesLegacyUncertainAttemptsSoTheirPathClaimsCanBeReleased() {
         JdbcWorkspaceRegistrationLedger ledger = new JdbcWorkspaceRegistrationLedger(database());
         Instant now = Instant.parse("2026-08-27T00:00:00Z");
         Workspace uncertain = Workspace.create(new WorkspaceName("Uncertain"),
                 new WorkspacePath("/tmp/recovery-uncertain"), now);
-        ledger.begin(new WorkspaceRegistrationLedger.Intent("registration-uncertain-only", "hash-1",
-                uncertain, "local_branch", "feature", "abc", now));
-        ledger.markSwitching("registration-uncertain-only", now.plusMillis(1));
+        ledger.begin(new WorkspaceRegistrationLedger.Intent(
+                "registration-uncertain-only", "hash-1", uncertain, now));
         ledger.fail("registration-uncertain-only", new WorkspaceRegistrationLedger.Failure(
                 "uncertain", "unknown", "GIT_OPERATION_OUTCOME_UNKNOWN",
-                "branch", "main", "def", false), now.plusMillis(2));
+                false), now.plusMillis(2));
         Workspace actionable = Workspace.create(new WorkspaceName("Actionable"),
                 new WorkspacePath("/tmp/recovery-actionable"), now.plusMillis(3));
-        ledger.begin(new WorkspaceRegistrationLedger.Intent("registration-actionable", "hash-2",
-                actionable, "current", null, null, now.plusMillis(3)));
+        ledger.begin(new WorkspaceRegistrationLedger.Intent(
+                "registration-actionable", "hash-2", actionable, now.plusMillis(3)));
 
-        assertEquals(java.util.List.of("registration-actionable"), ledger.recoverable(256).stream()
+        assertEquals(java.util.List.of("registration-uncertain-only", "registration-actionable"),
+                ledger.recoverable(256).stream()
                 .map(WorkspaceRegistrationLedger.Attempt::registrationId).toList());
     }
 
@@ -184,7 +140,7 @@ class JdbcWorkspaceRegistrationLedgerTest {
 
         assertInstanceOf(WorkspaceRegistrationLedger.Begun.class,
                 ledger.begin(new WorkspaceRegistrationLedger.Intent("registration-new", "new-hash",
-                        workspace, "current", null, null, now)));
+                        workspace, now)));
         assertTrue(ledger.find("terminal-0").isEmpty());
         assertTrue(ledger.find("retained-uncertain").isPresent());
     }
@@ -216,7 +172,7 @@ class JdbcWorkspaceRegistrationLedgerTest {
         WorkspaceLimitReached failure = assertThrows(WorkspaceLimitReached.class,
                 () -> new JdbcWorkspaceRegistrationLedger(database).begin(
                         new WorkspaceRegistrationLedger.Intent("registration-over-limit", "hash",
-                                extra, "current", null, null, now)));
+                                extra, now)));
 
         assertEquals("Workspace limit reached: " + JdbcWorkspaceRepository.MAX_ACTIVE_WORKSPACES,
                 failure.getMessage());

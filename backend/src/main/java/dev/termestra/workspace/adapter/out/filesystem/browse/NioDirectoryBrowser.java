@@ -5,7 +5,6 @@ import dev.termestra.workspace.application.port.in.browse.BrowseEntryView;
 import dev.termestra.workspace.application.port.in.browse.BrowseView;
 import dev.termestra.workspace.application.port.in.browse.ProbeView;
 import dev.termestra.workspace.application.port.out.browse.DirectoryBrowser;
-import dev.termestra.workspace.application.service.WorkspaceRegistrationTokenCodec;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,7 +14,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 import java.util.PriorityQueue;
 import java.util.stream.Stream;
 
@@ -29,12 +27,9 @@ public final class NioDirectoryBrowser implements DirectoryBrowser {
             path -> path.getFileName().toString());
 
     private final Path root;
-    private final WorkspaceRegistrationTokenCodec tokens;
-
-    public NioDirectoryBrowser(Path root, WorkspaceRegistrationTokenCodec tokens) {
+    public NioDirectoryBrowser(Path root) {
         try {
             this.root = root.toAbsolutePath().normalize().toRealPath();
-            this.tokens = Objects.requireNonNull(tokens, "tokens");
         } catch (IOException unavailable) {
             throw new IllegalArgumentException("Browse root is unavailable: " + root, unavailable);
         }
@@ -111,19 +106,18 @@ public final class NioDirectoryBrowser implements DirectoryBrowser {
             candidate = resolve(requested);
         } catch (InvalidPathException invalid) {
             return new ProbeView(false, requested == null ? "" : requested,
-                    false, false, false, null, "", null);
+                    false, false, false, null, "");
         }
         String name = candidate.getFileName() == null ? "" : candidate.getFileName().toString();
         if (!inside(candidate)) {
             return new ProbeView(false, candidate.toString(), false, false,
-                    false, null, name, null);
+                    false, null, name);
         }
         boolean exists = Files.exists(candidate);
         boolean directory = Files.isDirectory(candidate);
         boolean git = directory && isGit(candidate);
         return new ProbeView(exists, candidate.toString(), exists, directory,
-                git, git ? branch(candidate) : null, name,
-                git ? tokens.issuePath(candidate.toString()) : null);
+                git, git ? branch(candidate) : null, name);
     }
 
     private BrowseView failure(Path candidate, String error) {

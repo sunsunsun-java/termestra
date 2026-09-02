@@ -78,7 +78,6 @@ export const useWorkspaceCreate = ({
         name: input.name,
         path: input.path,
         autostart_orchestrator: true,
-        revision_selection: input.revisionSelection,
         launch: input.launch,
       })
       // A 200 response normally means a no-op replay, but it may also have

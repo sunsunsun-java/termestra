@@ -19,15 +19,10 @@ Termestra-owned coordination documents maintained alongside a Workspace.
 _Avoid_: Runtime database, source files
 
 **Workspace Registration**:
-The durable admission process that claims a Workspace Path, optionally selects
-one existing local Git branch, initializes Workspace Metadata, and then makes
+The durable admission process that claims a Workspace Path, preserves that
+directory's current checkout, initializes Workspace Metadata, and then makes
 the Workspace visible.
 _Avoid_: Git checkout, project import
-
-**Revision Selection**:
-A setup-time instruction to keep the current checkout or switch to one existing
-local branch before Workspace activation. It is not persistent Workspace state.
-_Avoid_: Workspace branch, tracked branch
 
 **Open Target**:
 A supported local editor, terminal, file manager, or system action used to open

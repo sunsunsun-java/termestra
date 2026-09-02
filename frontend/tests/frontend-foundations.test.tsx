@@ -128,7 +128,6 @@ describe('workspace creation input', () => {
         name: '  Alpha  ',
         path: '  /work/alpha  ',
         registrationId,
-        revisionSelection: { kind: 'current' },
         startupCommand: '   ',
       })
     ).toEqual({
@@ -136,7 +135,6 @@ describe('workspace creation input', () => {
       name: 'Alpha',
       path: '/work/alpha',
       registrationId,
-      revisionSelection: { kind: 'current' },
     })
 
     expect(
@@ -148,7 +146,6 @@ describe('workspace creation input', () => {
         name: 'Alpha',
         path: '/work/alpha',
         registrationId,
-        revisionSelection: { kind: 'current' },
         startupCommand: '',
       })
     ).toEqual({
@@ -161,7 +158,6 @@ describe('workspace creation input', () => {
       name: 'Alpha',
       path: '/work/alpha',
       registrationId,
-      revisionSelection: { kind: 'current' },
     })
 
     expect(
@@ -173,7 +169,6 @@ describe('workspace creation input', () => {
         name: 'Alpha',
         path: '/work/alpha',
         registrationId,
-        revisionSelection: { kind: 'current' },
         startupCommand: '  codex --resume  ',
       })
     ).toEqual({
@@ -185,7 +180,6 @@ describe('workspace creation input', () => {
       name: 'Alpha',
       path: '/work/alpha',
       registrationId,
-      revisionSelection: { kind: 'current' },
     })
   })
 })

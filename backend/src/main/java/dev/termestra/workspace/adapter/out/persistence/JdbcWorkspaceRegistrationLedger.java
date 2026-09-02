@@ -104,9 +104,9 @@ public final class JdbcWorkspaceRegistrationLedger implements WorkspaceRegistrat
                 insert.setString(2, workspace.id().toString());
                 insert.setString(3, intent.requestHash());
                 insert.setString(4, workspace.path().value());
-                insert.setString(5, intent.selectionKind());
-                nullable(insert, 6, intent.selectedBranch());
-                nullable(insert, 7, intent.selectedRefOid());
+                insert.setString(5, "current");
+                insert.setNull(6, Types.VARCHAR);
+                insert.setNull(7, Types.VARCHAR);
                 insert.setLong(8, intent.now().toEpochMilli());
                 insert.setLong(9, intent.now().toEpochMilli());
                 insert.executeUpdate();
@@ -116,36 +116,8 @@ public final class JdbcWorkspaceRegistrationLedger implements WorkspaceRegistrat
     }
 
     @Override
-    public void markSwitching(String registrationId, Instant now) {
-        transition(registrationId, "reserved", "switching", "not_attempted", null,
-                null, null, null, now);
-    }
-
-    @Override
-    public void recordCurrent(String registrationId, Instant now) {
-        transition(registrationId, "reserved", "checkout_applied", "not_attempted", null,
-                null, null, null, now);
-    }
-
-    @Override
-    public void recordCheckout(String registrationId, CheckoutEvidence evidence, Instant now) {
-        String nextState = switch (evidence.outcome()) {
-            case "applied", "not_attempted" -> "checkout_applied";
-            default -> throw new IllegalArgumentException("Unknown checkout outcome: " + evidence.outcome());
-        };
-        transition(registrationId, "switching", nextState, evidence.outcome(),
-                null, evidence.observedHeadKind(), evidence.observedBranch(),
-                evidence.observedHeadOid(), now);
-    }
-
-    @Override
-    public void confirmCheckout(String registrationId, CheckoutEvidence evidence, Instant now) {
-        if (!"applied".equals(evidence.outcome())) {
-            throw new IllegalArgumentException("Only an applied checkout can be confirmed");
-        }
-        transition(registrationId, "uncertain", "checkout_applied", "applied",
-                null, evidence.observedHeadKind(), evidence.observedBranch(),
-                evidence.observedHeadOid(), now);
+    public void markSourceReady(String registrationId, Instant now) {
+        transition(registrationId, "reserved", "checkout_applied", "not_attempted", now);
     }
 
     @Override
@@ -195,18 +167,14 @@ public final class JdbcWorkspaceRegistrationLedger implements WorkspaceRegistrat
             }
             try (PreparedStatement update = connection.prepareStatement("""
                     UPDATE workspace_registration_attempts
-                    SET state=?,checkout_outcome=?,error_code=?,observed_head_kind=?,
-                        observed_branch=?,observed_head_oid=?,updated_at=?
+                    SET state=?,checkout_outcome=?,error_code=?,updated_at=?
                     WHERE registration_id=?
                     """)) {
                 update.setString(1, failure.state());
                 update.setString(2, failure.checkoutOutcome());
                 nullable(update, 3, failure.errorCode());
-                nullable(update, 4, failure.observedHeadKind());
-                nullable(update, 5, failure.observedBranch());
-                nullable(update, 6, failure.observedHeadOid());
-                update.setLong(7, now.toEpochMilli());
-                update.setString(8, registrationId);
+                update.setLong(4, now.toEpochMilli());
+                update.setString(5, registrationId);
                 update.executeUpdate();
             }
             if (failure.releaseWorkspaceClaim() && current.workspaceId() != null) {
@@ -232,7 +200,7 @@ public final class JdbcWorkspaceRegistrationLedger implements WorkspaceRegistrat
             List<Attempt> attempts = new ArrayList<>();
             try (PreparedStatement query = connection.prepareStatement("""
                     SELECT * FROM workspace_registration_attempts
-                    WHERE state IN ('reserved','switching','checkout_applied')
+                    WHERE state IN ('reserved','switching','checkout_applied','uncertain')
                     ORDER BY updated_at,registration_id LIMIT ?
                     """)) {
                 query.setInt(1, bounded);
@@ -245,24 +213,18 @@ public final class JdbcWorkspaceRegistrationLedger implements WorkspaceRegistrat
     }
 
     private void transition(String registrationId, String expectedState, String nextState,
-                            String outcome, String errorCode, String headKind,
-                            String branch, String oid, Instant now) {
+                            String outcome, Instant now) {
         database.write("transition workspace registration", connection -> {
             try (PreparedStatement update = connection.prepareStatement("""
                     UPDATE workspace_registration_attempts
-                    SET state=?,checkout_outcome=?,error_code=?,observed_head_kind=?,
-                        observed_branch=?,observed_head_oid=?,updated_at=?
+                    SET state=?,checkout_outcome=?,error_code=NULL,updated_at=?
                     WHERE registration_id=? AND state=?
                     """)) {
                 update.setString(1, nextState);
                 update.setString(2, outcome);
-                nullable(update, 3, errorCode);
-                nullable(update, 4, headKind);
-                nullable(update, 5, branch);
-                nullable(update, 6, oid);
-                update.setLong(7, now.toEpochMilli());
-                update.setString(8, registrationId);
-                update.setString(9, expectedState);
+                update.setLong(3, now.toEpochMilli());
+                update.setString(4, registrationId);
+                update.setString(5, expectedState);
                 if (update.executeUpdate() != 1) {
                     Attempt current = findAttempt(connection, registrationId)
                             .orElseThrow(() -> new WorkspaceRegistrationNotFound(registrationId));
@@ -342,11 +304,10 @@ public final class JdbcWorkspaceRegistrationLedger implements WorkspaceRegistrat
         return new Attempt(
                 result.getString("registration_id"), result.getString("workspace_id"),
                 result.getString("request_hash"), result.getString("canonical_path"),
-                result.getString("selection_kind"), result.getString("selected_branch"),
-                result.getString("selected_ref_oid"),
                 result.getString("state"), result.getString("checkout_outcome"),
                 result.getString("observed_head_kind"), result.getString("observed_branch"),
-                result.getString("observed_head_oid"), result.getString("error_code"),
+                result.getString("observed_head_oid"),
+                result.getString("error_code"),
                 Instant.ofEpochMilli(result.getLong("created_at")),
                 Instant.ofEpochMilli(result.getLong("updated_at")));
     }

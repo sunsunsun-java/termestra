@@ -134,7 +134,7 @@ terminal。停止或 PTY 退出必须先确认进程树终止并持久化 termin
 | 表 | 所有者 | 说明 |
 | --- | --- | --- |
 | `workspaces` | Workspace | 身份、路径、规范路径唯一性、`preparing/active` 生命周期与 legacy 删除标记 |
-| `workspace_registration_attempts` | Workspace | 注册幂等键、Git 选择意图、checkout 结果证据与恢复状态；最多保留 4096 条 |
+| `workspace_registration_attempts` | Workspace | 注册幂等键、规范路径 claim 与恢复状态；最多保留 4096 条；Git 选择/checkout 列仅为旧数据库兼容保留 |
 | `workers` | Team | TeamMember、角色、描述、名称唯一性与 legacy 删除标记 |
 | `messages` | Team | send/report/status 的有界审计记录与 Dispatch 关联 |
 | `dispatches` | Team | 公开业务状态与 idempotency key |
@@ -169,18 +169,20 @@ Summary 端点只返回固定字段和固定长度派生数据；Detail 端点�
 
 任何新 list/poll 需要测试“详情历史增长后响应大小仍保持常数”。
 
-## Workspace 注册与 Git 选择
+## Workspace 注册
 
-- `/api/fs/probe` 对 Git 工作树根返回短期、进程级签名的
-  `git_inspection_token`；token 不包含可供客户端篡改的权威路径。
-- `GET /api/workspace-registrations/options` 只列本地 `refs/heads/*`，每页最多
-  100 条；不执行 fetch，不列远端分支，也不创建分支。每个可选项带绑定工作树、
-  HEAD、branch OID 与 worktree 占用状态的 `selection_token`。
-- `POST /api/workspaces` 接受 UUID `registration_id` 和
-  `revision_selection.kind=current|local_branch`。选择本地分支时必须提交分支名与
-  `selection_token`。
+- `/api/fs/probe` 返回所选目录的存在性、目录/Git 判断与只读的当前分支提示；不签发
+  Git token。
+- `POST /api/workspaces` 接受 UUID `registration_id`，注册所选目录的当前 checkout，
+  不枚举、创建或切换 Git 分支。旧客户端的 `revision_selection.kind=current` 仍兼容；
+  其他 kind 或缺失 kind 返回 400 + `WORKSPACE_REVISION_SELECTION_UNSUPPORTED`。
+- 已删除的 `GET /api/workspace-registrations/options` 返回 410 +
+  `WORKSPACE_REVISION_OPTIONS_REMOVED`，避免旧客户端把 `options` 误解释为 registration UUID。
 - `GET /api/workspace-registrations/{registration_id}` 返回
-  `processing/completed/failed/needs_attention`，供超时或断线后的显式核对。
-- Git switch 是非事务型外部副作用。结果无法确认时返回稳定
-  `GIT_OPERATION_OUTCOME_UNKNOWN`，并令 `source_revision_changed=null`；系统禁止
-  自动重试。Workspace 只在 checkout 结果和元数据初始化均已确认后变为 `active`。
+  `registration_id/status/workspace_id/error_code/source_revision_changed/observed_head`，其中状态为
+  `processing/completed/failed/needs_attention`。后两个 nullable 字段仅为旧 Git 注册 attempt
+  的升级诊断兼容保留。
+- Workspace 在规范路径 claim 和元数据初始化完成后才变为 `active`。旧版本遗留的
+  `switching/uncertain` attempt 保留 HEAD/结果诊断证据，以
+  `WORKSPACE_REGISTRATION_INTERRUPTED` 失败并释放路径 claim；新版本不会执行 Git mutation，
+  也不会新建 `uncertain` attempt。

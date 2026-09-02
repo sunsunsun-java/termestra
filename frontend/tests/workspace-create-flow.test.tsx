@@ -3,7 +3,12 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import { ApiRequestError, type FsProbeResponse, type PickFolderResponse } from '../web/src/api.js'
+import {
+  ApiRequestError,
+  createWorkspace,
+  type FsProbeResponse,
+  type PickFolderResponse,
+} from '../web/src/api.js'
 import { useWorkspaceCreate } from '../web/src/useWorkspaceCreate.js'
 import { AddWorkspaceDialog } from '../web/src/workspace/AddWorkspaceDialog.js'
 
@@ -14,7 +19,6 @@ const probe: FsProbeResponse = {
   exists: true,
   is_dir: true,
   is_git_repository: true,
-  git_inspection_token: 'inspection-token',
   ok: true,
   path: PICKED_PATH,
   suggested_name: 'alpha',
@@ -57,25 +61,6 @@ const stubPickerRequests = () => {
       if (method === 'POST' && url.pathname === '/api/fs/pick-folder') {
         return jsonResponse(pickResult)
       }
-      if (method === 'GET' && url.pathname === '/api/workspace-registrations/options') {
-        return jsonResponse({
-          branches: [
-            { blocked_reason: null, current: true, name: 'main', selectable: true, selection_token: 'main-token' },
-            { blocked_reason: null, current: false, name: 'feature/local', selectable: true, selection_token: 'feature-token' },
-            {
-              blocked_reason: 'checked_out_elsewhere',
-              current: false,
-              name: 'release',
-              selectable: false,
-              selection_token: null,
-            },
-          ],
-          canonical_path: PICKED_PATH,
-          changes: { count: 0, count_accuracy: 'exact', state: 'clean' },
-          head: { kind: 'branch', name: 'main', oid: 'abc' },
-          next_cursor: null,
-        })
-      }
       throw new Error(`Unexpected request: ${method} ${url.pathname}`)
     })
   )
@@ -98,29 +83,17 @@ afterEach(() => {
 })
 
 describe('Workspace creation feedback', () => {
-  test('selects an existing local branch and includes its opaque token in creation', async () => {
+  test('creates from the selected directory without offering a branch selector', async () => {
     stubPickerRequests()
     const onCreate = vi.fn(async () => {})
     render(<AddWorkspaceDialog onClose={() => {}} onCreate={onCreate} trigger={1} />)
 
-    const trigger = await screen.findByTestId('workspace-git-branch-trigger')
-    expect(trigger.getAttribute('aria-haspopup')).toBe('listbox')
-    fireEvent.click(trigger)
-    expect(
-      ((await screen.findByTestId('workspace-git-branch-release')) as HTMLButtonElement).disabled
-    ).toBe(true)
-    expect(screen.getByTestId('workspace-git-branch-search')).not.toBeNull()
-    fireEvent.click(await screen.findByTestId('workspace-git-branch-feature/local'))
+    await screen.findByTestId('confirm-workspace-dialog')
+    expect(screen.queryByTestId('workspace-git-branch-trigger')).toBeNull()
     fireEvent.click(screen.getByTestId('confirm-workspace-create'))
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1))
-    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
-      revisionSelection: {
-        kind: 'local_branch',
-        name: 'feature/local',
-        selection_token: 'feature-token',
-      },
-    }))
+    expect(onCreate.mock.calls[0]?.[0]).not.toHaveProperty('revisionSelection')
   })
 
   test('locks the dialog immediately and collapses rapid double-clicks into one create request', async () => {
@@ -151,10 +124,10 @@ describe('Workspace creation feedback', () => {
     const onCreate = vi
       .fn<() => Promise<void>>()
       .mockRejectedValueOnce(
-        new ApiRequestError('Selection is stale', {
-          code: 'GIT_SELECTION_STALE',
+        new ApiRequestError('Metadata initialization failed', {
+          code: 'WORKSPACE_METADATA_INITIALIZATION_FAILED',
           retryable: true,
-          status: 409,
+          status: 500,
         })
       )
       .mockResolvedValueOnce()
@@ -167,7 +140,7 @@ describe('Workspace creation feedback', () => {
     fireEvent.click(createButton)
 
     const error = await screen.findByTestId('workspace-create-error')
-    expect(error.textContent).toContain('Selection is stale')
+    expect(error.textContent).toContain('Metadata initialization failed')
     expect(createButton.disabled).toBe(false)
     expect(createButton.textContent).toContain('Create Workspace')
 
@@ -179,7 +152,7 @@ describe('Workspace creation feedback', () => {
     await waitFor(() => expect(screen.queryByTestId('confirm-workspace-dialog')).toBeNull())
   })
 
-  test('reuses the registration id when retrying an explicitly unknown Git outcome', async () => {
+  test('reuses the registration id for a legacy unknown Git outcome', async () => {
     stubPickerRequests()
     const onCreate = vi
       .fn<() => Promise<void>>()
@@ -205,6 +178,35 @@ describe('Workspace creation feedback', () => {
     expect(onCreate.mock.calls[1]?.[0].registrationId).toBe(
       onCreate.mock.calls[0]?.[0].registrationId
     )
+  })
+
+  test('omits revision_selection from the final create request JSON', async () => {
+    const request = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body).toEqual({
+        autostart_orchestrator: false,
+        name: 'Alpha',
+        path: PICKED_PATH,
+        registration_id: 'registration-json-contract',
+      })
+      expect(body).not.toHaveProperty('revision_selection')
+      return jsonResponse({
+        id: 'workspace-alpha',
+        name: 'Alpha',
+        path: PICKED_PATH,
+        orchestrator_start: { error: null, ok: false, run_id: null },
+      }, 201)
+    })
+    vi.stubGlobal('fetch', request)
+
+    await createWorkspace({
+      autostart_orchestrator: false,
+      name: 'Alpha',
+      path: PICKED_PATH,
+      registration_id: 'registration-json-contract',
+    })
+
+    expect(request).toHaveBeenCalledTimes(1)
   })
 
   test('reuses the registration id after a transport failure with an unknown server outcome', async () => {
@@ -268,7 +270,6 @@ describe('Workspace creation feedback', () => {
         name: 'Requested rename',
         path: PICKED_PATH,
         registrationId: crypto.randomUUID(),
-        revisionSelection: { kind: 'current' },
       })
     })
 
@@ -302,7 +303,6 @@ describe('Workspace creation feedback', () => {
         name: workspace.name,
         path: workspace.path,
         registrationId: crypto.randomUUID(),
-        revisionSelection: { kind: 'current' },
       })
     })
 

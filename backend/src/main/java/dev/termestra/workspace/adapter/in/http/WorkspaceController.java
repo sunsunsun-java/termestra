@@ -3,6 +3,7 @@ package dev.termestra.workspace.adapter.in.http;
 import dev.termestra.workspace.application.port.in.*;
 import dev.termestra.workspace.application.port.in.registration.*;
 import dev.termestra.execution.application.exception.InvalidLaunchRequest;
+import dev.termestra.workspace.application.exception.InvalidWorkspaceRegistrationRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -30,12 +31,11 @@ public final class WorkspaceController {
     public Mono<ResponseEntity<WorkspaceResponse>> create(@RequestBody CreateWorkspaceRequest request) {
         return Mono.fromCallable(() -> {
                     CreateWorkspaceRequest.RevisionSelectionRequest requested = request.revisionSelection();
-                    RevisionSelection selection = requested == null || requested.kind() == null
-                            || "current".equals(requested.kind())
-                            ? new RevisionSelection.Current(requested == null ? null : requested.selectionToken())
-                            : "local_branch".equals(requested.kind())
-                                ? new RevisionSelection.LocalBranch(requested.name(), requested.selectionToken())
-                                : throwInvalidSelection(requested.kind());
+                    if (requested != null && !"current".equals(requested.kind())) {
+                        throw new InvalidWorkspaceRegistrationRequest(
+                                "WORKSPACE_REVISION_SELECTION_UNSUPPORTED",
+                                "revision_selection is no longer supported; Workspace uses the directory's current checkout");
+                    }
                     if(request.launch()!=null&&(request.startupCommand()!=null||request.commandPresetId()!=null)){
                         throw new InvalidLaunchRequest("LAUNCH_CONTRACT_CONFLICT",
                                 "launch cannot be combined with legacy fields");
@@ -44,7 +44,7 @@ public final class WorkspaceController {
                     if(request.launch()!=null){var launch=request.launch();launch.validate();if("inherit_orchestrator".equals(launch.type()))throw new InvalidLaunchRequest("LAUNCH_CONTRACT_CONFLICT","Workspace cannot inherit an Orchestrator launch");if("startup".equals(launch.type())){startup=launch.startupCommand();preset=launch.recoveryPresetId();}else {preset=launch.presetId();model=launch.modelId();revision=launch.expectedPresetRevision();}}
                     CreateWorkspaceResult result = createWorkspace.register(new RegisterWorkspaceCommand(
                             request.registrationId(),request.path(),request.name(),startup,preset,model,revision,
-                            request.shouldAutostart(),selection));
+                            request.shouldAutostart()));
                     HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
                     return ResponseEntity.status(status).body(WorkspaceResponse.from(result));
                 })
@@ -60,7 +60,4 @@ public final class WorkspaceController {
         }
     }
 
-    private static RevisionSelection throwInvalidSelection(String kind) {
-        throw new IllegalArgumentException("Unknown revision_selection kind: " + kind);
-    }
 }

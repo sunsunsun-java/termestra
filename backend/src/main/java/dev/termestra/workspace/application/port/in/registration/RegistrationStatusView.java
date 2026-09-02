@@ -6,4 +6,13 @@ public record RegistrationStatusView(
         String workspaceId,
         String errorCode,
         Boolean sourceRevisionChanged,
-        RegistrationOptionsView.HeadView observedHead) { }
+        ObservedHead observedHead) {
+
+    public sealed interface ObservedHead permits BranchHead, DetachedHead, UnbornHead { }
+
+    public record BranchHead(String name, String oid) implements ObservedHead { }
+
+    public record DetachedHead(String oid) implements ObservedHead { }
+
+    public record UnbornHead(String name) implements ObservedHead { }
+}

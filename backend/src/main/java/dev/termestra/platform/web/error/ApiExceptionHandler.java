@@ -13,10 +13,10 @@ import dev.termestra.tasks.application.port.in.TasksSubscriptionLimit;
 import dev.termestra.configuration.application.port.in.*;
 import dev.termestra.marketplace.application.MarketplaceNotFound;
 import dev.termestra.shared.concurrency.RuntimeOperationBusyException;
-import dev.termestra.workspace.application.exception.GitRegistrationFailure;
-import dev.termestra.workspace.application.exception.GitWorktreeAccessFailure;
 import dev.termestra.workspace.application.exception.WorkspaceRegistrationConflict;
+import dev.termestra.workspace.application.exception.WorkspaceRegistrationFailure;
 import dev.termestra.workspace.application.exception.WorkspaceRegistrationNotFound;
+import dev.termestra.workspace.application.exception.InvalidWorkspaceRegistrationRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.core.io.buffer.DataBufferLimitException;
@@ -58,23 +58,10 @@ public final class ApiExceptionHandler {
         return Map.of("error", error.getMessage(), "error_code", "WORKSPACE_REGISTRATION_NOT_FOUND");
     }
 
-    @ExceptionHandler(GitWorktreeAccessFailure.class)
-    public ResponseEntity<Map<String,Object>> gitWorktreeAccess(GitWorktreeAccessFailure error) {
+    @ExceptionHandler(WorkspaceRegistrationFailure.class)
+    public ResponseEntity<Map<String,Object>> workspaceRegistrationFailure(
+            WorkspaceRegistrationFailure error) {
         HttpStatus status = switch (error.errorCode()) {
-            case "GIT_QUERY_TIMEOUT" -> HttpStatus.GATEWAY_TIMEOUT;
-            case "GIT_UNAVAILABLE" -> HttpStatus.SERVICE_UNAVAILABLE;
-            case "GIT_WORKTREE_REQUIRED", "GIT_WORKTREE_ROOT_REQUIRED" -> HttpStatus.UNPROCESSABLE_ENTITY;
-            default -> HttpStatus.CONFLICT;
-        };
-        return ResponseEntity.status(status).body(Map.of(
-                "error", error.getMessage(), "error_code", error.errorCode(),
-                "retryable", error.retryable()));
-    }
-
-    @ExceptionHandler(GitRegistrationFailure.class)
-    public ResponseEntity<Map<String,Object>> gitRegistration(GitRegistrationFailure error) {
-        HttpStatus status = switch (error.errorCode()) {
-            case "GIT_OPERATION_OUTCOME_UNKNOWN" -> HttpStatus.GATEWAY_TIMEOUT;
             case "WORKSPACE_METADATA_INITIALIZATION_FAILED" -> HttpStatus.INTERNAL_SERVER_ERROR;
             default -> HttpStatus.CONFLICT;
         };
@@ -83,23 +70,14 @@ public final class ApiExceptionHandler {
         body.put("error_code", error.errorCode());
         body.put("registration_id", error.registrationId());
         body.put("retryable", error.retryable());
-        body.put("source_revision_changed", error.sourceRevisionChanged());
-        body.put("observed_head", observedHead(error.observedHead()));
         return ResponseEntity.status(status).body(body);
     }
 
-    private static Map<String,Object> observedHead(
-            dev.termestra.workspace.application.port.in.registration.RegistrationOptionsView.HeadView head) {
-        if (head == null) return null;
-        Map<String,Object> result = new java.util.LinkedHashMap<>();
-        if (head instanceof dev.termestra.workspace.application.port.in.registration.RegistrationOptionsView.BranchHead value) {
-            result.put("kind", "branch"); result.put("name", value.name()); result.put("oid", value.oid());
-        } else if (head instanceof dev.termestra.workspace.application.port.in.registration.RegistrationOptionsView.DetachedHead value) {
-            result.put("kind", "detached"); result.put("oid", value.oid());
-        } else if (head instanceof dev.termestra.workspace.application.port.in.registration.RegistrationOptionsView.UnbornHead value) {
-            result.put("kind", "unborn"); result.put("name", value.name());
-        }
-        return result;
+    @ExceptionHandler(InvalidWorkspaceRegistrationRequest.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String,String> invalidWorkspaceRegistrationRequest(
+            InvalidWorkspaceRegistrationRequest error) {
+        return coded(error, error.errorCode());
     }
 
     @ExceptionHandler(InvalidWorkspacePath.class)

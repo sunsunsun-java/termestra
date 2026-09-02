@@ -12,6 +12,7 @@ ADR 记录难以逆转且不从代码表面自然显现的架构取舍。`Accept
 | [0005](0005-exact-key-bounded-runtime-coordination.md) | Accepted | 精确键、限时、引用计数的 runtime coordination |
 | [0006](0006-context-ownership-and-lifecycle-deletion.md) | Accepted | 明确 context 数据所有权和单事务 lifecycle deletion 例外 |
 | [0007](0007-macos-only-distribution.md) | Accepted | 发行与运行时支持收缩为 macOS arm64/x64，并裁剪非目标平台内容 |
-| [0008](0008-durable-workspace-registration-around-git.md) | Accepted | 用 SQLite 注册台账包围非事务 Git switch，并把未知结果隔离为需人工核对 |
+| [0008](0008-durable-workspace-registration-around-git.md) | Superseded by 0009 | 用 SQLite 注册台账包围非事务 Git switch，并把未知结果隔离为需人工核对 |
+| [0009](0009-workspace-registration-keeps-current-checkout.md) | Accepted | Workspace 注册沿用目录当前 checkout，不枚举或切换 Git 分支 |
 
 当前架构的解释性文档位于 [`../architecture/`](../architecture/README.md)。

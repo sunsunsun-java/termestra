@@ -1,16 +1,12 @@
 package dev.termestra.workspace.adapter.out.filesystem.browse;
 
 import dev.termestra.workspace.application.port.in.browse.BrowseView;
-import dev.termestra.workspace.application.service.WorkspaceRegistrationTokenCodec;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import java.util.stream.IntStream;
@@ -20,7 +16,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NioDirectoryBrowserTest {
-    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
     @TempDir Path root;
 
     @Test
@@ -85,6 +80,6 @@ class NioDirectoryBrowserTest {
     }
 
     private static NioDirectoryBrowser browser(Path root) {
-        return new NioDirectoryBrowser(root, new WorkspaceRegistrationTokenCodec(CLOCK));
+        return new NioDirectoryBrowser(root);
     }
 }

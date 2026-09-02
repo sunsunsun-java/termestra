@@ -18,7 +18,6 @@ import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
 import dev.termestra.platform.persistence.sqlite.*;
 import dev.termestra.workspace.adapter.out.filesystem.NioWorkspacePathResolver;
 import dev.termestra.workspace.adapter.out.filesystem.ProcessWorkspaceOpener;
-import dev.termestra.workspace.adapter.out.git.ProcessGitWorktreeAccess;
 import dev.termestra.workspace.adapter.out.persistence.JdbcWorkspaceRepository;
 import dev.termestra.workspace.adapter.out.persistence.JdbcWorkspaceRegistrationLedger;
 import dev.termestra.workspace.application.port.in.*;
@@ -27,7 +26,6 @@ import dev.termestra.workspace.application.port.out.*;
 import dev.termestra.workspace.application.service.WorkspaceApplicationService;
 import dev.termestra.workspace.application.service.OpenWorkspaceService;
 import dev.termestra.workspace.application.service.WorkspaceRegistrationService;
-import dev.termestra.workspace.application.service.WorkspaceRegistrationTokenCodec;
 import dev.termestra.team.adapter.out.persistence.*;
 import dev.termestra.team.adapter.out.runtime.ExecutionTeamScenarioRuntime;
 import dev.termestra.team.adapter.out.runtime.ExecutionWorkerExecution;
@@ -165,20 +163,15 @@ public class RuntimeWiring {
                                                          RuntimeOperationCoordinator operations) {
         return new WorkspaceApplicationService(repository, cleaner, operations);
     }
-    @Bean WorkspaceRegistrationTokenCodec workspaceRegistrationTokenCodec(Clock clock) {
-        return new WorkspaceRegistrationTokenCodec(clock);
-    }
-    @Bean GitWorktreeAccess gitWorktreeAccess() { return new ProcessGitWorktreeAccess(); }
     @Bean WorkspaceRegistrationLedger workspaceRegistrationLedger(SqliteDatabase database) {
         return new JdbcWorkspaceRegistrationLedger(database);
     }
     @Bean WorkspaceRegistrationUseCase workspaceRegistrationUseCase(
             WorkspaceRegistrationLedger ledger, WorkspaceRepository repository,
-            WorkspacePathResolver resolver, GitWorktreeAccess git,
-            WorkspaceRegistrationTokenCodec tokens, WorkspaceMetadataInitializer metadata,
+            WorkspacePathResolver resolver, WorkspaceMetadataInitializer metadata,
             OrchestratorStarter starter, RuntimeOperationCoordinator operations, Clock clock) {
         WorkspaceRegistrationService service = new WorkspaceRegistrationService(
-                ledger, repository, resolver, git, tokens, metadata, starter, operations, clock);
+                ledger, repository, resolver, metadata, starter, operations, clock);
         service.recover();
         return service;
     }
@@ -276,9 +269,9 @@ public class RuntimeWiring {
     @Bean CommandAvailabilityProbe commandAvailabilityProbe(){return new PathCommandAvailabilityProbe();}
     @Bean CommandAvailabilityUseCase commandAvailabilityUseCase(CommandAvailabilityProbe probe){return new CommandAvailabilityService(probe);}
     @Bean MarketplaceCatalog marketplaceCatalog(ObjectMapper json){return new ClasspathMarketplaceCatalog(json);}
-    @Bean DirectoryBrowser directoryBrowser(WorkspaceRegistrationTokenCodec tokens){String configured=environmentValue("TERMESTRA_FS_BROWSE_ROOT");Path root=configured==null?Path.of(System.getProperty("user.home")):Path.of(configured);return new NioDirectoryBrowser(root,tokens);}
+    @Bean DirectoryBrowser directoryBrowser(){String configured=environmentValue("TERMESTRA_FS_BROWSE_ROOT");Path root=configured==null?Path.of(System.getProperty("user.home")):Path.of(configured);return new NioDirectoryBrowser(root);}
     @Bean FilesystemBrowseUseCase filesystemBrowseUseCase(DirectoryBrowser browser){return new FilesystemBrowseService(browser);}
-    @Bean SelectedDirectoryProbe selectedDirectoryProbe(WorkspaceRegistrationTokenCodec tokens){return new NioSelectedDirectoryProbe(tokens);}
+    @Bean SelectedDirectoryProbe selectedDirectoryProbe(){return new NioSelectedDirectoryProbe();}
     @Bean NativeFolderPicker nativeFolderPicker(){return new ProcessNativeFolderPicker();}
     @Bean FilesystemPickerUseCase filesystemPickerUseCase(NativeFolderPicker picker,SelectedDirectoryProbe selectedDirectoryProbe){return new FilesystemPickerService(picker,selectedDirectoryProbe);}
     @Bean TeamMemberRepository teamMemberRepository(SqliteDatabase database) { return new JdbcTeamMemberRepository(database); }

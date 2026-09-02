@@ -5,11 +5,10 @@ import dev.termestra.platform.persistence.sqlite.SqliteSchemaMigrator;
 import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
 import dev.termestra.workspace.adapter.out.persistence.JdbcWorkspaceRegistrationLedger;
 import dev.termestra.workspace.adapter.out.persistence.JdbcWorkspaceRepository;
-import dev.termestra.workspace.application.exception.GitRegistrationFailure;
+import dev.termestra.workspace.application.exception.WorkspaceRegistrationFailure;
+import dev.termestra.workspace.application.exception.WorkspaceRegistrationConflict;
 import dev.termestra.workspace.application.port.in.OrchestratorStartView;
 import dev.termestra.workspace.application.port.in.registration.RegisterWorkspaceCommand;
-import dev.termestra.workspace.application.port.in.registration.RevisionSelection;
-import dev.termestra.workspace.application.port.out.GitWorktreeAccess;
 import dev.termestra.workspace.application.port.out.WorkspaceMetadataInitializer;
 import dev.termestra.workspace.application.port.out.WorkspaceRegistrationLedger;
 import dev.termestra.workspace.domain.model.Workspace;
@@ -22,9 +21,8 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.ArrayDeque;
-import java.util.List;
 import java.util.UUID;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -39,54 +37,105 @@ class WorkspaceRegistrationServiceTest {
 
     @TempDir Path temporaryDirectory;
 
-    @Test void aSelectionThatBecomesStaleAfterReservationFailsAndReleasesThePathClaim() {
+    @Test void registersTheDirectorysCurrentCheckoutWithoutGitSelection() {
         Fixture fixture = fixture(path -> { });
-        GitWorktreeAccess.Inspection selected = inspection("main", "main-oid", "feature", "selected-oid");
-        GitWorktreeAccess.Inspection advanced = inspection("main", "main-oid", "feature", "advanced-oid");
-        fixture.git().inspect(selected, advanced);
-        String token = fixture.tokens().issueSelection(selected, selected.localBranches().getFirst());
         String registrationId = UUID.randomUUID().toString();
 
-        GitRegistrationFailure failure = assertThrows(GitRegistrationFailure.class,
-                () -> fixture.service().register(command(registrationId, token)));
+        var result = fixture.service().register(command(registrationId));
 
-        assertEquals("GIT_SELECTION_STALE", failure.errorCode());
+        assertTrue(result.created());
         WorkspaceRegistrationLedger.Attempt attempt = fixture.ledger().find(registrationId).orElseThrow();
-        assertEquals("failed", attempt.state());
-        assertEquals("not_attempted", attempt.checkoutOutcome());
-        assertNull(attempt.workspaceId());
-        assertEquals(0, fixture.git().switchCount());
-        assertTrue(fixture.workspaces().findAll().isEmpty());
+        assertEquals("completed", attempt.state());
+        assertEquals("active", workspaceState(fixture.database(), result.workspace().id()));
     }
 
-    @Test void anAppliedCheckoutWithTheWrongOidRemainsUncertainAndCannotActivate() {
-        Fixture fixture = fixture(path -> { });
-        GitWorktreeAccess.Inspection selected = inspection("main", "main-oid", "feature", "selected-oid");
-        GitWorktreeAccess.Inspection wrong = inspection("feature", "wrong-oid", "feature", "wrong-oid");
-        fixture.git().inspect(selected, selected)
-                .checkout(new GitWorktreeAccess.Applied(wrong));
-        String token = fixture.tokens().issueSelection(selected, selected.localBranches().getFirst());
-        String registrationId = UUID.randomUUID().toString();
-
-        GitRegistrationFailure failure = assertThrows(GitRegistrationFailure.class,
-                () -> fixture.service().register(command(registrationId, token)));
-
-        assertEquals("GIT_OPERATION_OUTCOME_UNKNOWN", failure.errorCode());
-        WorkspaceRegistrationLedger.Attempt attempt = fixture.ledger().find(registrationId).orElseThrow();
-        assertEquals("uncertain", attempt.state());
-        assertEquals("unknown", attempt.checkoutOutcome());
-        assertNotNull(attempt.workspaceId());
-        assertEquals(1, fixture.git().switchCount());
-        assertTrue(fixture.workspaces().findAll().isEmpty());
-    }
-
-    @Test void recoveryTurnsMetadataFailureIntoATerminalAttemptAndReleasesItsClaim() {
+    @Test void metadataFailureIsTerminalAndReleasesThePathClaim() {
         Fixture fixture = fixture(path -> { throw new IllegalStateException("disk is read-only"); });
         String registrationId = UUID.randomUUID().toString();
-        Workspace workspace = Workspace.create(new WorkspaceName("Recovery"), workspacePath(), NOW);
+
+        WorkspaceRegistrationFailure failure = assertThrows(
+                WorkspaceRegistrationFailure.class,
+                () -> fixture.service().register(command(registrationId)));
+
+        assertEquals("WORKSPACE_METADATA_INITIALIZATION_FAILED", failure.errorCode());
+        WorkspaceRegistrationLedger.Attempt attempt = fixture.ledger().find(registrationId).orElseThrow();
+        assertEquals("failed", attempt.state());
+        assertNull(attempt.workspaceId());
+        assertTrue(fixture.workspaces().findAll().isEmpty());
+    }
+
+    @Test void sourceReadyWriteFailureIsTerminalAndReleasesThePathClaim() {
+        Fixture fixture = fixture(path -> { },
+                ledger -> new FailingSourceReadyLedger(ledger, false));
+        String registrationId = UUID.randomUUID().toString();
+
+        WorkspaceRegistrationFailure failure = assertThrows(
+                WorkspaceRegistrationFailure.class,
+                () -> fixture.service().register(command(registrationId)));
+
+        assertEquals("WORKSPACE_REGISTRATION_LEDGER_FAILED", failure.errorCode());
+        assertTrue(failure.retryable());
+        WorkspaceRegistrationLedger.Attempt attempt = fixture.ledger().find(registrationId).orElseThrow();
+        assertEquals("failed", attempt.state());
+        assertNull(attempt.workspaceId());
+        assertTrue(fixture.workspaces().findAll().isEmpty());
+        assertTrue(fixture.ledger().begin(new WorkspaceRegistrationLedger.Intent(
+                UUID.randomUUID().toString(), "new-hash",
+                Workspace.create(new WorkspaceName("Retry"), workspacePath(), NOW), NOW))
+                instanceof WorkspaceRegistrationLedger.Begun);
+    }
+
+    @Test void sourceReadyWriteThatCommittedBeforeThrowingContinuesIdempotently() {
+        Fixture fixture = fixture(path -> { },
+                ledger -> new FailingSourceReadyLedger(ledger, true));
+        String registrationId = UUID.randomUUID().toString();
+
+        var result = fixture.service().register(command(registrationId));
+
+        assertTrue(result.created());
+        assertEquals("completed", fixture.ledger().find(registrationId).orElseThrow().state());
+        assertEquals("active", workspaceState(fixture.database(), result.workspace().id()));
+    }
+
+    @Test void recoveryReleasesAReservedPathClaim() {
+        Fixture fixture = fixture(path -> { });
+        String registrationId = UUID.randomUUID().toString();
         fixture.ledger().begin(new WorkspaceRegistrationLedger.Intent(
-                registrationId, "hash", workspace, "current", null, null, NOW));
-        fixture.ledger().recordCurrent(registrationId, NOW.plusMillis(1));
+                registrationId, "hash", Workspace.create(
+                        new WorkspaceName("Reserved"), workspacePath(), NOW), NOW));
+
+        fixture.service().recover();
+
+        WorkspaceRegistrationLedger.Attempt attempt = fixture.ledger().find(registrationId).orElseThrow();
+        assertEquals("failed", attempt.state());
+        assertEquals("WORKSPACE_REGISTRATION_INTERRUPTED", attempt.errorCode());
+        assertNull(attempt.workspaceId());
+        assertTrue(fixture.workspaces().findAll().isEmpty());
+    }
+
+    @Test void recoveryCompletesASourceReadyRegistration() {
+        Fixture fixture = fixture(path -> { });
+        String registrationId = UUID.randomUUID().toString();
+        fixture.ledger().begin(new WorkspaceRegistrationLedger.Intent(
+                registrationId, "hash", Workspace.create(
+                        new WorkspaceName("Ready"), workspacePath(), NOW), NOW));
+        fixture.ledger().markSourceReady(registrationId, NOW.plusMillis(1));
+
+        fixture.service().recover();
+
+        WorkspaceRegistrationLedger.Attempt attempt = fixture.ledger().find(registrationId).orElseThrow();
+        assertEquals("completed", attempt.state());
+        assertNotNull(attempt.workspaceId());
+        assertEquals("active", workspaceState(fixture.database(), attempt.workspaceId()));
+    }
+
+    @Test void recoveryTurnsSourceReadyMetadataFailureIntoATerminalAttempt() {
+        Fixture fixture = fixture(path -> { throw new IllegalStateException("disk is read-only"); });
+        String registrationId = UUID.randomUUID().toString();
+        fixture.ledger().begin(new WorkspaceRegistrationLedger.Intent(
+                registrationId, "hash", Workspace.create(
+                        new WorkspaceName("Ready"), workspacePath(), NOW), NOW));
+        fixture.ledger().markSourceReady(registrationId, NOW.plusMillis(1));
 
         fixture.service().recover();
 
@@ -94,124 +143,126 @@ class WorkspaceRegistrationServiceTest {
         assertEquals("failed", attempt.state());
         assertEquals("WORKSPACE_METADATA_INITIALIZATION_FAILED", attempt.errorCode());
         assertNull(attempt.workspaceId());
-        assertFalse(fixture.workspaces().findByCanonicalPath(workspacePath().value()).isPresent());
+        assertTrue(fixture.workspaces().findAll().isEmpty());
     }
 
-    @Test void checkoutEvidenceWriteFailureRetainsTheClaimAsUncertain() {
-        Fixture fixture = fixture(path -> { }, true);
-        GitWorktreeAccess.Inspection selected = inspection("main", "main-oid", "feature", "selected-oid");
-        GitWorktreeAccess.Inspection applied =
-                inspection("feature", "selected-oid", "feature", "selected-oid");
-        fixture.git().inspect(selected, selected)
-                .checkout(new GitWorktreeAccess.Applied(applied));
-        String token = fixture.tokens().issueSelection(selected, selected.localBranches().getFirst());
+    @Test void recoveryReleasesALegacySwitchingClaimAndKeepsItsDiagnostics() {
+        Fixture fixture = fixture(path -> { });
         String registrationId = UUID.randomUUID().toString();
+        Workspace workspace = Workspace.create(new WorkspaceName("Legacy"), workspacePath(), NOW);
+        fixture.ledger().begin(new WorkspaceRegistrationLedger.Intent(
+                registrationId, "hash", workspace, NOW));
+        fixture.database().write("seed legacy switching state", connection -> {
+            try (var update = connection.prepareStatement("""
+                    UPDATE workspace_registration_attempts
+                    SET selection_kind='local_branch',selected_branch='feature',
+                        selected_ref_oid='oid',state='switching',checkout_outcome='unknown',
+                        observed_head_kind='branch',observed_branch='feature',
+                        observed_head_oid='oid',updated_at=?
+                    WHERE registration_id=?
+                    """)) {
+                update.setLong(1, NOW.plusMillis(1).toEpochMilli());
+                update.setString(2, registrationId);
+                update.executeUpdate();
+            }
+            return null;
+        });
 
-        GitRegistrationFailure failure = assertThrows(GitRegistrationFailure.class,
-                () -> fixture.service().register(command(registrationId, token)));
+        fixture.service().recover();
 
-        assertEquals("GIT_OPERATION_OUTCOME_UNKNOWN", failure.errorCode());
         WorkspaceRegistrationLedger.Attempt attempt = fixture.ledger().find(registrationId).orElseThrow();
-        assertEquals("uncertain", attempt.state());
-        assertEquals("unknown", attempt.checkoutOutcome());
-        assertNotNull(attempt.workspaceId());
+        assertEquals("failed", attempt.state());
+        assertEquals("WORKSPACE_REGISTRATION_INTERRUPTED", attempt.errorCode());
+        assertNull(attempt.workspaceId());
+        assertFalse(fixture.workspaces().findByCanonicalPath(workspacePath().value()).isPresent());
+        var status = fixture.service().status(registrationId);
+        assertEquals("failed", status.status());
+        assertNull(status.sourceRevisionChanged());
+        assertEquals(new dev.termestra.workspace.application.port.in.registration.RegistrationStatusView.BranchHead(
+                "feature", "oid"), status.observedHead());
+    }
+
+    @Test void legacyCurrentRequestHashStillReplaysAndDifferentRequestStillConflicts() {
+        Fixture fixture = fixture(path -> { });
+        String registrationId = UUID.randomUUID().toString();
+        WorkspacePath legacyPath = new WorkspacePath("/tmp/legacy-current");
+        String legacyHash = "e109f16aadc7d47791c9f864a57256f7a66ef6b86940dcea841c8d08bfdb459b";
+        Workspace workspace = Workspace.create(new WorkspaceName("Legacy"), legacyPath, NOW);
+        fixture.ledger().begin(new WorkspaceRegistrationLedger.Intent(
+                registrationId, legacyHash, workspace, NOW));
+        fixture.ledger().markSourceReady(registrationId, NOW.plusMillis(1));
+        fixture.ledger().activate(registrationId, NOW.plusMillis(2));
+        RegisterWorkspaceCommand legacyCommand = new RegisterWorkspaceCommand(
+                registrationId, legacyPath.value(), "Legacy", "codex", "preset",
+                "gpt", 7L, true);
+
+        var replay = fixture.service().register(legacyCommand);
+
+        assertFalse(replay.created());
+        assertEquals(workspace.id().toString(), replay.workspace().id());
+        RegisterWorkspaceCommand changed = new RegisterWorkspaceCommand(
+                registrationId, legacyPath.value(), "Changed", "codex", "preset",
+                "gpt", 7L, true);
+        WorkspaceRegistrationConflict conflict = assertThrows(
+                WorkspaceRegistrationConflict.class, () -> fixture.service().register(changed));
+        assertEquals("WORKSPACE_REGISTRATION_ID_REUSED", conflict.errorCode());
     }
 
     private Fixture fixture(WorkspaceMetadataInitializer metadata) {
-        return fixture(metadata, false);
+        return fixture(metadata, Function.identity());
     }
 
-    private Fixture fixture(WorkspaceMetadataInitializer metadata, boolean failCheckoutEvidence) {
-        SqliteDatabase database = new SqliteDatabase(temporaryDirectory.resolve(UUID.randomUUID() + ".db"));
+    private Fixture fixture(
+            WorkspaceMetadataInitializer metadata,
+            Function<WorkspaceRegistrationLedger, WorkspaceRegistrationLedger> decorateLedger) {
+        SqliteDatabase database = new SqliteDatabase(
+                temporaryDirectory.resolve(UUID.randomUUID() + ".db"));
         new SqliteSchemaMigrator(database, CLOCK).migrate();
         JdbcWorkspaceRegistrationLedger ledger = new JdbcWorkspaceRegistrationLedger(database);
         JdbcWorkspaceRepository workspaces = new JdbcWorkspaceRepository(database);
-        WorkspaceRegistrationLedger serviceLedger = failCheckoutEvidence
-                ? new FailingCheckoutLedger(ledger) : ledger;
-        FakeGitWorktreeAccess git = new FakeGitWorktreeAccess();
-        WorkspaceRegistrationTokenCodec tokens = new WorkspaceRegistrationTokenCodec(CLOCK);
         WorkspaceRegistrationService service = new WorkspaceRegistrationService(
-                serviceLedger, workspaces, raw -> new WorkspacePath(raw), git, tokens, metadata,
-                (workspace,startupCommand,commandPresetId,modelId,expectedPresetRevision,autostart) ->
-                        OrchestratorStartView.disabled(),
+                decorateLedger.apply(ledger), workspaces, raw -> new WorkspacePath(raw), metadata,
+                (workspace, startupCommand, commandPresetId, modelId,
+                 expectedPresetRevision, autostart) -> OrchestratorStartView.disabled(),
                 new RuntimeOperationCoordinator(), CLOCK);
-        return new Fixture(service, ledger, workspaces, git, tokens);
+        return new Fixture(service, ledger, workspaces, database);
     }
 
-    private RegisterWorkspaceCommand command(String registrationId, String token) {
-        return new RegisterWorkspaceCommand(registrationId,workspacePath().value(),"Test",null,
-                null,null,null,false,new RevisionSelection.LocalBranch("feature",token));
+    private RegisterWorkspaceCommand command(String registrationId) {
+        return new RegisterWorkspaceCommand(registrationId, workspacePath().value(), "Test",
+                null, null, null, null, false);
     }
 
     private WorkspacePath workspacePath() {
         return new WorkspacePath(temporaryDirectory.toAbsolutePath().normalize().toString());
     }
 
-    private GitWorktreeAccess.Inspection inspection(
-            String headBranch, String headOid, String selectedBranch, String selectedOid) {
-        String path = workspacePath().value();
-        return new GitWorktreeAccess.Inspection(path, path + "/.git",
-                new GitWorktreeAccess.BranchHead(headBranch, headOid),
-                new GitWorktreeAccess.ChangeSummary(
-                        GitWorktreeAccess.ChangeState.CLEAN, 0, "exact"),
-                List.of(new GitWorktreeAccess.LocalBranch(selectedBranch, selectedOid, false)));
+    private static String workspaceState(SqliteDatabase database, String workspaceId) {
+        return database.read("read workspace state", connection -> {
+            try (var statement = connection.prepareStatement(
+                    "SELECT lifecycle_state FROM workspaces WHERE id=?")) {
+                statement.setString(1, workspaceId);
+                try (var result = statement.executeQuery()) {
+                    result.next();
+                    return result.getString(1);
+                }
+            }
+        });
     }
 
     private record Fixture(
             WorkspaceRegistrationService service,
             JdbcWorkspaceRegistrationLedger ledger,
             JdbcWorkspaceRepository workspaces,
-            FakeGitWorktreeAccess git,
-            WorkspaceRegistrationTokenCodec tokens) { }
+            SqliteDatabase database) { }
 
-    private static final class FakeGitWorktreeAccess implements GitWorktreeAccess {
-        private final ArrayDeque<Inspection> inspections = new ArrayDeque<>();
-        private CheckoutOutcome checkout;
-        private int switchCount;
-
-        FakeGitWorktreeAccess inspect(Inspection... values) {
-            inspections.addAll(List.of(values));
-            return this;
-        }
-
-        FakeGitWorktreeAccess checkout(CheckoutOutcome value) {
-            checkout = value;
-            return this;
-        }
-
-        int switchCount() {
-            return switchCount;
-        }
-
-        @Override public Inspection inspect(WorkspacePath path) {
-            if (inspections.isEmpty()) throw new IllegalStateException("No Git inspection configured");
-            return inspections.size() == 1 ? inspections.getFirst() : inspections.removeFirst();
-        }
-
-        @Override public CheckoutOutcome switchToExistingLocalBranch(
-                WorkspacePath path, String branch, String expectedOid) {
-            switchCount++;
-            if (checkout == null) throw new IllegalStateException("No checkout outcome configured");
-            return checkout;
-        }
-    }
-
-    private record FailingCheckoutLedger(WorkspaceRegistrationLedger delegate)
-            implements WorkspaceRegistrationLedger {
+    private record FailingSourceReadyLedger(
+            WorkspaceRegistrationLedger delegate,
+            boolean afterCommit) implements WorkspaceRegistrationLedger {
         @Override public BeginResult begin(Intent intent) { return delegate.begin(intent); }
-        @Override public void markSwitching(String registrationId, Instant now) {
-            delegate.markSwitching(registrationId, now);
-        }
-        @Override public void recordCurrent(String registrationId, Instant now) {
-            delegate.recordCurrent(registrationId, now);
-        }
-        @Override public void recordCheckout(
-                String registrationId, CheckoutEvidence evidence, Instant now) {
-            throw new IllegalStateException("simulated checkout evidence write failure");
-        }
-        @Override public void confirmCheckout(
-                String registrationId, CheckoutEvidence evidence, Instant now) {
-            delegate.confirmCheckout(registrationId, evidence, now);
+        @Override public void markSourceReady(String registrationId, Instant now) {
+            if (afterCommit) delegate.markSourceReady(registrationId, now);
+            throw new IllegalStateException("simulated source-ready write failure");
         }
         @Override public Workspace activate(String registrationId, Instant now) {
             return delegate.activate(registrationId, now);
@@ -222,6 +273,8 @@ class WorkspaceRegistrationServiceTest {
         @Override public java.util.Optional<Attempt> find(String registrationId) {
             return delegate.find(registrationId);
         }
-        @Override public List<Attempt> recoverable(int limit) { return delegate.recoverable(limit); }
+        @Override public java.util.List<Attempt> recoverable(int limit) {
+            return delegate.recoverable(limit);
+        }
     }
 }

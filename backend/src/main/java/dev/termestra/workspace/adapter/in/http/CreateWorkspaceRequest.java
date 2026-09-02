@@ -14,6 +14,11 @@ public record CreateWorkspaceRequest(
         Launch launch) {
     public boolean shouldAutostart() { return autostartOrchestrator == null || autostartOrchestrator; }
 
+    /**
+     * Compatibility shape for clients released before branch selection was removed.
+     * The controller accepts only {@code kind=current}; the remaining fields are
+     * intentionally decoded and ignored so an old current-checkout request remains valid.
+     */
     public record RevisionSelectionRequest(
             String kind,
             String name,

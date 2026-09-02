@@ -1,6 +1,6 @@
 # ADR-0008：用持久注册台账包围 Git switch
 
-- 状态：Accepted
+- 状态：Superseded by [ADR-0009](0009-workspace-registration-keeps-current-checkout.md)
 - 日期：2026-08-27
 
 ## 背景

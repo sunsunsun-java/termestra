@@ -2,11 +2,10 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { ChevronDown, ChevronRight, Folder, LoaderCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import type { CommandPreset, FsProbeResponse, WorkspaceRevisionSelectionPayload } from '../api.js'
+import type { CommandPreset, FsProbeResponse } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { AgentModelSelect, type ModelSelectionMode } from '../launch/AgentModelSelect.js'
 import { WorkspaceCommandPresetSelect } from './WorkspaceCommandPresetSelect.js'
-import { GitBranchSelect } from './GitBranchSelect.js'
 import {
   buildWorkspaceCreateInput,
   type WorkspaceCreateInput,
@@ -65,12 +64,10 @@ export const ConfirmWorkspaceDialog = ({
   const [pasteExpanded, setPasteExpanded] = useState(pasteFallbackDefault)
   const [startupExpanded, setStartupExpanded] = useState(false)
   const [startupCommand, setStartupCommand] = useState('')
-  const [revisionSelection, setRevisionSelection] = useState<WorkspaceRevisionSelectionPayload>({ kind: 'current' })
 
   // Re-sync when the probe changes (user re-picks a folder without closing).
   useEffect(() => {
     setName(probe?.suggested_name ?? basenameOf(probe?.path ?? ''))
-    setRevisionSelection({ kind: 'current' })
   }, [probe?.path, probe?.suggested_name])
 
   const pastedClean = pastePath.trim()
@@ -104,9 +101,6 @@ export const ConfirmWorkspaceDialog = ({
       name,
       path: resolvedPath,
       registrationId,
-      revisionSelection: pasteExpanded && pastedClean.length > 0
-        ? { kind: 'current' }
-        : revisionSelection,
       startupCommand,
     }))
   }
@@ -170,14 +164,7 @@ export const ConfirmWorkspaceDialog = ({
                 />
               </label>
 
-              {probe?.is_git_repository ? (
-                <GitBranchSelect
-                  disabled={submitting || (pasteExpanded && pastedClean.length > 0)}
-                  onChange={setRevisionSelection}
-                  probe={probe}
-                  value={revisionSelection}
-                />
-              ) : probe?.ok ? (
+              {!probe?.is_git_repository && probe?.ok ? (
                 <span className="text-xs text-ter">{t('workspace.git.none')}</span>
               ) : null}
 
