@@ -12,7 +12,7 @@ import java.util.stream.Stream;
 import static dev.termestra.platform.persistence.sqlite.SchemaSupport.execute;
 
 public final class SqliteSchemaMigrator {
-    public static final int CURRENT_SCHEMA_VERSION = 31;
+    public static final int CURRENT_SCHEMA_VERSION = 32;
     private final SqliteDatabase database;
     private final Clock clock;
 

@@ -8,6 +8,7 @@ import {
   createRoleTemplate,
   deleteRoleTemplate,
   getWorkerLaunchOptions,
+  getWorkerModels,
   listRoleTemplates,
   type RoleTemplate,
 } from '../api.js'
@@ -28,11 +29,11 @@ type ModelSelection = { mode: ModelSelectionMode; modelId: string }
 const DEFAULT_MODEL_SELECTION: ModelSelection = { mode: 'default', modelId: '' }
 
 interface WorkerComposerState {
+  availableModels: string[]
   commandPresets: CommandPreset[]
   commandPresetId: string
   modelId: string
   modelMode: ModelSelectionMode
-  orchestratorModelLabel: string | null
   createWorkerError: string | null
   creating: boolean
   customTemplates: RoleTemplate[]
@@ -160,10 +161,8 @@ export const useWorkerComposer = ({
   )
   const [commandPresets, setCommandPresets] = useState<CommandPreset[]>([])
   const [commandPresetId, setCommandPresetId] = useState('claude')
+  const [availableModels, setAvailableModels] = useState<string[]>([])
   const [modelSelection, setModelSelection] = useState<ModelSelection>(DEFAULT_MODEL_SELECTION)
-  const [orchestratorLaunch, setOrchestratorLaunch] = useState<
-    AgentLaunchOptions['orchestrator']
-  >(null)
   const [startupCommand, setStartupCommand] = useState('')
   const [createWorkerError, setCreateWorkerError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -185,17 +184,15 @@ export const useWorkerComposer = ({
   const applyLaunchOptions = useCallback((options: AgentLaunchOptions) => {
     const presets = options.presets
     setCommandPresets(presets)
-    const inherited =
+    const orchestratorPresetId =
       options.orchestrator?.inheritable === true && options.orchestrator.presetId
-        ? options.orchestrator
+        ? options.orchestrator.presetId
         : null
-    setOrchestratorLaunch(inherited)
-    if (inherited?.presetId) {
-      setCommandPresetId(inherited.presetId)
-      setModelSelection({ mode: 'inherit', modelId: '' })
+    setModelSelection(DEFAULT_MODEL_SELECTION)
+    if (orchestratorPresetId && presets.some((preset) => preset.id === orchestratorPresetId && preset.available)) {
+      setCommandPresetId(orchestratorPresetId)
       return
     }
-    setModelSelection(DEFAULT_MODEL_SELECTION)
     setCommandPresetId((current) => {
       if (presets.some((preset) => preset.id === current && preset.available)) return current
       return (
@@ -229,6 +226,29 @@ export const useWorkerComposer = ({
       cancelled = true
     }
   }, [applyLaunchOptions, open, scopeKey])
+
+  useEffect(() => {
+    const selectedPreset = commandPresets.find(
+      (preset) => preset.id === commandPresetId && preset.available
+    )
+    setAvailableModels([])
+    if (!open) {
+      setModelSelection(DEFAULT_MODEL_SELECTION)
+      return
+    }
+    if (!scopeKey || !selectedPreset) return
+    const controller = new AbortController()
+    void getWorkerModels(scopeKey, selectedPreset.id, controller.signal)
+      .then((models) => {
+        if (!controller.signal.aborted) setAvailableModels(models)
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setAvailableModels([])
+      })
+    return () => {
+      controller.abort()
+    }
+  }, [commandPresetId, commandPresets, open, scopeKey])
 
   useEffect(() => {
     if (!open) return
@@ -373,6 +393,7 @@ export const useWorkerComposer = ({
 
   const selectCommandPresetId = (value: string) => {
     setCommandPresetId(value)
+    setAvailableModels([])
     setModelSelection(DEFAULT_MODEL_SELECTION)
   }
 
@@ -386,6 +407,10 @@ export const useWorkerComposer = ({
     const requestScope = scopeKey
     const execute = createWorkerRef.current
     const selectedPreset = commandPresets.find((preset) => preset.id === commandPresetId)
+    const selectedModelId = modelSelection.modelId.trim()
+    const explicitModelId = modelSelection.mode === 'explicit' && availableModels.includes(selectedModelId)
+      ? selectedModelId
+      : null
     const input: CreateWorkerActionInput = {
       commandPresetId,
       launch: startupCommand.trim()
@@ -394,21 +419,14 @@ export const useWorkerComposer = ({
             startup_command: startupCommand.trim(),
             ...(commandPresetId ? { recovery_preset_id: commandPresetId } : {}),
           }
-        : modelSelection.mode === 'inherit' && orchestratorLaunch?.presetId === commandPresetId
-          ? {
-              type: 'inherit_orchestrator',
-              expected_source_revision: orchestratorLaunch.revision,
-            }
-          : {
-              type: 'preset',
-              preset_id: commandPresetId,
-              ...(modelSelection.mode === 'explicit' && modelSelection.modelId.trim()
-                ? { model_id: modelSelection.modelId.trim() }
-                : {}),
-              ...(selectedPreset?.revision === undefined
-                ? {}
-                : { expected_preset_revision: selectedPreset.revision }),
-            },
+        : {
+            type: 'preset',
+            preset_id: commandPresetId,
+            ...(explicitModelId ? { model_id: explicitModelId } : {}),
+            ...(selectedPreset?.revision === undefined
+              ? {}
+              : { expected_preset_revision: selectedPreset.revision }),
+          },
       name: workerName,
       role: workerRole,
       roleDescription,
@@ -457,15 +475,11 @@ export const useWorkerComposer = ({
   }
 
   return {
+    availableModels,
     commandPresets,
     commandPresetId,
     modelId: modelSelection.modelId,
     modelMode: modelSelection.mode,
-    orchestratorModelLabel: orchestratorLaunch?.presetId === commandPresetId
-      ? language === 'zh'
-        ? `继承 Orchestrator · ${orchestratorLaunch.modelId ?? 'CLI 默认模型'}`
-        : `Inherit Orchestrator · ${orchestratorLaunch.modelId ?? 'CLI default model'}`
-      : null,
     createWorkerError,
     creating,
     customTemplates,

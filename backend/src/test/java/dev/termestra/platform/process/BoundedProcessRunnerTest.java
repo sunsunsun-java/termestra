@@ -94,6 +94,38 @@ class BoundedProcessRunnerTest {
     }
 
     @Test
+    void suppliesBoundedInputAndWorkingDirectoryToAHelper() throws Exception {
+        Path workingDirectory = Files.createDirectory(temporaryDirectory.resolve("working"));
+
+        BoundedProcessRunner.Result result = new BoundedProcessRunner().run(
+                childCommand("input-and-directory"), workingDirectory, "model/list\n",
+                Duration.ofSeconds(5), 1_024);
+
+        assertEquals(0, result.exitCode());
+        assertEquals(workingDirectory.toRealPath() + "|model/list", result.output());
+    }
+
+    @Test
+    void inputWritingSharesTheProcessDeadline() throws Exception {
+        Path pidFile = temporaryDirectory.resolve("stdin-blocked.pid");
+
+        BoundedProcessRunner.Result result = new BoundedProcessRunner().run(
+                childCommand("hang", pidFile.toString()), temporaryDirectory,
+                "x".repeat(BoundedProcessRunner.MAX_INPUT_BYTES), Duration.ofMillis(250), 1_024);
+
+        assertTrue(result.timedOut());
+        long pid = Long.parseLong(Files.readString(pidFile));
+        assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false));
+    }
+
+    @Test
+    void rejectsInputAboveTheFixedCapacityBeforeStartingAProcess() {
+        assertThrows(IllegalArgumentException.class, () -> new BoundedProcessRunner().run(
+                childCommand("output", "1"), temporaryDirectory,
+                "x".repeat(BoundedProcessRunner.MAX_INPUT_BYTES + 1), Duration.ofSeconds(1), 1_024));
+    }
+
+    @Test
     void neverReturnsSuccessWhenOwnedProcessTreeTerminationCannotBeConfirmed() throws Exception {
         Path pidFile = temporaryDirectory.resolve("unconfirmed.pid");
         BoundedProcessRunner runner = new BoundedProcessRunner(
@@ -148,6 +180,8 @@ class BoundedProcessRunnerTest {
                     System.out.print(args[2]);
                     System.exit(Integer.parseInt(args[1]));
                 }
+                case "input-and-directory" -> System.out.print(
+                        Path.of("").toRealPath() + "|" + new String(System.in.readAllBytes(), StandardCharsets.UTF_8).trim());
                 default -> throw new IllegalArgumentException("Unknown fixture command");
             }
         }

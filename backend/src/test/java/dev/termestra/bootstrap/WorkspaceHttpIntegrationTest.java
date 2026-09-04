@@ -182,6 +182,12 @@ class WorkspaceHttpIntegrationTest {
         assertEquals(true,modelPicker.get("supported"));
         assertEquals(true,modelPicker.get("allow_custom"));
         assertEquals(List.of("model-test"),modelPicker.get("suggested_models"));
+        Map<?,?> modelOptions=client.get().uri("/api/ui/workspaces/"+workspaceId
+                        +"/agent-launch-options/"+presetId+"/models")
+                .header(HttpHeaders.COOKIE,cookie).exchange().expectStatus().isOk()
+                .expectBody(Map.class).returnResult().getResponseBody();
+        assertEquals(java.util.Set.of("models"),Objects.requireNonNull(modelOptions).keySet());
+        assertEquals(List.of(),modelOptions.get("models"));
 
         client.patch().uri("/api/settings/command-presets/"+presetId)
                 .header(HttpHeaders.COOKIE,cookie).contentType(MediaType.APPLICATION_JSON)

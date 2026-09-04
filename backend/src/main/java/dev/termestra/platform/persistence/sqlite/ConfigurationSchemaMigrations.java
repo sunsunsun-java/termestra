@@ -28,7 +28,8 @@ final class ConfigurationSchemaMigrations {
                 new SchemaMigration(22, this::refreshRoles),
                 new SchemaMigration(23, this::refreshPresets),
                 new SchemaMigration(24, this::refreshPresets),
-                new SchemaMigration(31, this::addStructuredModelSelection));
+                new SchemaMigration(31, this::addStructuredModelSelection),
+                new SchemaMigration(32, this::addDiscoverableBuiltinModels));
     }
 
     private void v7(Connection c) throws SQLException {
@@ -116,6 +117,18 @@ final class ConfigurationSchemaMigrations {
             addColumnUnlessPresent(connection,"agent_launch_configs","model_id","TEXT");
             addColumnUnlessPresent(connection,"agent_launch_configs","revision","INTEGER NOT NULL DEFAULT 1");
         }
+    }
+
+    private void addDiscoverableBuiltinModels(Connection connection) throws SQLException {
+        if(!hasTable(connection,"command_presets")
+                ||!hasColumn(connection,"command_presets","model_args_template_json"))return;
+        execute(connection,"""
+                UPDATE command_presets
+                SET model_args_template_json='["--model","{model_id}"]',
+                    suggested_models_json='[]',
+                    allow_custom_model=1
+                WHERE is_builtin=1 AND id IN ('codex','cursor','opencode','pi')
+                """);
     }
 
     private static void addColumnUnlessPresent(Connection connection, String table, String column, String definition)

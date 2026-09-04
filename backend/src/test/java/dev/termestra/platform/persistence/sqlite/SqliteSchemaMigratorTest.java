@@ -50,6 +50,8 @@ class SqliteSchemaMigratorTest {
             assertTrue(columns(connection.createStatement(), "command_presets")
                     .containsAll(Set.of("model_args_template_json", "suggested_models_json",
                             "allow_custom_model", "revision")));
+            assertEquals(Set.of("claude","codex","cursor","opencode","pi"),values(connection.createStatement(),
+                    "SELECT id FROM command_presets WHERE model_args_template_json IS NOT NULL"));
             assertTrue(columns(connection.createStatement(), "agent_runs").contains("workspace_id"));
             assertTrue(columns(connection.createStatement(), "workspaces").contains("deleted_at"));
             assertTrue(columns(connection.createStatement(), "workspaces")
@@ -98,7 +100,8 @@ class SqliteSchemaMigratorTest {
         new SqliteSchemaMigrator(database,CLOCK).migrate();
 
         database.read("verify v31 launch migration",connection->{
-            assertEquals(31,scalar(connection.createStatement(),"SELECT MAX(version) FROM schema_version"));
+            assertEquals(SqliteSchemaMigrator.CURRENT_SCHEMA_VERSION,
+                    scalar(connection.createStatement(),"SELECT MAX(version) FROM schema_version"));
             assertTrue(columns(connection.createStatement(),"command_presets").containsAll(Set.of(
                     "model_args_template_json","suggested_models_json","allow_custom_model","revision")));
             assertTrue(columns(connection.createStatement(),"agent_launch_configs").containsAll(Set.of(
@@ -107,6 +110,8 @@ class SqliteSchemaMigratorTest {
                     "SELECT args_json FROM agent_launch_configs WHERE agent_id='worker'"));
             assertEquals(1,scalar(connection.createStatement(),
                     "SELECT revision FROM agent_launch_configs WHERE agent_id='worker'"));
+            assertEquals(Set.of("codex"),values(connection.createStatement(),
+                    "SELECT id FROM command_presets WHERE model_args_template_json IS NOT NULL"));
             return null;
         });
     }

@@ -4,10 +4,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Runs a short-lived host command while draining its output independently of process completion.
@@ -17,6 +19,7 @@ public final class BoundedProcessRunner {
     private static final Duration TERMINATION_GRACE = Duration.ofMillis(250);
     private static final Duration FORCED_TERMINATION_GRACE = Duration.ofSeconds(1);
     private static final Duration OUTPUT_DRAIN_GRACE = Duration.ofSeconds(1);
+    static final int MAX_INPUT_BYTES = 64 * 1_024;
     private static final int MAX_DESCENDANTS = 1_024;
     private final OwnedProcessTerminator terminator;
 
@@ -27,6 +30,11 @@ public final class BoundedProcessRunner {
 
     public Result run(List<String> command, Duration timeout, int maxOutputBytes)
             throws IOException, InterruptedException {
+        return run(command, null, null, timeout, maxOutputBytes);
+    }
+
+    public Result run(List<String> command, Path workingDirectory, String input, Duration timeout,
+                      int maxOutputBytes) throws IOException, InterruptedException {
         List<String> effectiveCommand = List.copyOf(Objects.requireNonNull(command, "command"));
         if (effectiveCommand.isEmpty()) throw new IllegalArgumentException("command must not be empty");
         Objects.requireNonNull(timeout, "timeout");
@@ -34,17 +42,29 @@ public final class BoundedProcessRunner {
             throw new IllegalArgumentException("timeout must be positive");
         }
         if (maxOutputBytes < 1) throw new IllegalArgumentException("maxOutputBytes must be positive");
+        byte[] inputBytes = input == null ? null : input.getBytes(StandardCharsets.UTF_8);
+        if (inputBytes != null && inputBytes.length > MAX_INPUT_BYTES) {
+            throw new IllegalArgumentException("input exceeds " + MAX_INPUT_BYTES + " bytes");
+        }
 
-        Process process = new ProcessBuilder(effectiveCommand).redirectErrorStream(true).start();
+        ProcessBuilder builder = new ProcessBuilder(effectiveCommand).redirectErrorStream(true);
+        if (workingDirectory != null) builder.directory(workingDirectory.toFile());
+        Process process = builder.start();
         OutputCollector collector = new OutputCollector(maxOutputBytes);
         Thread reader = Thread.ofVirtual().name("termestra-process-output-" + process.pid())
                 .start(() -> collector.drain(process.getInputStream()));
+        AtomicReference<IOException> inputFailure = new AtomicReference<>();
+        Thread writer = inputBytes == null ? null : Thread.ofVirtual()
+                .name("termestra-process-input-" + process.pid())
+                .start(() -> writeInput(process, inputBytes, inputFailure));
         boolean timedOut = false;
         try {
             timedOut = !process.waitFor(timeout.toNanos(), TimeUnit.NANOSECONDS);
             if (timedOut) terminateOrThrow(process);
+            awaitInput(writer, process);
             awaitOutput(reader, process);
             if (collector.failure() != null && !timedOut) throw collector.failure();
+            if (inputFailure.get() != null && !timedOut) throw inputFailure.get();
             return new Result(timedOut ? -1 : process.exitValue(), collector.output(), timedOut,
                     collector.truncated());
         } catch (InterruptedException interrupted) {
@@ -52,6 +72,7 @@ public final class BoundedProcessRunner {
                     "Could not confirm helper process-tree termination after interruption"));
             closeStreams(process);
             stopReaderAfterInterruption(reader);
+            stopReaderAfterInterruption(writer);
             throw interrupted;
         } finally {
             closeStreams(process);
@@ -59,6 +80,24 @@ public final class BoundedProcessRunner {
             // best second attempt for exceptional paths; the primary exception must not be hidden.
             if (process.isAlive()) terminate(process);
         }
+    }
+
+    private static void writeInput(Process process, byte[] input, AtomicReference<IOException> failure) {
+        try (var processInput = process.getOutputStream()) {
+            processInput.write(input);
+        } catch (IOException error) {
+            failure.set(error);
+        }
+    }
+
+    private static void awaitInput(Thread writer, Process process) throws IOException, InterruptedException {
+        if (writer == null) return;
+        writer.join(OUTPUT_DRAIN_GRACE);
+        if (!writer.isAlive()) return;
+        closeOutput(process);
+        writer.interrupt();
+        writer.join(TERMINATION_GRACE);
+        if (writer.isAlive()) throw new IOException("Process input writer did not stop");
     }
 
     private static void awaitOutput(Thread reader, Process process) throws IOException, InterruptedException {
@@ -81,6 +120,7 @@ public final class BoundedProcessRunner {
     }
 
     private static void stopReaderAfterInterruption(Thread reader) {
+        if (reader == null) return;
         boolean interruptedAgain = Thread.interrupted();
         reader.interrupt();
         long deadline = System.nanoTime() + OUTPUT_DRAIN_GRACE.toNanos();
@@ -105,6 +145,10 @@ public final class BoundedProcessRunner {
         } catch (IOException ignored) {
             // Cleanup after an owned process; there is no useful recovery for a close failure.
         }
+        closeOutput(process);
+    }
+
+    private static void closeOutput(Process process) {
         try {
             process.getOutputStream().close();
         } catch (IOException ignored) {

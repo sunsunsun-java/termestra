@@ -26,6 +26,7 @@ controller/DTO、前端 wire type 和边界测试为准。
 | `/api/workspaces/*/team`, `/workers`, `/scenarios`, `/api/team/*` | Browser / managed CLI | Team |
 | `/api/workspaces/*/agents`, `/api/runtime/runs`, `user-input`, `shell` | Browser UI | Agent Execution |
 | `GET /api/ui/workspaces/{workspace_id}/agent-launch-options` | Browser UI | Agent Execution |
+| `GET /api/ui/workspaces/{workspace_id}/agent-launch-options/{preset_id}/models` | Browser UI | Agent Execution |
 | `/api/workspaces/*/tasks` | Browser UI | Tasks |
 | `/api/settings`, `/api/ui/settings` | Browser UI | Configuration |
 | `/api/marketplace` | Browser UI | Marketplace |
@@ -35,6 +36,10 @@ controller/DTO、前端 wire type 和边界测试为准。
 UI 专用 projection 使用 `/api/ui/...` 命名。managed Agent 的 `/api/team/*` 不应
 复用 UI Session 认证。新增 endpoint 时保持所属上下文明确，避免 controller 直接
 访问 JDBC 或 PTY adapter。
+
+模型列表 endpoint 最多返回 256 个 CLI 动态枚举结果；不支持、失败或空结果统一返回
+空列表，不回退到 Configuration 的静态建议。相同 Workspace/preset 的冷请求共用一次
+发现过程，进程发现全局最多同时执行 4 个，容量不足时立即退化为 CLI 默认模型。
 
 ## WebSocket 契约
 
@@ -129,7 +134,7 @@ terminal。停止或 PTY 退出必须先确认进程树终止并持久化 termin
 
 ## SQLite 所有权
 
-当前 schema 版本为 31，由 `SqliteSchemaMigrator` 在启动时事务迁移。
+当前 schema 版本为 32，由 `SqliteSchemaMigrator` 在启动时事务迁移。
 
 | 表 | 所有者 | 说明 |
 | --- | --- | --- |

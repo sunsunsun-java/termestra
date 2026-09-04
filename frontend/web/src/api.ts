@@ -479,6 +479,24 @@ export const getWorkerLaunchOptions = async (workspaceId: string): Promise<Agent
   }
 }
 
+export const getWorkerModels = async (
+  workspaceId: string,
+  presetId: string,
+  signal?: AbortSignal
+): Promise<string[]> => {
+  const response = await apiFetch(
+    `/api/ui/workspaces/${encodeURIComponent(workspaceId)}/agent-launch-options/${encodeURIComponent(presetId)}/models`,
+    signal ? { signal } : undefined,
+    INTERACTIVE_QUERY_TIMEOUT_MS
+  )
+  if (!response.ok) return []
+  const payload = (await response.json()) as { models?: unknown }
+  if (!Array.isArray(payload.models)) return []
+  return payload.models
+    .slice(0, 256)
+    .filter((model): model is string => typeof model === 'string' && model.length > 0 && model.length <= 128)
+}
+
 export type TerminalInputProfile = 'default' | 'opencode'
 
 export interface TerminalRunSummary {

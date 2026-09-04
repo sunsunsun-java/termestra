@@ -44,7 +44,7 @@ Auth、Marketplace 等简单上下文可以使用较小结构；是否分层由�
 
 `dev.termestra.bootstrap.config.RuntimeWiring` 是唯一组合根，负责：
 
-- 创建 SQLite 数据库并在其他 Bean 之前迁移到 schema v31；
+- 创建 SQLite 数据库并在其他 Bean 之前迁移到 schema v32；
 - 把各上下文的 application interface 连接到 adapter；
 - 在组合层实现小型跨上下文 adapter，例如 Terminal 到 Agent Execution；
 - 启动/关闭 Dispatch delivery runtime、Agent execution 和 Tasks watcher；

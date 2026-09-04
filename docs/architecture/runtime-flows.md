@@ -145,7 +145,7 @@ sequenceDiagram
 
 后端重启后的恢复顺序是：
 
-1. 打开数据目录并把 SQLite schema 迁移到 v31；
+1. 打开数据目录并把 SQLite schema 迁移到 v32；
 2. 恢复 Workspace Registration：尚未开始元数据初始化的 `reserved` 可安全失败释放；
    旧版本遗留的 `switching/uncertain` 保留诊断证据但失败并释放路径 claim；已记录
    `checkout_applied` 的注册继续初始化元数据并激活；

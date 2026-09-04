@@ -336,11 +336,11 @@ export const WorkspaceDetail = ({
       {composerOpen ? (
         <Suspense fallback={null}>
           <AddWorkerDialog
+            availableModels={composer.availableModels}
             commandPresets={composer.commandPresets}
             commandPresetId={composer.commandPresetId}
             modelId={composer.modelId}
             modelMode={composer.modelMode}
-            orchestratorModelLabel={composer.orchestratorModelLabel}
             creating={composer.creating}
             customTemplates={composer.customTemplates}
             onApplyMarketplaceImport={composer.applyMarketplaceImport}

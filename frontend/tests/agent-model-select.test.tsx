@@ -8,6 +8,7 @@ import {
   createWorker,
   createWorkspace,
   getWorkerLaunchOptions,
+  getWorkerModels,
   type CommandPreset,
 } from '../web/src/api.js'
 import { I18nProvider } from '../web/src/i18n.js'
@@ -95,6 +96,34 @@ describe('agent model selection', () => {
     expect(screen.getByRole('option', { name: 'Inherit Orchestrator · model-parent' })).toBeTruthy()
     fireEvent.change(mode, { target: { value: 'explicit' } })
     expect(onChange).toHaveBeenCalledWith('explicit', 'model-a')
+  })
+
+  test('loads a bounded model list for the selected workspace CLI', async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify({ models: ['gpt-a', 'gpt-b'] }), {
+      headers: { 'content-type': 'application/json' }, status: 200,
+    }))
+    vi.stubGlobal('fetch', request)
+
+    await expect(getWorkerModels('workspace / one', 'custom/codex')).resolves.toEqual(['gpt-a', 'gpt-b'])
+    expect(request.mock.calls[0]?.[0]).toBe(
+      '/api/ui/workspaces/workspace%20%2F%20one/agent-launch-options/custom%2Fcodex/models'
+    )
+  })
+
+  test('aborts model discovery when the caller cancels it', async () => {
+    const request = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+      })
+    )
+    vi.stubGlobal('fetch', request)
+    const controller = new AbortController()
+
+    const models = getWorkerModels('workspace', 'codex', controller.signal)
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce())
+    controller.abort()
+
+    await expect(models).rejects.toMatchObject({ name: 'AbortError' })
   })
 
   test('hides structured model selection for unsupported CLIs', () => {

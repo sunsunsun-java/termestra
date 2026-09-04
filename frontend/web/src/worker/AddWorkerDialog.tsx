@@ -5,7 +5,7 @@ import { type FormEvent, useMemo, useState } from 'react'
 import type { WorkerRole } from '../../../src/shared/types.js'
 import type { CommandPreset, RoleTemplate } from '../api.js'
 import { useI18n } from '../i18n.js'
-import { AgentModelSelect, type ModelSelectionMode } from '../launch/AgentModelSelect.js'
+import type { ModelSelectionMode } from '../launch/AgentModelSelect.js'
 import { MarketplaceDrawer } from '../marketplace/MarketplaceDrawer.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { useToast } from '../ui/useToast.js'
@@ -17,13 +17,14 @@ import {
   SectionLabel,
   StartupCommandField,
 } from './AddWorkerDialogFields.js'
+import { WorkerModelSelect } from './WorkerModelSelect.js'
 
 type AddWorkerDialogProps = {
   commandPresets: CommandPreset[]
   commandPresetId: string
+  availableModels: string[]
   modelId: string
   modelMode: ModelSelectionMode
-  orchestratorModelLabel: string | null
   creating?: boolean
   customTemplates: RoleTemplate[]
   onApplyMarketplaceImport: (input: { name: string; description: string }) => void
@@ -191,13 +192,11 @@ export const AddWorkerDialog = (props: AddWorkerDialogProps) => {
                   commandPresets={props.commandPresets}
                   onPresetChange={props.onPresetChange}
                 />
-                <AgentModelSelect
+                <WorkerModelSelect
                   disabled={Boolean(startupOverride)}
-                  inheritLabel={props.orchestratorModelLabel}
-                  mode={props.modelMode}
                   modelId={props.modelId}
+                  models={props.availableModels}
                   onChange={props.onModelChange}
-                  preset={chosenPreset}
                 />
                 <StartupCommandField
                   onChange={props.onStartupCommandChange}

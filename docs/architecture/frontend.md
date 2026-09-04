@@ -55,11 +55,13 @@ frontend/
 UI 组件不应重复发明 fetch、认证刷新或 wire 映射。新增 endpoint 时在 adapter
 层定义 payload 类型和大小预期，再向 hook 暴露 UI 语义。
 
-Workspace 与 Worker 创建复用 `launch/AgentModelSelect`。Workspace 默认选择
-“CLI 默认模型”；Worker 在来源可继承时默认选择 Orchestrator 的创建时快照，并在
-界面展示来源 preset/model。切换 CLI 会重置模型选择；填写自定义启动命令时结构化
-模型入口禁用，模型必须由命令自身表达。创建返回 preset/source revision 冲突时，界面
-刷新启动选项但不自动重试，必须由用户确认新选项后再次提交。
+Workspace 创建使用 `launch/AgentModelSelect`。Worker 打开创建弹窗或切换 CLI 时默认
+选择“CLI 默认模型”，并按当前 Workspace 和所选 preset 单独请求模型列表；枚举成功且
+非空时在一个下拉框中同时展示 CLI 默认项与全部返回模型，枚举不支持、失败或为空时
+只展示 CLI 默认模型，不提供任意模型 ID 输入。填写自定义启动命令时结构化模型入口
+禁用，模型必须由命令自身表达。关闭弹窗或切换 CLI 会取消在途请求并同步清除显式模型；
+提交边界只接受当前枚举列表中的模型。创建返回 preset revision 冲突时，界面刷新启动选项但
+不自动重试，必须由用户确认新选项后再次提交。
 
 ## 轮询与并发
 

@@ -9,11 +9,13 @@ import dev.termestra.execution.adapter.out.persistence.JdbcAgentRecoveryContextP
 import dev.termestra.execution.adapter.out.pty.Pty4jProcessLauncher;
 import dev.termestra.execution.adapter.out.system.SystemShellCommandResolver;
 import dev.termestra.execution.adapter.out.session.FilesystemAgentSessionCapture;
+import dev.termestra.execution.adapter.out.system.ProcessAgentModelDiscovery;
 import dev.termestra.execution.application.port.in.*;
 import dev.termestra.execution.application.port.out.*;
 import dev.termestra.execution.application.service.AgentExecutionService;
 import dev.termestra.execution.application.service.AgentLaunchConfigurator;
 import dev.termestra.execution.application.service.AgentLaunchOptionsService;
+import dev.termestra.execution.application.service.AgentModelOptionsService;
 import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
 import dev.termestra.platform.persistence.sqlite.*;
 import dev.termestra.workspace.adapter.out.filesystem.NioWorkspacePathResolver;
@@ -194,6 +196,13 @@ public class RuntimeWiring {
     @Bean AgentLaunchOptionsQuery agentLaunchOptionsQuery(LaunchPresetCatalog presets,
                                                            AgentLaunchConfigurationQuery configurations){
         return new AgentLaunchOptionsService(presets,configurations);
+    }
+    @Bean AgentModelDiscovery agentModelDiscovery(ObjectMapper json){
+        return new ProcessAgentModelDiscovery(json);
+    }
+    @Bean AgentModelOptionsQuery agentModelOptionsQuery(LaunchPresetCatalog presets,AgentDirectory agents,
+                                                         AgentModelDiscovery discovery){
+        return new AgentModelOptionsService(presets,agents,discovery);
     }
     @Bean AgentRecoveryContextProvider agentRecoveryContextProvider(SqliteDatabase database) { return new JdbcAgentRecoveryContextProvider(database); }
     @Bean AgentDirectory agentDirectory(SqliteDatabase database) { return new JdbcAgentDirectory(database); }
