@@ -77,7 +77,7 @@ public final class HermesPtyFixture {
 
     private static void prompt() throws IOException {
         write("Welcome to Hermes Agent! Type your message or /help for commands.\r\n"
-                + "❯ Summarize what is in this folder\r\u001b[2C");
+                + "❯ \u001b[3mSummarize what is in this folder\u001b[0m\r\u001b[2C");
     }
 
     private static void write(String text) throws IOException {

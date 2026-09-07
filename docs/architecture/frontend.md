@@ -46,7 +46,10 @@ Run ID 表示已有可查看的 Run；`status` 与 `startup_phase` 才决定启�
 `starting/initializing` 显示正在启动，`waiting_for_user` 提示进入终端完成操作，只有
 `running/ready` 表示启动成功并允许派单。创建成员与启动进程分开展示：启动已接受时
 保留启动进度，不立即显示就绪成功。启动错误按当前 Run 管理，新尝试不沿用旧 Run 的
-错误；失败 Run 的有界输出仍可打开查看，避免停止视图遮住失败原因。
+错误；失败 Run 的有界输出仍可打开查看，避免停止视图遮住失败原因。Orchestrator
+重试在创建新 Run 前失败时，旧输出保留，错误区域展示本次请求的失败原因；下一次
+启动会清除该请求错误。Team 与 Run 轮询可按任意顺序返回：尚未确认就绪的启动跃迁
+暂不消费，后续 Run 确认就绪后只通知一次；该快照随成员删除或 Workspace 切换清理。
 
 UI Run 轮询包含 active Run 和后端仍保留的每 Agent 最新启动失败；失败项只用于诊断，
 不计入活动终端、运行通知或 PWA 的活动进程保护。新的 active Run 替换同 Agent 的旧

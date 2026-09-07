@@ -175,4 +175,32 @@ class HeadlessTerminalMirrorTest {
         assertTrue(snapshot.length() < 8_192);
         assertFalse(snapshot.contains("?29999"));
     }
+    @Test void distinguishesTextAttributesFromExtendedColorComponents() {
+        HeadlessTerminalMirror mirror = new HeadlessTerminalMirror(20, 3, 0);
+        mirror.write("\033[2;38;2;0;3;7mA\033[22;3;48;5;2mB\033[23;7;38:2::0:2:3mC\033[27mD");
+
+        assertEquals(new HeadlessTerminalMirror.Style(true, false, false), mirror.styleAt(0, 0));
+        assertEquals(new HeadlessTerminalMirror.Style(false, true, false), mirror.styleAt(0, 1));
+        assertEquals(new HeadlessTerminalMirror.Style(false, false, true), mirror.styleAt(0, 2));
+        assertEquals(new HeadlessTerminalMirror.Style(false, false, false), mirror.styleAt(0, 3));
+        HeadlessTerminalMirror restored = new HeadlessTerminalMirror(20, 3, 0);
+        restored.write(mirror.snapshot());
+        for (int column = 0; column < 4; column++) {
+            assertEquals(mirror.styleAt(0, column), restored.styleAt(0, column));
+        }
+    }
+
+    @Test void restoresSavedTextAttributesAndClearsErasedOrResetCells() {
+        HeadlessTerminalMirror mirror = new HeadlessTerminalMirror(20, 3, 0);
+        mirror.write("\033[2;3;7mA\0337\033[0mB\0338你");
+        var styled = new HeadlessTerminalMirror.Style(true, true, true);
+        assertEquals(styled, mirror.styleAt(0, 1));
+        assertEquals(styled, mirror.styleAt(0, 2));
+        mirror.write("\033[1;1H\033[2K");
+        assertEquals(new HeadlessTerminalMirror.Style(false, false, false), mirror.styleAt(0, 1));
+        mirror.write("\033cplain");
+        assertEquals(new HeadlessTerminalMirror.Style(false, false, false), mirror.styleAt(0, 0));
+        assertEquals(new HeadlessTerminalMirror.Style(false, false, false), mirror.styleAt(-1, 0));
+    }
+
 }

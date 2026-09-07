@@ -18,6 +18,113 @@ import static dev.termestra.execution.application.service.InteractiveOutputTail.
 import static org.junit.jupiter.api.Assertions.*;
 
 class InteractiveStartupRecognitionTest {
+    @ParameterizedTest @ValueSource(strings = {"hermes", "claude", "codex", "agy", "cursor-agent", "opencode"})
+    void quotedBusyHelpAboveTheComposerDoesNotBlockInput(String command) {
+        var output = output(command);
+        String composer = switch (command) {
+            case "agy" -> "> \r\n────────────────────────\u001b[1A\u001b[3G";
+            case "cursor-agent" -> "  → Add a follow-up";
+            case "opencode" -> "Ask anything...\r";
+            case "codex" -> "› ";
+            default -> "❯ ";
+        };
+        output.append("The documentation says: esc to interrupt\r\n" + composer);
+        assertEquals(READY, output.snapshot().readiness().state());
+    }
+
+    @Test void quotedLoadingTextIsNotTheCurrentCodexStartupHeader() {
+        var output = output("codex");
+        output.append("The screenshot contains model: loading and directory: connecting\r\n› ");
+        assertEquals(READY, output.snapshot().readiness().state());
+    }
+
+    @Test void aCurrentBusyFooterOrStyledSpinnerStillBlocksAnEmptyComposer() {
+        var opencode = output("opencode");
+        opencode.append("Ask anything...\r\n\r\n  esc interrupt\u001b[2A\r");
+        assertEquals(INITIALIZING, opencode.snapshot().readiness().state());
+        var claude = output("claude");
+        claude.append("Thinking (\u001b[2mesc to interrupt teammate\u001b[0m)\r\n────────────────────────\r\n❯ ");
+        assertEquals(INITIALIZING, claude.snapshot().readiness().state());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"hermes", "claude", "codex"})
+    void homeAndComposerRepaintCannotSubmitIntoAnExistingDraft(String command) throws Exception {
+        String marker = command.equals("codex") ? "›" : "❯";
+        var output = output(command);
+        output.append(marker + " ");
+        output.invalidateForUserInput();
+        output.append("\r\u001b[2K" + marker + " my unfinished draft");
+        output.invalidateForUserInput();
+        output.append("\r\u001b[2K" + marker + " my unfinished draft\r\u001b[3G");
+        AtomicBoolean active = new AtomicBoolean(true);
+        List<byte[]> writes = new CopyOnWriteArrayList<>();
+        var submitted = CompletableFuture.runAsync(() -> InteractiveInputSubmitter.submitStartup(command, "automatic",
+                active::get, output::snapshot, writes::add, ignored -> { }));
+        try {
+            Thread.sleep(500);
+            assertEquals(INITIALIZING, output.snapshot().readiness().state());
+            assertTrue(writes.isEmpty(), "must not paste into the user's draft");
+            assertFalse(submitted.isDone());
+        } finally { active.set(false); }
+        assertThrows(java.util.concurrent.ExecutionException.class, () -> submitted.get(1, TimeUnit.SECONDS));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"hermes", "claude", "codex"})
+    void quotedSetupInstructionsAboveTheComposerDoNotBecomeAnActiveDialog(String command) {
+        String marker = command.equals("codex") ? "›" : "❯";
+        for (String text : List.of("The warning says: do you trust this directory?",
+                "Documentation: Please sign in to the service.",
+                "The help text says: press enter to continue.")) {
+            var output = output(command);
+            output.append(text + "\r\n" + marker + " ");
+            assertEquals(READY, output.snapshot().readiness().state(), text);
+        }
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"hermes", "claude", "codex"})
+    void recognizesPlaceholderStyleWithoutAcceptingTheSameTextAsADraft(String command) {
+        String marker = command.equals("codex") ? "›" : "❯";
+        String style = command.equals("hermes") ? "\u001b[3m" : "\u001b[2m";
+        var output = output(command);
+        output.append(marker + " " + style + "A changing suggestion\u001b[0m\r\u001b[3G");
+        assertEquals(READY, output.snapshot().readiness().state());
+        output.invalidateForUserInput();
+        output.append("\r\u001b[2K" + marker + " A changing suggestion\r\u001b[3G");
+        assertEquals(INITIALIZING, output.snapshot().readiness().state());
+        output.append("\r\u001b[2K" + marker + " " + style + "Another suggestion\u001b[0m\r\u001b[3G");
+        assertEquals(READY, output.snapshot().readiness().state());
+    }
+
+    @Test void recognizesTheFocusedClaudePlaceholderButNotAnInvertedDraftCursor() {
+        var output = output("claude");
+        output.append("❯ \u001b[7mT\u001b[27;2mry a suggestion\u001b[0m\r\u001b[3G");
+        assertEquals(READY, output.snapshot().readiness().state());
+        output.append("\r\u001b[2K❯ \u001b[7mT\u001b[27myped draft\r\u001b[3G");
+        assertEquals(INITIALIZING, output.snapshot().readiness().state());
+    }
+
+    @Test void aCompleteQuotedTrustPageDoesNotOverrideTheCurrentComposer() throws Exception {
+        for (String command : List.of("claude", "codex", "agy")) {
+            var output = output(command);
+            output.append(fixture(command));
+            assertEquals(WAITING_FOR_USER, output.snapshot().readiness().state());
+            // A resumed transcript can retain the complete old dialog above the live composer.
+            output.append("\u001b[22;1H\u001b[2K" + (command.equals("codex") ? "› " : command.equals("agy") ? "> " : "❯ "));
+            if (command.equals("agy")) output.append("\r\n────────────────────────\u001b[1A\u001b[3G");
+            assertEquals(READY, output.snapshot().readiness().state(), command);
+        }
+    }
+
+    @Test void aLoginPageWithAnUnknownInputFieldCannotReleaseStartupInput() {
+        var output = output("hermes");
+        output.append("Please sign in to continue\r\nVerification code: ");
+        assertEquals(WAITING_FOR_USER, output.snapshot().readiness().state());
+        List<byte[]> writes = new CopyOnWriteArrayList<>();
+        assertThrows(InteractiveInputSubmitter.SubmissionException.class, () ->
+                InteractiveInputSubmitter.submit("hermes", "automatic", () -> true, output::snapshot, writes::add));
+        assertTrue(writes.isEmpty());
+    }
+
     @ParameterizedTest @ValueSource(ints = {1, 79, 4096})
     void replaysRealCliStartupScreensAtDifferentOutputBoundaries(int chunkSize) throws Exception {
         for (String cli : List.of("claude", "codex", "agy", "cursor", "opencode", "pi", "hermes")) {
@@ -35,7 +142,7 @@ class InteractiveStartupRecognitionTest {
 
     @Test void recognizesHermesPlaceholderButDoesNotSubmitOverTypedUserInput() {
         var output = output("hermes");
-        output.append("\u001b[?2004h\u001b[36m❯ \u001b[33mSummarize what's in this folder\u001b[0m"
+        output.append("\u001b[?2004h\u001b[36m❯ \u001b[33;3mSummarize what's in this folder\u001b[0m"
                 + "\r\n────────────────────────\u001b[1A\u001b[3G");
         assertEquals(READY, output.snapshot().readiness().state());
         output.append("\r\u001b[2K❯ my unfinished message");
@@ -182,7 +289,10 @@ class InteractiveStartupRecognitionTest {
 
     @Test void aLoadingCodexComposerCannotReleaseInputEvenAfterTheStabilityWindow() throws Exception {
         var output = output("codex");
-        output.append("model: loading   /model to change\r\ndirectory: loading\r\n› Ask Codex to do anything\r\u001b[3G");
+        String realStartup = fixture("codex");
+        int placeholder = realStartup.indexOf("Ask Codex to do anything");
+        int initialFrameEnd = realStartup.indexOf("\u001b[?2026l", placeholder) + "\u001b[?2026l".length();
+        output.append(realStartup.substring(0, initialFrameEnd));
         AtomicBoolean active = new AtomicBoolean(true);
         List<byte[]> writes = new CopyOnWriteArrayList<>();
         var submitted = CompletableFuture.runAsync(() -> InteractiveInputSubmitter.submitStartup("codex", "hello",
@@ -209,7 +319,7 @@ class InteractiveStartupRecognitionTest {
 
     @Test void aTransientComposerBeforeATrustPageDoesNotReleaseStartupInput() throws Exception {
         var output = output("codex");
-        output.append("› Ask Codex to do anything\r\u001b[3G");
+        output.append("› \u001b[2mAsk Codex to do anything\u001b[0m\r\u001b[3G");
         assertEquals(READY, output.snapshot().readiness().state());
         List<byte[]> writes = new CopyOnWriteArrayList<>();
         AtomicBoolean active = new AtomicBoolean(true);
@@ -229,7 +339,8 @@ class InteractiveStartupRecognitionTest {
 
     @Test void setupAlwaysWinsOverAPromptShapedMenuArrow() {
         var output = output("hermes");
-        output.append("Do you trust this directory?\r\n❯ ");
+        // A real setup page has a selection, not an indistinguishable empty chat composer.
+        output.append("Do you trust this directory?\r\n❯ 1. Yes, continue\r\nEnter to confirm");
         assertEquals(WAITING_FOR_USER, output.snapshot().readiness().state());
         List<byte[]> writes = new CopyOnWriteArrayList<>();
         var failure = assertThrows(InteractiveInputSubmitter.SubmissionException.class,

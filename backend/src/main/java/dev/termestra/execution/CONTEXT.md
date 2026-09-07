@@ -25,6 +25,9 @@ One supervised lifetime of an Agent's local CLI process, identified by a stable
 Run ID. A Run remains starting until its required startup or recovery input
 has been fully submitted, or a provider-native resumed session is ready for input;
 process output alone does not establish readiness.
+After input submission, a busy runtime coordinator delays only the durable running
+transition. Its retry budget is 60 seconds plus at most one acquisition window;
+startup input is not repeated, and stop, deletion, or close cancels the wait.
 _Avoid_: Agent, Dispatch, terminal viewer
 
 **Startup Phase**:

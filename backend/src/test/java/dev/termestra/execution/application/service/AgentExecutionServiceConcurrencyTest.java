@@ -25,6 +25,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -73,6 +74,95 @@ class AgentExecutionServiceConcurrencyTest {
             pty.releaseBlockedEnter();
             requests.shutdownNow();
             service.close();
+        }
+    }
+
+    @Test void startupFinalizationRetriesBusyCoordinatorWithoutRepeatingInput() throws Exception {
+        RecordingRepository repository = new RecordingRepository("cursor-agent");
+        RuntimeOperationCoordinator operations = new RuntimeOperationCoordinator(Duration.ofMillis(50));
+        PromptingPty pty = new PromptingPty("  → Plan, search, build anything");
+        pty.blockNextEnter();
+        CountDownLatch acquired = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try (var service = service(repository, ignored -> pty, AGENT_ID, "coder", operations);
+             var requests = Executors.newVirtualThreadPerTaskExecutor()) {
+            try {
+                AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
+                assertTrue(pty.awaitBlockedEnter(3, TimeUnit.SECONDS));
+                Future<?> competingOperation = requests.submit(() -> operations.withAgent(WORKSPACE_ID, AGENT_ID, () -> {
+                    acquired.countDown();
+                    BlockingFirstLaunch.await(release);
+                }));
+                assertTrue(acquired.await(1, TimeUnit.SECONDS));
+                pty.releaseBlockedEnter();
+                Thread.sleep(300);
+                assertTrue(pty.alive(), "runtime contention must not kill a CLI that accepted startup input");
+                assertEquals("starting", service.get(run.runId()).status());
+                assertEquals(0, repository.runningTransitions.get());
+                release.countDown();
+                competingOperation.get(1, TimeUnit.SECONDS);
+                awaitStatus(service, run.runId(), "running");
+                assertEquals(1, repository.runningTransitions.get());
+                assertEquals(2, pty.writes().size(), "retry only finalization, never the startup body or Enter");
+            } finally {
+                release.countDown();
+                pty.releaseBlockedEnter();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"stop", "delete", "close"})
+    void startupFinalizationCannotReviveAStoppedOrDeletedRun(String action) throws Exception {
+        RecordingRepository repository = new RecordingRepository("cursor-agent");
+        RuntimeOperationCoordinator operations = new RuntimeOperationCoordinator(Duration.ofMillis(50));
+        PromptingPty pty = new PromptingPty("  → Plan, search, build anything");
+        pty.blockNextEnter();
+        CountDownLatch acquired = new CountDownLatch(1);
+        CountDownLatch terminate = new CountDownLatch(1);
+        try (var service = service(repository, ignored -> pty, AGENT_ID, "coder", operations);
+             var requests = Executors.newVirtualThreadPerTaskExecutor()) {
+            try {
+                AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
+                assertTrue(pty.awaitBlockedEnter(3, TimeUnit.SECONDS));
+                Future<?> lifecycleOperation = requests.submit(() -> operations.withAgent(WORKSPACE_ID, AGENT_ID, () -> {
+                    acquired.countDown();
+                    BlockingFirstLaunch.await(terminate);
+                    switch (action) {
+                        case "stop" -> service.stop(run.runId());
+                        case "delete" -> service.forgetAgent(WORKSPACE_ID, AGENT_ID);
+                        case "close" -> service.close();
+                        default -> throw new AssertionError(action);
+                    }
+                }));
+                assertTrue(acquired.await(1, TimeUnit.SECONDS));
+                pty.releaseBlockedEnter();
+                Thread.sleep(150);
+                assertTrue(pty.alive());
+                terminate.countDown();
+                lifecycleOperation.get(1, TimeUnit.SECONDS);
+                assertFalse(pty.alive());
+                assertTrue(service.listActiveSummaries(WORKSPACE_ID).isEmpty());
+                assertEquals(0, repository.runningTransitions.get());
+                assertEquals(2, pty.writes().size());
+                if ("delete".equals(action)) assertThrows(RunNotFound.class, () -> service.get(run.runId()));
+            } finally {
+                terminate.countDown();
+                pty.releaseBlockedEnter();
+            }
+        }
+    }
+
+    @Test void startupFinalizationDoesNotRetryPersistenceFailures() throws Exception {
+        RecordingRepository repository = new RecordingRepository("cursor-agent");
+        repository.failMarkRunning = true;
+        PromptingPty pty = new PromptingPty("  → Plan, search, build anything");
+        try (var service = service(repository, ignored -> pty)) {
+            AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
+            awaitStatus(service, run.runId(), "error");
+            assertFalse(pty.alive());
+            assertTrue(service.get(run.runId()).startupMessage().contains("database unavailable"));
+            assertEquals(2, pty.writes().size());
         }
     }
 
@@ -757,6 +847,11 @@ class AgentExecutionServiceConcurrencyTest {
 
     private static AgentExecutionService service(RecordingRepository repository, PseudoTerminalLauncher launcher,
                                                  String targetAgentId, String role) {
+        return service(repository, launcher, targetAgentId, role, new RuntimeOperationCoordinator());
+    }
+
+    private static AgentExecutionService service(RecordingRepository repository, PseudoTerminalLauncher launcher,
+                                                 String targetAgentId, String role, RuntimeOperationCoordinator operations) {
         AgentDescriptor agent = new AgentDescriptor(
                 WORKSPACE_ID, "Workspace", "/tmp", targetAgentId, "Worker", "Implement tasks", role);
         return new AgentExecutionService(
@@ -765,7 +860,7 @@ class AgentExecutionServiceConcurrencyTest {
                         ? Optional.of(agent) : Optional.empty(),
                 credentials(), launcher, noSessionCapture(), (presetId, command) -> List.of(), noRecovery(),
                 VtPromptTerminal::new, Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC),
-                new RuntimeOperationCoordinator());
+                operations);
     }
 
     private static int indexContaining(List<String> values, String expected) {

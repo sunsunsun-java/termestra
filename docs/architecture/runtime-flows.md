@@ -55,10 +55,20 @@ Orchestrator，因此 Orchestrator 失败不会删除已经有效的 Workspace�
 
 Run 在提示识别和启动/恢复输入完整提交（含 Enter）前保持 `starting`；原生 session
 恢复只等待就绪，不重复注入启动或恢复文本。`startup_phase` 区分 `initializing`、
-`waiting_for_user`、`ready` 和 `failed`。确认、登录或初始化选择页优先于普通输入框识别：
+`waiting_for_user`、`ready` 和 `failed`。当前确认、登录或初始化选择页进入人工等待：
 后台等待期间保留 PTY，浏览器可人工完成操作，Termestra 不向该页面自动提交指令。
+识别使用当前输入区域及 VT 样式：Hermes 的斜体 placeholder、Claude/Codex 的 dim
+placeholder 与普通草稿区分，用户按 Home 或重绘草稿不会使输入区变为就绪。
+可见历史即使引用完整 trust/login 页面，也不能覆盖下方已验证的当前 composer；
+没有当前 composer 证据的登录/确认页仍等待用户操作。
+忙碌提示只取当前输入框下方状态区或紧邻输入框的带样式 spinner，Codex loading
+只取初始 banner 的字段；正文引用这些提示不会阻塞后续输入。
 识别到当前输入框稳定后才继续后台输入；非用户等待的初始化累计上限为 120 秒，整个
 启动等待上限为 10 分钟。停止、删除或服务关闭会取消后台启动输入。
+
+启动输入提交完成后，进入 `running` 的持久化转换仍需重新获取 Agent 协调锁。
+锁竞争只重试该转换，不重复发送输入；重试预算为 60 秒，最多额外等待一次协调锁获取窗口。
+其他错误按启动失败处理；停止、删除和服务关闭会中断等待，并阻止旧 Run 恢复运行。
 
 Team 的运行状态适配器只把 `running` Run 用于 `idle/working` 投影。Run 仍在 `starting`
 时，自动输入返回内部 typed `deferred`，保证尚未尝试 PTY 写入。已入 outbox 的 Delivery

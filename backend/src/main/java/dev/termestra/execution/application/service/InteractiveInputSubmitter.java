@@ -24,6 +24,7 @@ final class InteractiveInputSubmitter {
     private static final Pattern HERMES_PROMPT = Pattern.compile(
             "^(?:[\\p{L}\\p{N}_.-]+\\s+)?[❯›>](?:\\s*[─━═╌╍┄┅┈┉-]+)?\\s*$");
     private static final Pattern DECORATION_LINE = Pattern.compile("^[─━═╌╍┄┅┈┉-]{6,}$");
+    private static final Pattern BUSY_HINT = Pattern.compile("(?i)\\besc(?:ape)?\\s+(?:to\\s+)?interrupt\\b");
     private static final long READY_SETTLE_MS = 250;
     private static final long STARTUP_TIMEOUT_MS = 120_000;
     private static final long USER_WAIT_TIMEOUT_MS = 600_000;
@@ -257,8 +258,8 @@ final class InteractiveInputSubmitter {
     }
 
     static String waitingReason(String plain) {
-        // Inspect the current rendered screen, not old terminal history. Confirmation always wins
-        // over prompt-shaped selection arrows, including menus with a blank selection line.
+        // Called only when the current input region is not a verified composer. Visible responses
+        // and resumed history may quote these same instructions without opening a setup dialog.
         String normalized = plain.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
         if (normalized.matches("(?s).*(?:do you trust|trust this (?:directory|folder|workspace|project)|yes,? i trust|workspace trust required).*")) {
             return "Confirm workspace trust in the terminal";
@@ -272,22 +273,20 @@ final class InteractiveInputSubmitter {
         return null;
     }
 
-    static boolean screenReady(PromptTerminal.View view, String executable, boolean piIdentity) {
+    static boolean screenReady(PromptTerminal terminal, PromptTerminal.View view,
+                               String executable, boolean piIdentity) {
         String screen = String.join("\n", view.lines());
-        if (waitingReason(screen) != null) return false;
-        if ("codex".equals(executable)
-                && screen.matches("(?is).*(?:model|directory):\\s*(?:loading|connecting)\\b.*")) return false;
-        if (screen.matches("(?is).*\\besc(?:ape)?\\s+(?:to\\s+)?interrupt\\b.*")
-                && !"pi".equals(executable)) return false;
+        if ("codex".equals(executable) && codexHeaderLoading(view)) return false;
+        if (!"pi".equals(executable) && currentBusyIndicator(terminal, view, executable)) return false;
         int row = view.cursorRow();
         String current = row >= 0 && row < view.lines().size() ? view.lines().get(row) : "";
         String trimmed = current.trim();
         return switch (executable == null ? "" : executable) {
-            case "hermes" -> hermesScreenPrompt(view);
+            case "hermes" -> hermesScreenPrompt(terminal, view);
             case "claude" -> (trimmed.matches("[❯›]\\s*") && emptyPromptAtCursor(current, view.cursorColumn()))
-                    || (trimmed.startsWith("❯ ") && cursorBeforeText(current, view.cursorColumn(), '❯'));
+                    || (trimmed.startsWith("❯ ") && placeholderAtCursor(terminal, view, '❯', false));
             case "codex" -> (trimmed.matches("[❯›]\\s*") && emptyPromptAtCursor(current, view.cursorColumn()))
-                    || (trimmed.startsWith("› ") && cursorBeforeText(current, view.cursorColumn(), '›'));
+                    || (trimmed.startsWith("› ") && placeholderAtCursor(terminal, view, '›', false));
             case "pi" -> piIdentity && trimmed.isEmpty() && row > 0 && row + 1 < view.lines().size()
                     && DECORATION_LINE.matcher(view.lines().get(row - 1).trim()).matches()
                     && DECORATION_LINE.matcher(view.lines().get(row + 1).trim()).matches();
@@ -303,6 +302,41 @@ final class InteractiveInputSubmitter {
         };
     }
 
+    private static boolean codexHeaderLoading(PromptTerminal.View view) {
+        int row = 0;
+        while (row < view.lines().size() && view.lines().get(row).isBlank()) row++;
+        if (row + 1 >= view.lines().size() || !view.lines().get(row).stripLeading().startsWith("╭")
+                || !view.lines().get(row + 1).contains("OpenAI Codex")) return false;
+        // Loading is a field in the initial banner box, not a keyword in a model response.
+        for (row++; row < view.lines().size(); row++) {
+            String line = view.lines().get(row).stripLeading();
+            if (!line.startsWith("│")) return false;
+            if (line.matches("(?i)│\\s*(?:model|directory):\\s*(?:loading|connecting)\\b.*")) return true;
+        }
+        return false;
+    }
+
+    private static boolean currentBusyIndicator(PromptTerminal terminal, PromptTerminal.View view,
+                                                String executable) {
+        int composer = "cursor-agent".equals(executable) ? cursorComposerRow(view) : view.cursorRow();
+        if (composer < 0 || composer >= view.lines().size()) return false;
+        // CLI shortcut/status footers are below the current composer. Earlier response text may
+        // explain the same shortcut and must not keep a ready input blocked indefinitely.
+        for (int row = composer + 1; row < view.lines().size(); row++) {
+            if (BUSY_HINT.matcher(view.lines().get(row)).find()) return true;
+        }
+        // Claude's teammate spinner is immediately above the composer separator. Its interrupt
+        // hint is dim and parenthesized; do not interpret ordinary prose above the input as status.
+        for (int row = composer - 1; row >= 0; row--) {
+            String line = view.lines().get(row);
+            if (line.isBlank() || DECORATION_LINE.matcher(line.trim()).matches()) continue;
+            Matcher hint = BUSY_HINT.matcher(line);
+            return hint.find() && line.substring(0, hint.start()).contains("(")
+                    && terminal.styleAt(row, hint.start()).dim();
+        }
+        return false;
+    }
+
     static String cursorComposer(PromptTerminal.View view) {
         int row = cursorComposerRow(view);
         return row < 0 ? "" : view.lines().get(row);
@@ -315,15 +349,15 @@ final class InteractiveInputSubmitter {
         return -1;
     }
 
-    private static boolean hermesScreenPrompt(PromptTerminal.View view) {
+    private static boolean hermesScreenPrompt(PromptTerminal terminal, PromptTerminal.View view) {
         int row = view.cursorRow();
         if (row < 0 || row >= view.lines().size()) return false;
         String current = view.lines().get(row);
         if (HERMES_PROMPT.matcher(current.trim()).matches()) return emptyPromptAtCursor(current, view.cursorColumn());
         return current.trim().matches("(?:[\\p{L}\\p{N}_.-]+\\s+)?[❯›>]\\s+.+")
-                && (cursorBeforeText(current, view.cursorColumn(), '❯')
-                    || cursorBeforeText(current, view.cursorColumn(), '›')
-                    || cursorBeforeText(current, view.cursorColumn(), '>'));
+                && (placeholderAtCursor(terminal, view, '❯', true)
+                    || placeholderAtCursor(terminal, view, '›', true)
+                    || placeholderAtCursor(terminal, view, '>', true));
     }
 
     private static boolean emptyPromptAtCursor(String line, int column) {
@@ -334,12 +368,21 @@ final class InteractiveInputSubmitter {
         return false;
     }
 
-    private static boolean cursorBeforeText(String line, int column, char marker) {
+    private static boolean placeholderAtCursor(PromptTerminal terminal, PromptTerminal.View view,
+                                                char marker, boolean italic) {
+        String line = view.lines().get(view.cursorRow());
         int prompt = line.indexOf(marker);
         if (prompt < 0) return false;
         int text = prompt + 1;
         while (text < line.length() && Character.isWhitespace(line.charAt(text))) text++;
-        return column > prompt && column <= text;
+        if (text == line.length() || view.cursorColumn() <= prompt || view.cursorColumn() > text) return false;
+        // Cursor position alone cannot distinguish a placeholder from a draft after Home. Hermes
+        // paints its placeholder italic; Codex and Claude use dim text. Claude's focused cursor
+        // inverses the first placeholder character while the remaining text stays dim.
+        var style = terminal.styleAt(view.cursorRow(), text);
+        if (italic) return style.italic();
+        return style.dim() || (style.inverse() && text + 1 < line.length()
+                && terminal.styleAt(view.cursorRow(), text + 1).dim());
     }
 
     private static String plainTail(String output) {

@@ -120,6 +120,17 @@ public final class HeadlessTerminalMirror {
 
     public record View(List<String> lines, int cursorRow, int cursorColumn, List<Long> lineRevisions) { }
 
+    /** Style of one visible cell; out-of-screen and empty cells have no text attributes. */
+    public synchronized Style styleAt(int row, int column) {
+        Cell cell = row >= 0 && row < rows && column >= 0 && column < columns
+                ? active.screen.get(row)[column] : null;
+        int attributes = cell == null ? 0 : cell.attributes();
+        return new Style((attributes & 1) != 0, (attributes & 2) != 0, (attributes & 4) != 0);
+    }
+
+    public record Style(boolean dim, boolean italic, boolean inverse) { }
+
+
 
     public synchronized String lastPtyLine(int maximum) {
         List<Cell[]> all = active.allLines();
@@ -270,6 +281,8 @@ public final class HeadlessTerminalMirror {
         private boolean wrapPending;
         private String style = "";
         private String savedStyle = "";
+        private int textAttributes;
+        private int savedTextAttributes;
         private int pendingCodePoint;
         private String pendingStyle = "";
         private final java.util.TreeSet<Integer> decModes = new java.util.TreeSet<>();
@@ -312,6 +325,7 @@ public final class HeadlessTerminalMirror {
             wrapPending = false;
             style = "";
             savedStyle = "";
+            textAttributes = savedTextAttributes = 0;
             pendingCodePoint = 0;
             pendingStyle = "";
             decModes.clear();
@@ -331,8 +345,8 @@ public final class HeadlessTerminalMirror {
             }
             painted(cursorRow, cursorRow + 1);
             Cell[] line = screen.get(cursorRow);
-            line[cursorColumn] = new Cell(new String(Character.toChars(codePoint)), retainedStyle(style));
-            if (width == 2 && cursorColumn + 1 < columns) line[cursorColumn + 1] = Cell.CONTINUATION;
+            line[cursorColumn] = new Cell(new String(Character.toChars(codePoint)), retainedStyle(style), textAttributes);
+            if (width == 2 && cursorColumn + 1 < columns) line[cursorColumn + 1] = new Cell("", line[cursorColumn].style(), textAttributes);
             if (cursorColumn + width >= columns) {
                 cursorColumn = columns - 1;
                 wrapPending = autowrap;
@@ -403,11 +417,12 @@ public final class HeadlessTerminalMirror {
 
         private void position(int row, int column) { setRow(row); setColumn(column); }
 
-        private void saveCursor() { savedRow = cursorRow; savedColumn = cursorColumn; savedStyle = style; }
+        private void saveCursor() { savedRow = cursorRow; savedColumn = cursorColumn; savedStyle = style; savedTextAttributes = textAttributes; }
         private void restoreCursor() {
             cursorRow = bounded(savedRow, 0, rows - 1);
             cursorColumn = bounded(savedColumn, 0, columns - 1);
             style = savedStyle;
+            textAttributes = savedTextAttributes;
             wrapPending = false;
         }
 
@@ -499,7 +514,24 @@ public final class HeadlessTerminalMirror {
             String[] parts = normalized.split(";", -1);
             int lastReset = -1;
             for (int index = 0; index < parts.length; index++) {
-                if (parts[index].isBlank() || "0".equals(parts[index])) lastReset = index;
+                // Colon-form colors occupy one parameter; semicolon-form colors consume the
+                // following color-space/palette components, which are not SGR commands.
+                String part = parts[index];
+                int colon = part.indexOf(':');
+                int command = sgrNumber(colon < 0 ? part : part.substring(0, colon));
+                if (command == 0) { lastReset = index; textAttributes = 0; }
+                else if (command == 2) textAttributes |= 1;
+                else if (command == 3) textAttributes |= 2;
+                else if (command == 7) textAttributes |= 4;
+                else if (command == 22) textAttributes &= ~1;
+                else if (command == 23) textAttributes &= ~2;
+                else if (command == 27) textAttributes &= ~4;
+                else if ((command == 38 || command == 48 || command == 58)
+                        && colon < 0 && index + 1 < parts.length) {
+                    int colorMode = sgrNumber(parts[++index]);
+                    if (colorMode == 2) index = Math.min(parts.length - 1, index + 3);
+                    else if (colorMode == 5) index = Math.min(parts.length - 1, index + 1);
+                }
             }
             if (lastReset >= 0) {
                 style = "";
@@ -508,6 +540,12 @@ public final class HeadlessTerminalMirror {
             }
             String next = style + "\033[" + normalized + "m";
             style = next.length() <= MAX_STYLE_SEQUENCE ? next : "\033[" + normalized + "m";
+        }
+
+        private int sgrNumber(String part) {
+            if (part.isEmpty()) return 0;
+            try { return Integer.parseInt(part); }
+            catch (NumberFormatException invalid) { return -1; }
         }
 
         private void setMode(int mode, boolean enabled) {
@@ -604,9 +642,7 @@ public final class HeadlessTerminalMirror {
         }
     }
 
-    private record Cell(String text, String style) {
-        private static final Cell CONTINUATION = new Cell("", "");
-    }
+    private record Cell(String text, String style, int attributes) { }
 
     private Cell[] blank() { return new Cell[columns]; }
 

@@ -7,6 +7,9 @@ public interface PromptTerminal {
     void write(String text);
     void resize(int columns, int rows);
     View view();
+    Style styleAt(int row, int column);
+
+    record Style(boolean dim, boolean italic, boolean inverse) { }
 
     /** Zero-based cursor coordinates; each visible line has a revision advanced on repaint. */
     record View(List<String> lines, int cursorRow, int cursorColumn, List<Long> lineRevisions) {

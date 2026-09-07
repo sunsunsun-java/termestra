@@ -82,6 +82,19 @@ class VtPromptTerminalTest {
         assertEquals(terminal.view().lines().size(), terminal.view().lineRevisions().size());
     }
 
+    @Test void exposesHermesAndCodexPlaceholderStylingFromRealScreens() throws Exception {
+        VtPromptTerminal hermes = new VtPromptTerminal();
+        hermes.write(fixture("hermes"));
+        assertTrue(hermes.styleAt(hermes.view().cursorRow(), hermes.view().cursorColumn()).italic());
+
+        String codex = fixture("codex");
+        int placeholder = codex.indexOf("Ask Codex to do anything");
+        int firstFrameEnd = codex.indexOf("\033[?2026l", placeholder) + "\033[?2026l".length();
+        VtPromptTerminal terminal = new VtPromptTerminal();
+        terminal.write(codex.substring(0, firstFrameEnd));
+        assertTrue(terminal.styleAt(terminal.view().cursorRow(), terminal.view().cursorColumn()).dim());
+    }
+
     private String fixture(String cli) throws Exception {
         try (var stream = getClass().getResourceAsStream("/terminal/startup/" + cli + ".json")) {
             assertNotNull(stream);

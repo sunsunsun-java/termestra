@@ -5,6 +5,7 @@ import dev.termestra.execution.application.port.in.*;
 import dev.termestra.execution.application.port.out.*;
 import dev.termestra.execution.domain.model.*;
 import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
+import dev.termestra.shared.concurrency.RuntimeOperationBusyException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,6 +28,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
     static final long SESSION_CAPTURE_INITIAL_DELAY_MILLIS=200;
     static final long SESSION_CAPTURE_MAX_DELAY_MILLIS=1_000;
     private static final Duration SESSION_CAPTURE_TIMEOUT=Duration.ofSeconds(30);
+    private static final Duration STARTUP_FINALIZATION_TIMEOUT=Duration.ofSeconds(60);
     private final AgentExecutionRepository repository; private final AgentDirectory directory; private final AgentCredentialIssuer credentials;
     private final PseudoTerminalLauncher launcher; private final AgentSessionCapture sessionCapture;private final CommandPresetPolicy presetPolicy;private final AgentRecoveryContextProvider recovery;private final Clock clock; private final ConcurrentHashMap<String,LiveRun> runs=new ConcurrentHashMap<>();
     private final RunOutputHub outputHub=new RunOutputHub();
@@ -189,15 +191,34 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
                     if(run.resumedSessionId==null)injectRecoverySummary(run);
                     else awaitResumedStartup(run);
                 } else injectStartupInstructions(run);
-                operations.withAgent(run.agent.workspaceId(),run.agent.agentId(),()->{
-                    if(run.active()&&directory.find(run.agent.workspaceId(),run.agent.agentId()).isPresent())completeStartup(run);
-                });
+                completeStartupAfterInput(run);
             } catch(RuntimeException failure) {
                 if(run.active())abortFailedStart(run,failure);
             }
         });
         run.startupThread=task;
         task.start();
+    }
+
+    private void completeStartupAfterInput(LiveRun run) {
+        long deadline=System.nanoTime()+STARTUP_FINALIZATION_TIMEOUT.toNanos();
+        while(run.active()){
+            try{
+                operations.withAgent(run.agent.workspaceId(),run.agent.agentId(),()->{
+                    if(run.active()&&directory.find(run.agent.workspaceId(),run.agent.agentId()).isPresent())completeStartup(run);
+                });
+                return;
+            }catch(RuntimeOperationBusyException busy){
+                // Input has already been submitted. Contention may delay the durable transition,
+                // but must never repeat that input or immediately kill the healthy process.
+                if(System.nanoTime()>=deadline)throw busy;
+                try{Thread.sleep(50);}
+                catch(InterruptedException interrupted){
+                    Thread.currentThread().interrupt();
+                    throw new ExecutionConflict("Interrupted while completing agent startup",interrupted);
+                }
+            }
+        }
     }
 
     private void awaitResumedStartup(LiveRun run) {

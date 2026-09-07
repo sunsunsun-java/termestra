@@ -32,7 +32,7 @@ const ROLE_KEYS: Record<WorkerRole, TranslationKey> = {
   tester: 'role.tester',
 }
 
-const snapshotWorkers = (workers: TeamListItem[]): ReadonlyMap<string, WorkerSnapshot> =>
+const snapshotWorkers = (workers: TeamListItem[]): Map<string, WorkerSnapshot> =>
   new Map(
     workers.map(({ id, name, pendingTaskCount, role, status }) => [
       id,
@@ -139,7 +139,13 @@ export const WorkspaceNotifications = ({
       const run = terminalRuns.find((item) => item.agent_id === event.worker.id)
       // Startup failures are explained once, beside the retained terminal output.
       if (event.kind === 'stopped' && run?.startup_phase === 'failed') continue
-      if (event.kind === 'started' && run && run.status !== 'running') continue
+      if (event.kind === 'started' && run && run.status !== 'running') {
+        // Team and Run polling can arrive in either order. Keep this one
+        // transition unconsumed until the Run confirms readiness. The snapshot
+        // remains bounded by current members and is reset on workspace change.
+        workersNow.set(event.worker.id, { ...event.worker, status: 'stopped' })
+        continue
+      }
       notify(describeEvent(event, workspace, t))
     }
   }, [notify, t, terminalRuns, workers, workspace])

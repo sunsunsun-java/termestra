@@ -93,7 +93,9 @@ export const useOrchestratorPaneState = ({
   } else if (orchestratorRun && (phase === 'initializing' || phase === 'waiting_for_user')) {
     state = { kind: 'starting', runId: orchestratorRun.run_id, phase, message: orchestratorRun.startup_message }
   } else if (orchestratorRun && phase === 'failed') {
-    state = { kind: 'failed', runId: orchestratorRun.run_id, error: orchestratorRun.startup_message ?? '' }
+    // A retry can fail before creating a new run. Keep the retained output,
+    // but display that latest request failure until the next attempt clears it.
+    state = { kind: 'failed', runId: orchestratorRun.run_id, error: autostartError ?? orchestratorRun.startup_message ?? '' }
   } else if (autostartError) {
     state = { kind: 'failed', error: autostartError }
   } else {

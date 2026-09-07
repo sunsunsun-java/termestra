@@ -39,9 +39,9 @@ final class InteractiveOutputTail {
         PromptTerminal.View view = terminal.view();
         String screen = String.join("\n", view.lines());
         if ("pi".equals(command) && PI_IDENTITY.matcher(screen).matches()) piIdentity = true;
-        String waiting = InteractiveInputSubmitter.waitingReason(screen);
-        State state = waiting != null ? State.WAITING_FOR_USER
-                : InteractiveInputSubmitter.screenReady(view, command, piIdentity) ? State.READY : State.INITIALIZING;
+        boolean composerReady = InteractiveInputSubmitter.screenReady(terminal, view, command, piIdentity);
+        String waiting = composerReady ? null : InteractiveInputSubmitter.waitingReason(screen);
+        State state = composerReady ? State.READY : waiting != null ? State.WAITING_FOR_USER : State.INITIALIZING;
         String fingerprint = fingerprint(view);
         if (invalidatedFingerprint != null) {
             if (!invalidatedFingerprint.equals(fingerprint)) invalidatedFingerprint = null;

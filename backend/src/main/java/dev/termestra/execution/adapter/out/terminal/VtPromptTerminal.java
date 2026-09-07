@@ -9,6 +9,10 @@ public final class VtPromptTerminal implements PromptTerminal {
 
     @Override public void write(String text) { mirror.write(text); }
     @Override public void resize(int columns, int rows) { mirror.resize(columns, rows); }
+    @Override public Style styleAt(int row, int column) {
+        var style = mirror.styleAt(row, column);
+        return new Style(style.dim(), style.italic(), style.inverse());
+    }
     @Override public View view() {
         var view = mirror.view();
         return new View(view.lines(), view.cursorRow(), view.cursorColumn(), view.lineRevisions());
