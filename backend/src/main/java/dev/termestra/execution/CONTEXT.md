@@ -22,7 +22,8 @@ _Avoid_: live inheritance, Command Preset
 
 **Run**:
 One supervised lifetime of an Agent's local CLI process, identified by a stable
-Run ID.
+Run ID. A Run remains starting until its required startup or recovery input
+has been fully submitted; process output alone does not establish readiness.
 _Avoid_: Agent, Dispatch, terminal viewer
 
 **Provider Session**:

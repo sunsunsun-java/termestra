@@ -77,9 +77,9 @@ options 后由用户重新确认，不能静默改用新配置。
 ### TeamMember
 
 ```text
-stopped  = 没有受管理的 active Run
-idle     = active Run + 0 个 open Dispatch
-working  = active Run + 至少 1 个 open Dispatch
+stopped  = 没有完成启动的受管理 Run（包括仍在 starting）
+idle     = running Run + 0 个 open Dispatch
+working  = running Run + 至少 1 个 open Dispatch
 ```
 
 公共状态只允许 `idle`、`working`、`stopped`。`starting/running/exited/error` 是
@@ -127,14 +127,16 @@ Delivery 是 Team 自有的技术恢复状态，不取代 Dispatch。只有明�
 ### Run
 
 Run 持久状态为 `starting`、`running`、`exited`、`error`。前两者 active，后两者
-terminal。停止或 PTY 退出必须先确认进程树终止并持久化 terminal 状态；UI 可在
+terminal。`running` 只在启动/恢复输入完整提交（含 Enter）后持久化；PTY 首次输出
+不代表启动完成。无需自动输入的 Run 在进程激活成功后进入 `running`。
+停止或 PTY 退出必须先确认进程树终止并持久化 terminal 状态；UI 可在
 持久化重试期间保守显示终止/错误，而不是继续显示工作中。原生终止调用的等待期限
 只约束请求或生命周期调用方；到期时 Run 仍持有 credential 与容量，直到后台监管器
 确认进程树停止，不能把超时当作已终止。
 
 ## SQLite 所有权
 
-当前 schema 版本为 32，由 `SqliteSchemaMigrator` 在启动时事务迁移。
+当前 schema 版本为 33，由 `SqliteSchemaMigrator` 在启动时事务迁移。
 
 | 表 | 所有者 | 说明 |
 | --- | --- | --- |

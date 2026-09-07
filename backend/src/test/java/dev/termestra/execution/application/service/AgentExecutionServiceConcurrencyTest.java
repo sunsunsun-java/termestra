@@ -49,6 +49,29 @@ class AgentExecutionServiceConcurrencyTest {
     private static final String WORKSPACE_ID = "workspace-1";
     private static final String AGENT_ID = "worker-1";
 
+    @Test void startupOutputCannotPublishRunningBeforeStartupEnterCompletes() throws Exception {
+        RecordingRepository repository = new RecordingRepository("cursor-agent");
+        PromptingPty pty = new PromptingPty();
+        pty.blockNextEnter();
+        AgentExecutionService service = service(repository, ignored -> pty);
+        ExecutorService requests = Executors.newSingleThreadExecutor();
+        try {
+            Future<AgentRunView> start = requests.submit(() -> service.start(
+                    new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010")));
+            assertTrue(pty.awaitBlockedEnter(3, TimeUnit.SECONDS));
+            assertFalse(start.isDone());
+            assertEquals("starting", service.listActiveSummaries(WORKSPACE_ID).getFirst().status());
+            assertEquals(0, repository.runningTransitions.get());
+            pty.releaseBlockedEnter();
+            assertEquals("running", start.get(2, TimeUnit.SECONDS).status());
+            assertEquals(1, repository.runningTransitions.get());
+        } finally {
+            pty.releaseBlockedEnter();
+            requests.shutdownNow();
+            service.close();
+        }
+    }
+
     @Test void sessionCapturePollingUsesABoundedExponentialBackoff() {
         long delay = AgentExecutionService.SESSION_CAPTURE_INITIAL_DELAY_MILLIS;
         long elapsed = 0;
@@ -330,14 +353,12 @@ class AgentExecutionServiceConcurrencyTest {
         repository.failMarkRunning = true;
         TestPty pty = new TestPty(71);
         AgentExecutionService service = service(repository, ignored -> pty);
-
         try {
-            AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
-
-            assertDoesNotThrow(() -> pty.emitOutput("started"));
-
+            assertThrows(IllegalStateException.class,
+                    () -> service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010")));
+            assertDoesNotThrow(() -> pty.emitOutput("late output"));
             assertFalse(pty.alive());
-            assertEquals("error", service.get(run.runId()).status());
+            assertEquals("error", service.get(repository.insertedRunIds.getFirst()).status());
             assertTrue(service.listActiveSummaries(WORKSPACE_ID).isEmpty());
         } finally {
             service.close();
@@ -803,6 +824,7 @@ class AgentExecutionServiceConcurrencyTest {
         private volatile AgentLaunchConfiguration configuration;
         private final List<String> insertedRunIds = new CopyOnWriteArrayList<>();
         private final AtomicInteger finishAttempts = new AtomicInteger();
+        private final AtomicInteger runningTransitions = new AtomicInteger();
         private volatile boolean failMarkRunning;
         private volatile boolean failFinish;
         private volatile boolean finishMissing;
@@ -848,6 +870,7 @@ class AgentExecutionServiceConcurrencyTest {
         }
         @Override public boolean markRunning(String runId, Instant at) {
             if (failMarkRunning) throw new IllegalStateException("database unavailable");
+            runningTransitions.incrementAndGet();
             return true;
         }
         @Override public boolean finishRun(String runId, RunStatus status, Integer exitCode, Instant endedAt,

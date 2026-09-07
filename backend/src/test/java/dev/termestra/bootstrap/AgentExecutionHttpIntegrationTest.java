@@ -43,6 +43,108 @@ class AgentExecutionHttpIntegrationTest {
     @Autowired SqliteDatabase database;
     @Autowired RuntimeOperationCoordinator operations;
 
+    @Test void workerCreationStaysStoppedUntilStartupInputCompletesAndReturnsTheCurrentStatus() throws Exception {
+        WebTestClient client = WebTestClient.bindToServer().responseTimeout(Duration.ofSeconds(10))
+                .baseUrl("http://127.0.0.1:" + port).build();
+        String cookie = uiCookie(client);
+        Path path = temp("termestra-cursor-ready-");
+        Path ready = path.resolve("ready");
+        String workspaceId = cursorWorkspace(client, cookie, path);
+        try (var requests = Executors.newVirtualThreadPerTaskExecutor()) {
+            var creation = requests.submit(() -> createCursorWorker(client, cookie, workspaceId, ready));
+            String runId = null;
+            for (int attempt = 0; attempt < 100; attempt++) {
+                var runs = execution.listActiveSummaries(workspaceId);
+                if (!runs.isEmpty()) { runId = runs.getFirst().runId(); break; }
+                pause();
+            }
+            assertTrue(runId != null, "the PTY must be visible while the create request waits");
+            awaitOutput(client, cookie, runId, "Login required");
+            assertTrue(!creation.isDone());
+            client.get().uri("/api/ui/workspaces/" + workspaceId + "/team")
+                    .header(HttpHeaders.COOKIE, cookie).exchange().expectStatus().isOk()
+                    .expectBody().jsonPath("$[0].status").isEqualTo("stopped");
+            client.get().uri("/api/ui/workspaces/" + workspaceId + "/runs")
+                    .header(HttpHeaders.COOKIE, cookie).exchange().expectStatus().isOk()
+                    .expectBody().jsonPath("$[0].status").isEqualTo("starting");
+            assertEquals("starting", durableRunStatus(runId));
+            Files.createFile(ready);
+            Map<?,?> result = creation.get(5, TimeUnit.SECONDS);
+            assertEquals("idle", result.get("status"));
+            Map<?,?> started = (Map<?,?>) result.get("agent_start");
+            assertEquals(Set.of("ok", "error", "run_id"), started.keySet());
+            assertEquals(true, started.get("ok"));
+            assertEquals(null, started.get("error"));
+            assertEquals(runId, started.get("run_id"));
+            assertEquals("running", durableRunStatus(runId));
+            assertEquals(Set.of("id", "name", "role", "status", "pending_task_count",
+                    "last_pty_line", "command_preset_id", "agent_start"), result.keySet());
+        } finally {
+            Files.writeString(ready, "ready");
+            execution.forgetWorkspace(workspaceId);
+        }
+    }
+
+    @Test void cursorSetupFailureKeepsTheWorkerStopsTheRunAndCanBeRestartedAfterSetup() throws Exception {
+        WebTestClient client = WebTestClient.bindToServer().responseTimeout(Duration.ofSeconds(10))
+                .baseUrl("http://127.0.0.1:" + port).build();
+        String cookie = uiCookie(client);
+        Path path = temp("termestra-cursor-login-");
+        Path ready = path.resolve("ready");
+        String workspaceId = cursorWorkspace(client, cookie, path);
+        try {
+            Map<?,?> worker = createCursorWorker(client, cookie, workspaceId, ready);
+            String workerId = worker.get("id").toString();
+            Map<?,?> failure = (Map<?,?>) worker.get("agent_start");
+            assertEquals(false, failure.get("ok"));
+            assertTrue(failure.get("error").toString().contains("cursor-agent login"));
+            assertEquals("stopped", worker.get("status"));
+            assertTrue(execution.listActiveSummaries(workspaceId).isEmpty());
+            assertTrue(credentials.currentToken(workerId).isEmpty());
+            assertEquals(1, countRuns(workspaceId, workerId));
+            client.post().uri("/api/workspaces/" + workspaceId + "/agents/" + workerId + "/start")
+                    .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of()).exchange()
+                    .expectStatus().isEqualTo(409).expectBody()
+                    .jsonPath("$.error").value(value -> assertTrue(value.toString().contains("then retry")));
+            Files.createFile(ready);
+            String runId = start(client, cookie, workspaceId, workerId);
+            assertEquals("running", durableRunStatus(runId));
+            client.get().uri("/api/ui/workspaces/" + workspaceId + "/team")
+                    .header(HttpHeaders.COOKIE, cookie).exchange().expectStatus().isOk()
+                    .expectBody().jsonPath("$[0].status").isEqualTo("idle");
+        } finally {
+            execution.forgetWorkspace(workspaceId);
+        }
+    }
+
+    private String durableRunStatus(String runId) {
+        return database.read("check startup status", connection -> {
+            try (var statement = connection.prepareStatement("SELECT status FROM agent_runs WHERE run_id=?")) {
+                statement.setString(1, runId);
+                try (var rows = statement.executeQuery()) { assertTrue(rows.next()); return rows.getString(1); }
+            }
+        });
+    }
+
+    private static String cursorWorkspace(WebTestClient client, String cookie, Path path) {
+        Map<?,?> workspace = client.post().uri("/api/workspaces").header(HttpHeaders.COOKIE, cookie)
+                .bodyValue(Map.of("name", "Cursor startup", "path", path.toString(), "autostart_orchestrator", false))
+                .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
+        return Objects.requireNonNull(workspace).get("id").toString();
+    }
+
+    private static Map<?,?> createCursorWorker(WebTestClient client, String cookie, String workspace, Path ready) {
+        TestJavaCommand fixture = TestJavaCommand.rawTerminalFixture(PtyTestFixture.class, "cursor-startup", ready.toString());
+        String command = java.util.stream.Stream.concat(java.util.stream.Stream.of(fixture.command()), fixture.arguments().stream())
+                .map(argument -> "'" + argument.replace("'", "'\"'\"'") + "'")
+                .collect(java.util.stream.Collectors.joining(" "));
+        return Objects.requireNonNull(client.post().uri("/api/workspaces/" + workspace + "/workers")
+                .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of("name", "Cursor worker", "role", "coder",
+                        "description", "Startup regression", "autostart", true,
+                        "launch", Map.of("type", "startup", "startup_command", command, "recovery_preset_id", "cursor")))
+                .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody());
+    }
+
     @Test void returnsATypedRetryableConflictWhenTheWorkspaceRuntimeIsBusy() throws Exception {
         WebTestClient client = WebTestClient.bindToServer().responseTimeout(Duration.ofSeconds(10))
                 .baseUrl("http://127.0.0.1:" + port).build();

@@ -21,6 +21,44 @@ class SqliteSchemaMigratorTest {
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-08-06T00:00:00Z"), ZoneOffset.UTC);
     @TempDir Path tempDirectory;
 
+    @Test void upgradesDefaultCursorTrustArgumentsWithoutReplacingUserConfiguration() {
+        SqliteDatabase database = new SqliteDatabase(tempDirectory.resolve("cursor-trust.db"));
+        new SqliteSchemaMigrator(database, CLOCK).migrate();
+        database.write("restore v32 Cursor defaults", connection -> {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("DELETE FROM schema_version WHERE version>32");
+                statement.execute("UPDATE command_presets SET yolo_args_json='[\"--force\"]', args_json='[\"--model\",\"custom\"]', revision=7 WHERE id='cursor'");
+            }
+            return null;
+        });
+        new SqliteSchemaMigrator(database, CLOCK).migrate();
+        new SqliteSchemaMigrator(database, CLOCK).migrate();
+        database.read("verify Cursor upgrade", connection -> {
+            assertEquals("[\"--force\",\"--trust\"]", text(connection.createStatement(),
+                    "SELECT yolo_args_json FROM command_presets WHERE id='cursor'"));
+            assertEquals("[\"--model\",\"custom\"]", text(connection.createStatement(),
+                    "SELECT args_json FROM command_presets WHERE id='cursor'"));
+            assertEquals(8, scalar(connection.createStatement(),
+                    "SELECT revision FROM command_presets WHERE id='cursor'"));
+            return null;
+        });
+        database.write("restore a customized Cursor policy", connection -> {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("DELETE FROM schema_version WHERE version>32");
+                statement.execute("UPDATE command_presets SET yolo_args_json='[]', revision=9 WHERE id='cursor'");
+            }
+            return null;
+        });
+        new SqliteSchemaMigrator(database, CLOCK).migrate();
+        database.read("verify customized Cursor policy survives", connection -> {
+            assertEquals("[]", text(connection.createStatement(),
+                    "SELECT yolo_args_json FROM command_presets WHERE id='cursor'"));
+            assertEquals(9, scalar(connection.createStatement(),
+                    "SELECT revision FROM command_presets WHERE id='cursor'"));
+            return null;
+        });
+    }
+
     @Test void createsTheCurrentSchemaAndBuiltinConfiguration() {
         SqliteDatabase database = new SqliteDatabase(tempDirectory.resolve("fresh.db"));
         new SqliteSchemaMigrator(database, CLOCK).migrate();

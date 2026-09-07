@@ -12,7 +12,8 @@ _Avoid_: Manager process, persisted worker
 
 **TeamMember**:
 A persistent, user-visible Worker that can receive business assignments by
-name.
+name. It is idle or working only after its Run completes startup; a Run still
+starting does not establish an available TeamMember.
 _Avoid_: Subagent, hidden agent, process
 
 **Worker**:

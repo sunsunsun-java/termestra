@@ -16,6 +16,34 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InteractiveInputSubmitterTest {
+    @Test void recognizesCursorComposerAfterHistoricalSetupText() {
+        assertTrue(InteractiveInputSubmitter.promptReadyForTest(
+                "Sign in completed\r\n╭────────────────────────────╮\r\n"
+                        + "│ Plan, search, build anything │\r\n╰────────────────────────────╯", "cursor-agent"));
+        assertTrue(InteractiveInputSubmitter.promptReadyForTest("Add a follow-up", "cursor-agent"));
+        assertFalse(InteractiveInputSubmitter.promptReadyForTest(
+                "Workspace Trust Required\nDo you trust the contents of this directory?", "cursor-agent"));
+    }
+
+    @Test void cursorSetupFailureExplainsTheRequiredActionWithoutWritingInput() {
+        for (String prompt : List.of("Workspace Trust Required\nDo you trust the contents of this directory?",
+                "Login required\nSign in")) {
+            InteractiveOutputTail output = new InteractiveOutputTail();
+            output.append(prompt);
+            List<byte[]> writes = new CopyOnWriteArrayList<>();
+            var failure = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                    java.time.Duration.ofSeconds(5), () -> assertThrows(
+                            InteractiveInputSubmitter.SubmissionException.class,
+                            () -> InteractiveInputSubmitter.submit("cursor-agent", "startup instructions", () -> true,
+                                    output::snapshot, writes::add)));
+            assertTrue(failure.getMessage().contains("cursor-agent"));
+            assertTrue(failure.getMessage().contains("then retry"));
+            assertFalse(failure.getMessage().contains("Timed out"));
+            assertFalse(failure.inputAttempted());
+            assertTrue(writes.isEmpty());
+        }
+    }
+
     @Test void submitsClaudeMessagesWithBracketedPasteAndASeparateEnter() {
         List<String> writes = new CopyOnWriteArrayList<>();
         InteractiveOutputTail output = new InteractiveOutputTail();

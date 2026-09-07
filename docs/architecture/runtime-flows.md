@@ -47,6 +47,19 @@ Orchestrator，因此 Orchestrator 失败不会删除已经有效的 Workspace�
 事务内校验来源 revision 并复制其最终命令、参数、环境、preset、model 与恢复元数据。
 这是创建时快照，不是后续联动配置。
 
+`AgentExecutionService` 在启动/恢复输入完整提交前保留 `starting`；PTY 的欢迎、登录或
+信任提示输出不会把 Run 推进到 `running`。Team 的运行状态适配器只把 `running` Run
+用于 `idle/working` 投影，避免前端轮询先发出“已启动”通知。`CreateWorkerService`
+在自动启动结束后重新读取成员状态，避免创建响应用启动前的 `stopped` 覆盖最新投影。
+
+Cursor 内置预设使用 `--force --trust`，信任用户已注册的 Workspace。schema v33 只升级
+仍为默认 `--force` 的内置 Cursor 策略，递增 preset revision，保留用户自定义策略与参数；
+已有、允许 preset augmentation 的 Launch Configuration 在下次启动时同样获得该参数。
+`InteractiveInputSubmitter` 识别 Cursor 的初始与后续输入框提示；若 3 秒后仍停留在登录或
+首次设置提示，启动失败会明确要求在该 Workspace 运行 `cursor-agent` 完成设置或执行
+`cursor-agent login`，不会向确认界面写入启动指令。失败保留成员，清理 Run 和凭据，用户
+完成设置后可再次启动。
+
 ## 可靠派单
 
 ```mermaid
@@ -145,7 +158,7 @@ sequenceDiagram
 
 后端重启后的恢复顺序是：
 
-1. 打开数据目录并把 SQLite schema 迁移到 v32；
+1. 打开数据目录并把 SQLite schema 迁移到 v33；
 2. 恢复 Workspace Registration：尚未开始元数据初始化的 `reserved` 可安全失败释放；
    旧版本遗留的 `switching/uncertain` 保留诊断证据但失败并释放路径 claim；已记录
    `checkout_applied` 的注册继续初始化元数据并激活；

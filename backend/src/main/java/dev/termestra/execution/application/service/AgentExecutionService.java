@@ -140,6 +140,15 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
             Optional<AgentSessionCapture.CaptureSnapshot> captureToStart=capture;
             captureToStart.ifPresent(value->captureSession(activatedRun,value));
             if(recovery.hasPreviousRun(agent.agentId(),runId)){if(nativeResumedSession==null)injectRecoverySummary(live);}else injectStartupInstructions(live);
+            synchronized(live){
+                if(!live.active()||!process.alive()){
+                    if("shell".equals(agent.role()))return live.view();
+                    throw new ExecutionConflict("Agent process exited during startup: "+command.agentId());
+                }
+                if(!repository.markRunning(runId,Instant.now(clock)))throw new ExecutionConflict(
+                        "Agent run disappeared before it could start: "+runId);
+                live.status=RunStatus.RUNNING;
+            }
             return live.view();
         }catch(InteractiveInputSubmitter.SubmissionException error){
             if(live!=null)abortFailedStart(live,error);else addCleanupFailure(
@@ -197,22 +206,14 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
 
     private void injectStartupInstructions(LiveRun run){if(!InteractiveInputSubmitter.supports(inputCommand(run))||"shell".equals(run.agent.role()))return;deliverText(run,AgentStartupPrompt.build(run.agent));}
     private void injectRecoverySummary(LiveRun run){if("shell".equals(run.agent.role()))return;var context=recovery.load(run.agent.workspaceId(),Instant.now(clock).minus(Duration.ofHours(1)));String text=AgentRecoverySummary.build(run.agent,context);injectPersisted(run,text);}
-    private void injectPersisted(LiveRun run,String text){try{PersistedMessageDelivery.execute(()->recovery.appendSystemRecoveryMessage(run.agent.workspaceId(),run.agent.agentId(),text,Instant.now(clock)),recovery::deleteMessage,()->deliverText(run,text));}catch(InterruptedException interrupted){Thread.currentThread().interrupt();}}
+    private void injectPersisted(LiveRun run,String text){try{PersistedMessageDelivery.execute(()->recovery.appendSystemRecoveryMessage(run.agent.workspaceId(),run.agent.agentId(),text,Instant.now(clock)),recovery::deleteMessage,()->deliverText(run,text));}catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw new ExecutionConflict("Agent recovery input was interrupted",interrupted);}}
 
     private void onOutput(LiveRun run,byte[] bytes){
-        RuntimeException persistenceFailure=null;boolean drainOutput=false;
+        boolean drainOutput;
         synchronized(run){
             if(!run.acceptsOutput())return;
-            if(run.status==RunStatus.STARTING){
-                try{if(!repository.markRunning(run.id,Instant.now(clock)))persistenceFailure=new ExecutionConflict("Agent run disappeared before it could start: "+run.id);else run.status=RunStatus.RUNNING;}
-                catch(RuntimeException failure){persistenceFailure=failure;}
-            }
-            if(persistenceFailure==null&&run.acceptsOutput()){
-                String decoded=run.decoder.decode(bytes);
-                drainOutput=appendOutputLocked(run,decoded);
-            }
+            drainOutput=appendOutputLocked(run,run.decoder.decode(bytes));
         }
-        if(persistenceFailure!=null){LOG.error("Could not persist the running transition for run {}; stopping its PTY",run.id,persistenceFailure);RuntimeException finishFailure=transitionTerminal(run,RunStatus.ERROR,null,true);if(finishFailure!=null&&finishFailure!=persistenceFailure)persistenceFailure.addSuppressed(finishFailure);return;}
         if(drainOutput)drainOutput(run);
     }
 

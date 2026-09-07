@@ -30,14 +30,17 @@ public final class CreateWorkerService implements CreateWorkerUseCase {
             else provisioning.saveWithLaunch(candidate,execution.plan(command.workspaceId(),command.launch()));
             return candidate;
         });
-        TeamMemberView configured=team.listForUi(command.workspaceId()).stream()
-                .filter(value->value.id().equals(member.id().toString())).findFirst().orElseThrow();
-        if(!command.autostart())return new CreatedWorkerView(configured,WorkerStartView.disabled());
-        try{
-            WorkerExecution.StartedWorker run=execution.start(command.workspaceId(),member.id().toString(),command.runtimePort());
-            return new CreatedWorkerView(configured,new WorkerStartView(true,null,run.runId()));
-        }catch(RuntimeException startFailure){
-            return new CreatedWorkerView(configured,new WorkerStartView(false,startFailure.getMessage(),null));
+        WorkerStartView start=WorkerStartView.disabled();
+        if(command.autostart()){
+            try{
+                WorkerExecution.StartedWorker run=execution.start(command.workspaceId(),member.id().toString(),command.runtimePort());
+                start=new WorkerStartView(true,null,run.runId());
+            }catch(RuntimeException startFailure){
+                start=new WorkerStartView(false,startFailure.getMessage(),null);
+            }
         }
+        TeamMemberView current=team.listForUi(command.workspaceId()).stream()
+                .filter(value->value.id().equals(member.id().toString())).findFirst().orElseThrow();
+        return new CreatedWorkerView(current,start);
     }
 }

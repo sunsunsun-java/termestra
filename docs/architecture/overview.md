@@ -1,6 +1,6 @@
 # Termestra 架构总览
 
-> 当前实现基线：2026-09-04，schema v32，版本 `0.2.3-SNAPSHOT`。
+> 当前实现基线：2026-09-07，schema v33，版本 `0.2.3-SNAPSHOT`。
 
 Termestra 是本地优先的 CLI Agent 团队工作台。浏览器只连接绑定在
 `127.0.0.1` 的 Java 运行时；每个 Orchestrator、Worker 和 Workspace Shell 都是
@@ -14,7 +14,7 @@ flowchart TB
     Browser["Browser / installed PWA"]
     CLI["managed `team` CLI"]
     Runtime["Spring Boot / WebFlux runtime\n127.0.0.1"]
-    SQLite[("SQLite v32")]
+    SQLite[("SQLite v33")]
     Files["Workspace `.termestra/` files"]
     PTY["pty4j supervised processes"]
     Providers["Claude / Codex / Gemini / other CLIs"]

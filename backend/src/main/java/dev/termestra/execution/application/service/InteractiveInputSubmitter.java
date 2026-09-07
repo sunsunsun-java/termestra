@@ -101,6 +101,12 @@ final class InteractiveInputSubmitter {
             if (hasNewOutput && (readyPrompt || (!firstRunSetupPrompt(candidate) && softFallback))) {
                 return snapshot.position();
             }
+            if ("cursor-agent".equals(executable) && elapsed >= READY_TIMEOUT_MS
+                    && firstRunSetupPrompt(candidate)) {
+                throw new SubmissionException(
+                        "Cursor CLI is waiting for login or initial setup. Run 'cursor-agent' in this workspace "
+                                + "to complete setup (use 'cursor-agent login' to sign in), then retry.", false);
+            }
             if (System.nanoTime() >= deadline) {
                 throw new SubmissionException(
                         "Timed out waiting for " + executable + " input prompt", false);
@@ -213,6 +219,8 @@ final class InteractiveInputSubmitter {
         String last = lastNonEmptyLine(plain);
         if (last.matches("[❯›]")) return true;
         return switch (executable) {
+            case "cursor-agent" -> plain.contains("Plan, search, build anything")
+                    || plain.contains("Add a follow-up");
             case "agy" -> plain.matches("(?s).*(?:^|\\n)\\s*>\\s*\\n\\s*(?:[─-]{8,}|\\?\\s*for shortcuts).*");
             case "gemini", "qwen" -> plain.contains("Type your message");
             case "grok" -> plain.matches("(?s).*\\b(?:Enter:send|Composer\\s+\\S+).*");

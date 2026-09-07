@@ -29,7 +29,8 @@ final class ConfigurationSchemaMigrations {
                 new SchemaMigration(23, this::refreshPresets),
                 new SchemaMigration(24, this::refreshPresets),
                 new SchemaMigration(31, this::addStructuredModelSelection),
-                new SchemaMigration(32, this::addDiscoverableBuiltinModels));
+                new SchemaMigration(32, this::addDiscoverableBuiltinModels),
+                new SchemaMigration(33, this::trustCursorWorkspace));
     }
 
     private void v7(Connection c) throws SQLException {
@@ -129,6 +130,20 @@ final class ConfigurationSchemaMigrations {
                     allow_custom_model=1
                 WHERE is_builtin=1 AND id IN ('codex','cursor','opencode','pi')
                 """);
+    }
+
+    private void trustCursorWorkspace(Connection connection) throws SQLException {
+        if(!hasTable(connection,"command_presets")
+                ||!hasColumn(connection,"command_presets","yolo_args_json"))return;
+        try(PreparedStatement statement=connection.prepareStatement("""
+                UPDATE command_presets
+                SET yolo_args_json='["--force","--trust"]', revision=revision+1, updated_at=?
+                WHERE id='cursor' AND is_builtin=1 AND command='cursor-agent'
+                  AND yolo_args_json='["--force"]'
+                """)){
+            statement.setLong(1,clock.millis());
+            statement.executeUpdate();
+        }
     }
 
     private static void addColumnUnlessPresent(Connection connection, String table, String column, String definition)

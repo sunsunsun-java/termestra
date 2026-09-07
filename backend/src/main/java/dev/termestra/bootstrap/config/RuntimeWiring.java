@@ -289,6 +289,7 @@ public class RuntimeWiring {
     @Bean PendingTaskProjection pendingTaskProjection(OpenDispatchCountSource source) { return new PendingTaskProjection(source); }
     @Bean WorkerRuntimeStatus workerRuntimeStatus(AgentExecutionUseCase execution) {
         return workspaceId -> execution.listActiveSummaries(workspaceId).stream()
+                .filter(run -> "running".equals(run.status()))
                 .map(AgentRunSummaryView::agentId)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }

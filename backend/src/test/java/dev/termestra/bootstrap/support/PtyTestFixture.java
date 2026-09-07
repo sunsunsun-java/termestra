@@ -6,12 +6,27 @@ import java.io.IOException;
 public final class PtyTestFixture {
     private PtyTestFixture() { }
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, InterruptedException {
         String mode = args.length == 0 ? "echo" : args[0];
         switch (mode) {
             case "echo" -> echoInput();
             case "runtime-port" -> {
                 System.out.println("port=" + System.getenv().getOrDefault("TERMESTRA_PORT", ""));
+                System.out.flush();
+                echoInput();
+            }
+            case "cursor-startup" -> {
+                var ready = java.nio.file.Path.of(args[1]);
+                if (!java.nio.file.Files.exists(ready)) {
+                    System.out.println("Login required\nSign in");
+                    System.out.flush();
+                    long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+                    while (!java.nio.file.Files.exists(ready)) {
+                        if (System.nanoTime() >= deadline) throw new IOException("fixture readiness was not released");
+                        Thread.sleep(10);
+                    }
+                }
+                System.out.println("Plan, search, build anything");
                 System.out.flush();
                 echoInput();
             }
