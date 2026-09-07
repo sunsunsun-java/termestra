@@ -1,4 +1,4 @@
-package dev.termestra.terminal.application.service;
+package dev.termestra.platform.terminal;
 
 import org.junit.jupiter.api.Test;
 

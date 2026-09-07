@@ -1,5 +1,7 @@
 package dev.termestra.execution.application.service;
 
+import dev.termestra.execution.adapter.out.terminal.VtPromptTerminal;
+
 import dev.termestra.execution.application.exception.ExecutionConflict;
 import dev.termestra.execution.application.exception.RunNotFound;
 import dev.termestra.execution.adapter.out.pty.Pty4jProcessLauncher;
@@ -299,7 +301,7 @@ class AgentExecutionTerminationSafetyTest {
         return new AgentExecutionService(repository,(workspaceId,agentId)->Optional.of(
                 descriptor(workspaceId,agentId)),credentials,launcher,noCapture(),
                 (presetId,command)->List.of(),noRecovery(),
-                Clock.fixed(Instant.parse("2026-08-11T00:00:00Z"),ZoneOffset.UTC),
+                VtPromptTerminal::new, Clock.fixed(Instant.parse("2026-08-11T00:00:00Z"),ZoneOffset.UTC),
                 new dev.termestra.shared.concurrency.RuntimeOperationCoordinator(),capacity,supervisor);
     }
 

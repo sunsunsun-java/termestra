@@ -1,6 +1,7 @@
 package dev.termestra.execution.application.service;
 
 import org.junit.jupiter.api.Test;
+import dev.termestra.execution.adapter.out.terminal.VtPromptTerminal;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -16,19 +17,25 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InteractiveInputSubmitterTest {
+    private static boolean ready(String text, String command) {
+        InteractiveOutputTail output = new InteractiveOutputTail(command, new VtPromptTerminal());
+        output.append(text);
+        return output.snapshot().readiness().state() == InteractiveOutputTail.State.READY;
+    }
+
     @Test void recognizesCursorComposerAfterHistoricalSetupText() {
-        assertTrue(InteractiveInputSubmitter.promptReadyForTest(
+        assertTrue(ready(
                 "Sign in completed\r\n╭────────────────────────────╮\r\n"
-                        + "│ Plan, search, build anything │\r\n╰────────────────────────────╯", "cursor-agent"));
-        assertTrue(InteractiveInputSubmitter.promptReadyForTest("Add a follow-up", "cursor-agent"));
-        assertFalse(InteractiveInputSubmitter.promptReadyForTest(
+                        + "  → Plan, search, build anything\r\n╰────────────────────────────╯", "cursor-agent"));
+        assertTrue(ready("  → Add a follow-up", "cursor-agent"));
+        assertFalse(ready(
                 "Workspace Trust Required\nDo you trust the contents of this directory?", "cursor-agent"));
     }
 
     @Test void cursorSetupFailureExplainsTheRequiredActionWithoutWritingInput() {
         for (String prompt : List.of("Workspace Trust Required\nDo you trust the contents of this directory?",
                 "Login required\nSign in")) {
-            InteractiveOutputTail output = new InteractiveOutputTail();
+            InteractiveOutputTail output = new InteractiveOutputTail("cursor-agent", new VtPromptTerminal());
             output.append(prompt);
             List<byte[]> writes = new CopyOnWriteArrayList<>();
             var failure = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
@@ -46,7 +53,7 @@ class InteractiveInputSubmitterTest {
 
     @Test void submitsClaudeMessagesWithBracketedPasteAndASeparateEnter() {
         List<String> writes = new CopyOnWriteArrayList<>();
-        InteractiveOutputTail output = new InteractiveOutputTail();
+        InteractiveOutputTail output = new InteractiveOutputTail("claude", new VtPromptTerminal());
         output.append("\r\n❯ ");
 
         InteractiveInputSubmitter.submit("/usr/local/bin/claude", "hello", () -> true,
@@ -61,7 +68,7 @@ class InteractiveInputSubmitterTest {
 
     @Test void submitsCodexMessagesWithoutRequiringAPasteAcknowledgement() {
         List<String> writes = new CopyOnWriteArrayList<>();
-        InteractiveOutputTail output = new InteractiveOutputTail();
+        InteractiveOutputTail output = new InteractiveOutputTail("codex", new VtPromptTerminal());
         output.append("\r\n› ");
 
         InteractiveInputSubmitter.submit("codex", "one\ntwo\nthree", () -> true,
@@ -73,7 +80,7 @@ class InteractiveInputSubmitterTest {
 
     @Test void submitsClaudeMessagesAfterTheBoundedWaitWhenNoPasteMarkerIsRendered() {
         List<String> writes = new CopyOnWriteArrayList<>();
-        InteractiveOutputTail output = new InteractiveOutputTail();
+        InteractiveOutputTail output = new InteractiveOutputTail("claude", new VtPromptTerminal());
         output.append("\r\n❯ ");
 
         InteractiveInputSubmitter.submit("claude", "visible composer text", () -> true,
@@ -85,8 +92,8 @@ class InteractiveInputSubmitterTest {
 
     @Test void submitsMultilineHermesMessagesOnlyAfterPasteAcknowledgement() {
         List<String> writes = new CopyOnWriteArrayList<>();
-        InteractiveOutputTail output = new InteractiveOutputTail();
-        output.append("\u001b[36mdefault ❯\u001b[0m\n────────────────────────");
+        InteractiveOutputTail output = new InteractiveOutputTail("hermes", new VtPromptTerminal());
+        output.append("\u001b[36mdefault ❯\u001b[0m\r\n────────────────────────\u001b[1A\u001b[11G");
         String message = "one\ntwo\nthree\nfour\nfive";
 
         InteractiveInputSubmitter.submit("hermes --yolo", message, () -> true,
@@ -103,8 +110,8 @@ class InteractiveInputSubmitterTest {
 
     @Test void submitsMultilineHermesMessagesAfterTheBoundedWaitWithoutAPasteMarker() {
         List<String> writes = new CopyOnWriteArrayList<>();
-        InteractiveOutputTail output = new InteractiveOutputTail();
-        output.append("\u001b[36mdefault ❯\u001b[0m\n────────────────────────");
+        InteractiveOutputTail output = new InteractiveOutputTail("hermes", new VtPromptTerminal());
+        output.append("\u001b[36mdefault ❯\u001b[0m\r\n────────────────────────\u001b[1A\u001b[11G");
         String message = "one\ntwo\nthree\nfour\nfive";
 
         InteractiveInputSubmitter.submit("hermes --yolo", message, () -> true,
@@ -117,20 +124,20 @@ class InteractiveInputSubmitterTest {
     @Test void recognizesHermesPromptNearDecoratedTuiTailWithoutWelcomeBanner() {
         String realStyleTail = "\u001b[2Kworking output\r\n"
                 + "\u001b[38;5;81mcoder ❯ \u001b[0m\r\n"
-                + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n";
+                + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n\u001b[2A\u001b[9G";
 
-        assertTrue(InteractiveInputSubmitter.promptReadyForTest(realStyleTail, "hermes"));
+        assertTrue(ready(realStyleTail, "hermes"));
     }
 
     @Test void recognizesAsciiHermesPromptWithCrLfLineEndings() {
-        String crlfTail = "Welcome to Hermes Agent!\r\n>\r\n--------------------------------\r\n";
+        String crlfTail = "Welcome to Hermes Agent!\r\n>\r\n--------------------------------\r\n\u001b[2A\u001b[2G";
 
-        assertTrue(InteractiveInputSubmitter.promptReadyForTest(crlfTail, "hermes"));
+        assertTrue(ready(crlfTail, "hermes"));
     }
 
     @Test void waitsForAPromptProducedAfterTheRequestedOutputPosition() throws Exception {
         List<String> writes = new CopyOnWriteArrayList<>();
-        InteractiveOutputTail output = new InteractiveOutputTail();
+        InteractiveOutputTail output = new InteractiveOutputTail("hermes", new VtPromptTerminal());
         output.append("❯");
         long oldPromptPosition = output.snapshot().position();
 
@@ -163,14 +170,14 @@ class InteractiveInputSubmitterTest {
         InteractiveInputSubmitter.SubmissionException failure = assertThrows(
                 InteractiveInputSubmitter.SubmissionException.class,
                 () -> InteractiveInputSubmitter.submit("hermes", "hello", active::get,
-                        new InteractiveOutputTail()::snapshot, ignored -> { }));
+                        new InteractiveOutputTail("hermes", new VtPromptTerminal())::snapshot, ignored -> { }));
 
         assertFalse(failure.inputAttempted());
         assertTrue(failure.getMessage().contains("Process exited"));
     }
 
     @Test void reportsWriteFailureAsAttemptedAndPreservesItsCause() {
-        InteractiveOutputTail output = new InteractiveOutputTail();
+        InteractiveOutputTail output = new InteractiveOutputTail("hermes", new VtPromptTerminal());
         output.append("❯");
         IllegalStateException writeFailure = new IllegalStateException("closed PTY");
 
@@ -184,7 +191,7 @@ class InteractiveInputSubmitterTest {
     }
 
     @Test void doesNotReturnUntilTheFinalEnterWriteCompletes() throws Exception {
-        InteractiveOutputTail output = new InteractiveOutputTail();
+        InteractiveOutputTail output = new InteractiveOutputTail("hermes", new VtPromptTerminal());
         output.append("❯");
         CountDownLatch enterWriteStarted = new CountDownLatch(1);
         CountDownLatch releaseEnterWrite = new CountDownLatch(1);
@@ -213,7 +220,7 @@ class InteractiveInputSubmitterTest {
     @Test void keepsPlainNewlineDeliveryForNonInteractiveCommands() {
         List<String> writes = new CopyOnWriteArrayList<>();
         InteractiveInputSubmitter.submit("/bin/cat", "hello", () -> true,
-                new InteractiveOutputTail()::snapshot,
+                new InteractiveOutputTail("hermes", new VtPromptTerminal())::snapshot,
                 bytes -> writes.add(new String(bytes, StandardCharsets.UTF_8)));
         assertEquals(List.of("hello\n"), writes);
     }
@@ -228,9 +235,9 @@ class InteractiveInputSubmitterTest {
     }
 
     @Test void recognizesCliSpecificReadyPrompts() {
-        assertTrue(InteractiveInputSubmitter.promptReadyForTest("Type your message", "qwen"));
-        assertTrue(InteractiveInputSubmitter.promptReadyForTest("Welcome to Hermes Agent!\n❯", "hermes"));
-        assertTrue(InteractiveInputSubmitter.promptReadyForTest("pi v0.32.1 escape interrupt", "pi"));
-        assertTrue(InteractiveInputSubmitter.promptReadyForTest("Composer ready Enter:send", "grok"));
+        assertTrue(ready("Type your message", "qwen"));
+        assertTrue(ready("Welcome to Hermes Agent!\n❯", "hermes"));
+        assertTrue(ready("pi v0.32.1 escape interrupt\r\n────────────────────────\r\n\r\n────────────────────────\u001b[1A\r", "pi"));
+        assertTrue(ready("Composer ready Enter:send", "grok"));
     }
 }

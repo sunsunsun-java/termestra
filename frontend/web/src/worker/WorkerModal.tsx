@@ -1,7 +1,10 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { AlertTriangle, Play, X } from 'lucide-react'
+import { Play, X } from 'lucide-react'
 
 import type { TeamListItem } from '../../../src/shared/types.js'
+import type { TerminalRunSummary } from '../api.js'
+import { isRunActive, runStartupPhase } from '../terminal/run-startup.js'
+import { StartupStatus } from '../terminal/StartupStatus.js'
 import { useI18n } from '../i18n.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { CliAgentAvatar } from './CliAgentAvatar.js'
@@ -15,28 +18,27 @@ import {
 type WorkerModalProps = {
   onClose: () => void
   onStart: (worker: TeamListItem) => void
-  runId: string | null
-  startError: string | null
+  run?: TerminalRunSummary | undefined
+  onStop?: (() => void) | undefined
+  created?: boolean
   starting: boolean
   worker: TeamListItem
 }
 
-/**
- * Worker detail dialog — pure PTY view. All control actions (Stop / Restart /
- * Delete / Start) live on the WorkerCard's hover cluster now; this dialog
- * only handles "watch the terminal" + "close". The empty-state Start button
- * is the lone exception so a stopped agent is restartable from inside.
- */
+/** Worker terminal with startup progress, setup access, retained failure output and retry. */
 export const WorkerModal = ({
   onClose,
   onStart,
-  runId,
-  startError,
+  run,
+  onStop,
+  created = false,
   starting,
   worker,
 }: WorkerModalProps) => {
   const { t } = useI18n()
-  const ptyRunning = !!runId
+  const runId = run?.run_id
+  const phase = starting ? 'initializing' : runStartupPhase(run)
+  const ptyRunning = isRunActive(run)
   const status = presentRuntimeStatus(ptyRunning)
   const resize = useWorkerModalResize()
 
@@ -91,20 +93,9 @@ export const WorkerModal = ({
               {t(roleTranslationKey(worker.role))} agent — status {t(statusTranslationKey(status.kind))}
             </Dialog.Description>
 
-            {startError ? (
-              <div
-                role="alert"
-                className="flex shrink-0 items-center gap-2 border-b px-4 py-2 text-xs"
-                style={{
-                  background: 'color-mix(in oklab, var(--status-red) 10%, transparent)',
-                  borderColor: 'color-mix(in oklab, var(--status-red) 30%, var(--border))',
-                  color: 'var(--status-red)',
-                }}
-              >
-                <AlertTriangle size={12} aria-hidden />
-                <span className="break-words">{startError}</span>
-              </div>
-            ) : null}
+            {created ? <p className="shrink-0 px-4 py-2 text-xs text-sec">{t('startup.created')}</p> : null}
+            {phase ? <StartupStatus phase={phase} message={starting ? null : run?.startup_message}
+              onRetry={() => onStart(worker)} onStop={onStop} pending={starting} /> : null}
 
             <div
               className="relative flex min-h-0 flex-1 flex-col p-3"
@@ -126,7 +117,7 @@ export const WorkerModal = ({
                 className="flex min-h-0 flex-1 rounded-lg border"
                 style={{ background: 'var(--bg-crust)', borderColor: 'var(--border)' }}
               >
-                {ptyRunning ? (
+                {runId ? (
                   <div
                     id={`worker-pty-${runId}`}
                     className="flex h-full w-full"

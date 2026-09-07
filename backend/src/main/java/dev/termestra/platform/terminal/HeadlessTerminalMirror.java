@@ -1,4 +1,4 @@
-package dev.termestra.terminal.application.service;
+package dev.termestra.platform.terminal;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Bounded, deterministic VT screen used only to create reconnect snapshots.
+ * Bounded, deterministic VT screen shared by reconnect snapshots and interactive prompt observation.
  *
  * <p>The mirror deliberately owns terminal state instead of retaining an unbounded raw transcript.
  * It supports the stateful sequences emitted by the supported interactive CLIs: primary/alternate
@@ -36,6 +36,7 @@ public final class HeadlessTerminalMirror {
     private Screen primary;
     private Screen alternate;
     private Screen active;
+    private long paintRevision;
     private ParserState parserState = ParserState.TEXT;
     private final StringBuilder sequence = new StringBuilder();
     private boolean sequenceOverflow;
@@ -46,7 +47,7 @@ public final class HeadlessTerminalMirror {
     public HeadlessTerminalMirror() { this(80, 24); }
     public HeadlessTerminalMirror(int columns, int rows) { this(columns, rows, DEFAULT_SCROLLBACK); }
 
-    HeadlessTerminalMirror(int columns, int rows, int scrollback) {
+    public HeadlessTerminalMirror(int columns, int rows, int scrollback) {
         requestedScrollback = Math.max(0, Math.min(DEFAULT_SCROLLBACK, scrollback));
         this.columns = bounded(columns, 1, MAX_COLUMNS);
         this.rows = bounded(rows, 1, MAX_ROWS);
@@ -110,6 +111,15 @@ public final class HeadlessTerminalMirror {
     }
 
     synchronized String screenText() { return active.render(); }
+
+    /** Plain visible cells and zero-based cursor coordinates; excludes retained scrollback. */
+    public synchronized View view() {
+        return new View(active.screen.stream().map(HeadlessTerminalMirror::plain).toList(),
+                active.cursorRow, active.cursorColumn, Arrays.stream(active.lineRevisions).boxed().toList());
+    }
+
+    public record View(List<String> lines, int cursorRow, int cursorColumn, List<Long> lineRevisions) { }
+
 
     public synchronized String lastPtyLine(int maximum) {
         List<Cell[]> all = active.allLines();
@@ -232,6 +242,7 @@ public final class HeadlessTerminalMirror {
         } else {
             if (active == primary) return;
             active = primary;
+            active.painted(0, rows);
             if (saveCursor) primary.restoreCursor();
         }
     }
@@ -247,6 +258,7 @@ public final class HeadlessTerminalMirror {
         private final boolean retainsHistory;
         private final List<Cell[]> history = new ArrayList<>();
         private final List<Cell[]> screen = new ArrayList<>();
+        private long[] lineRevisions = new long[rows];
         private int cursorRow;
         private int cursorColumn;
         private int savedRow;
@@ -270,6 +282,8 @@ public final class HeadlessTerminalMirror {
         }
 
         private void resize() {
+            lineRevisions = new long[rows];
+            painted(0, rows);
             for (int index = 0; index < history.size(); index++) history.set(index, resizeLine(history.get(index)));
             for (int index = 0; index < screen.size(); index++) screen.set(index, resizeLine(screen.get(index)));
             while (screen.size() < rows) screen.add(blank());
@@ -302,6 +316,7 @@ public final class HeadlessTerminalMirror {
             pendingStyle = "";
             decModes.clear();
             retainedStyles.clear();
+            painted(0, rows);
         }
 
         private void put(int codePoint) {
@@ -314,6 +329,7 @@ public final class HeadlessTerminalMirror {
                 cursorColumn = 0;
                 lineFeed();
             }
+            painted(cursorRow, cursorRow + 1);
             Cell[] line = screen.get(cursorRow);
             line[cursorColumn] = new Cell(new String(Character.toChars(codePoint)), retainedStyle(style));
             if (width == 2 && cursorColumn + 1 < columns) line[cursorColumn + 1] = Cell.CONTINUATION;
@@ -323,6 +339,11 @@ public final class HeadlessTerminalMirror {
                 pendingCodePoint = codePoint;
                 pendingStyle = style;
             } else cursorColumn += width;
+        }
+
+        /** Marks repaint operations, including writes/erases that leave the same final cells. */
+        private void painted(int fromRow, int toRow) {
+            Arrays.fill(lineRevisions, fromRow, toRow, ++paintRevision);
         }
 
         private void carriageReturn() { cursorColumn = 0; wrapPending = false; }
@@ -343,10 +364,12 @@ public final class HeadlessTerminalMirror {
             if (cursorRow == scrollTop) {
                 screen.add(scrollTop, blank());
                 screen.remove(scrollBottom + 1);
+                painted(scrollTop, scrollBottom + 1);
             } else cursorRow = Math.max(0, cursorRow - 1);
         }
 
         private void scrollUp() {
+            painted(scrollTop, scrollBottom + 1);
             Cell[] removed = screen.remove(scrollTop);
             screen.add(scrollBottom, blank());
             if (retainsHistory && scrollTop == 0 && scrollBottom == rows - 1) {
@@ -392,18 +415,22 @@ public final class HeadlessTerminalMirror {
             if (mode == 2 || mode == 3) {
                 if (mode == 3) history.clear();
                 for (Cell[] line : screen) Arrays.fill(line, null);
+                painted(0, rows);
                 return;
             }
             if (mode == 0) {
                 eraseLine(0);
                 for (int row = cursorRow + 1; row < rows; row++) Arrays.fill(screen.get(row), null);
+                painted(cursorRow, rows);
             } else if (mode == 1) {
                 eraseLine(1);
                 for (int row = 0; row < cursorRow; row++) Arrays.fill(screen.get(row), null);
+                painted(0, cursorRow + 1);
             }
         }
 
         private void eraseLine(int mode) {
+            painted(cursorRow, cursorRow + 1);
             Cell[] line = screen.get(cursorRow);
             if (mode == 2) Arrays.fill(line, null);
             else if (mode == 1) Arrays.fill(line, 0, Math.min(columns, cursorColumn + 1), null);
@@ -411,6 +438,7 @@ public final class HeadlessTerminalMirror {
         }
 
         private void insertCells(int count) {
+            painted(cursorRow, cursorRow + 1);
             Cell[] line = screen.get(cursorRow);
             int amount = Math.min(count, columns - cursorColumn);
             System.arraycopy(line, cursorColumn, line, cursorColumn + amount,
@@ -419,6 +447,7 @@ public final class HeadlessTerminalMirror {
         }
 
         private void deleteCells(int count) {
+            painted(cursorRow, cursorRow + 1);
             Cell[] line = screen.get(cursorRow);
             int amount = Math.min(count, columns - cursorColumn);
             System.arraycopy(line, cursorColumn + amount, line, cursorColumn,
@@ -427,12 +456,14 @@ public final class HeadlessTerminalMirror {
         }
 
         private void eraseCells(int count) {
+            painted(cursorRow, cursorRow + 1);
             Arrays.fill(screen.get(cursorRow), cursorColumn,
                     Math.min(columns, cursorColumn + count), null);
         }
 
         private void insertLines(int count) {
             if (cursorRow < scrollTop || cursorRow > scrollBottom) return;
+            painted(cursorRow, scrollBottom + 1);
             int amount = Math.min(count, scrollBottom - cursorRow + 1);
             for (int index = 0; index < amount; index++) {
                 screen.add(cursorRow, blank());
@@ -442,6 +473,7 @@ public final class HeadlessTerminalMirror {
 
         private void deleteLines(int count) {
             if (cursorRow < scrollTop || cursorRow > scrollBottom) return;
+            painted(cursorRow, scrollBottom + 1);
             int amount = Math.min(count, scrollBottom - cursorRow + 1);
             for (int index = 0; index < amount; index++) {
                 screen.remove(cursorRow);
@@ -586,7 +618,7 @@ public final class HeadlessTerminalMirror {
 
     private static String plain(Cell[] line) {
         StringBuilder value = new StringBuilder();
-        for (Cell cell : line) if (cell != null && !cell.text().isEmpty()) value.append(cell.text());
+        for (Cell cell : line) value.append(cell == null ? " " : cell.text());
         int end = value.length();
         while (end > 0 && value.charAt(end - 1) == ' ') end--;
         return value.substring(0, end);

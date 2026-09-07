@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { isWorkspaceShellRun, type TerminalInputProfile, type TerminalRunSummary } from '../api.js'
 
+import { isRunActive } from './run-startup.js'
+
 const OPTIMISTIC_RUN_TTL_MS = 3000
 
 type TimerId = number
@@ -36,9 +38,10 @@ export const mergeTerminalRuns = (
   workspaceId?: string | null
 ): TerminalRunSummary[] => {
   const actualRunIds = new Set(actualRuns.map((run) => run.run_id))
-  const actualAgentIds = new Set(actualRuns.map((run) => run.agent_id))
+  const actualAgentIds = new Set(actualRuns.filter(isRunActive).map((run) => run.agent_id))
+  const pendingAgentIds = new Set(optimisticRuns.filter((run) => !actualRunIds.has(run.run_id)).map((run) => run.agent_id))
   return [
-    ...actualRuns,
+    ...actualRuns.filter((run) => isRunActive(run) || !pendingAgentIds.has(run.agent_id)),
     ...optimisticRuns.filter((run) => {
       if (actualRunIds.has(run.run_id)) return false
       if (workspaceId && isWorkspaceShellRun(run, workspaceId)) return true

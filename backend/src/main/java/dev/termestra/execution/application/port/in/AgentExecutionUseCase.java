@@ -13,6 +13,8 @@ public interface AgentExecutionUseCase {
     AgentRunView get(String runId);
     AgentRunSummaryView getSummary(String runId);
     List<AgentRunSummaryView> listActiveSummaries(String workspaceId);
+    /** Active runs and the latest retained startup failure per agent, with bounded summaries. */
+    List<AgentRunSummaryView> listTerminalSummaries(String workspaceId);
     void forgetWorkspace(String workspaceId);
     void forgetAgent(String workspaceId,String agentId);
     void forgetRun(String runId);

@@ -1,4 +1,5 @@
 import type { TerminalRunSummary } from './api.js'
+import { isRunActive } from './terminal/run-startup.js'
 import { useI18n } from './i18n.js'
 import { TerminalView } from './terminal/TerminalView.js'
 import { mergeTerminalRuns } from './terminal/useOptimisticTerminalRuns.js'
@@ -11,6 +12,7 @@ type WorkspaceTerminalPanelsProps = {
 }
 
 type TerminalDescriptor = {
+  inputEnabled: boolean
   bookmarksEnabled: boolean
   inputProfile: NonNullable<TerminalRunSummary['terminal_input_profile']>
   runId: string
@@ -18,6 +20,7 @@ type TerminalDescriptor = {
 }
 
 const describeTerminal = (run: TerminalRunSummary, workspaceId: string): TerminalDescriptor => ({
+  inputEnabled: isRunActive(run),
   bookmarksEnabled: run.agent_id === `${workspaceId}:orchestrator`,
   inputProfile: run.terminal_input_profile ?? 'default',
   runId: run.run_id,
@@ -47,9 +50,10 @@ export const WorkspaceTerminalPanels = ({
       data-terminal-workspace={workspaceId}
       hidden={hidden}
     >
-      {terminals.map(({ bookmarksEnabled, inputProfile, runId, title }) => (
+      {terminals.map(({ bookmarksEnabled, inputEnabled, inputProfile, runId, title }) => (
         <TerminalView
           bookmarksEnabled={bookmarksEnabled}
+          inputEnabled={inputEnabled}
           inputProfile={inputProfile}
           key={runId}
           runId={runId}

@@ -13,7 +13,9 @@ _Avoid_: Manager process, persisted worker
 **TeamMember**:
 A persistent, user-visible Worker that can receive business assignments by
 name. It is idle or working only after its Run completes startup; a Run still
-starting does not establish an available TeamMember.
+starting does not establish an available TeamMember. Saving a TeamMember and
+accepting its process-start request do not imply startup has completed; startup
+failure preserves the saved member for inspection, explicit retry, or deletion.
 _Avoid_: Subagent, hidden agent, process
 
 **Worker**:
@@ -31,7 +33,8 @@ _Avoid_: Completion, execution, Dispatch
 
 **Delivery Attempt**:
 One bounded try to perform a Delivery, carrying evidence about whether input may
-have reached the TeamMember.
+have reached the TeamMember. Deferring because the Agent is still starting does
+not consume the failure retry budget and does not authorize input before readiness.
 _Avoid_: Dispatch retry, task run
 
 **Uncertain Delivery**:

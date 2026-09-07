@@ -62,7 +62,7 @@ export const probeGlobalTerminalRuns = async (
         const runs = await loadRuns(workspaceId, signal)
         if (signal.aborted) return
         runsByIndex.set(index, runs)
-        if (runs.some((run) => run.status !== 'stopped')) activeRunFound = true
+        if (runs.some((run) => !['stopped', 'error', 'exited'].includes(run.status))) activeRunFound = true
       } catch (error: unknown) {
         if (!signal.aborted) {
           failure = error

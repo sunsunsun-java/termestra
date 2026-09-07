@@ -14,7 +14,7 @@ export const isServiceWorkerReloadSafe = (
 ): boolean =>
   terminalRunsReady &&
   workspaceIds.every((workspaceId) => Object.hasOwn(workersByWorkspaceId, workspaceId)) &&
-  terminalRuns.every((run) => run.status === 'stopped') &&
+  terminalRuns.every((run) => ['stopped', 'error', 'exited'].includes(run.status)) &&
   Object.values(workersByWorkspaceId).every((workers) =>
     workers.every((worker) => worker.status === 'stopped')
   )

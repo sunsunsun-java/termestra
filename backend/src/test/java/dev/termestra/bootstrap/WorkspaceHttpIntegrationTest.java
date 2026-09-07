@@ -58,7 +58,7 @@ class WorkspaceHttpIntegrationTest {
         catch (IOException error) { throw new ExceptionInInitializerError(error); }
     }
 
-    @Test void createsAndListsAWorkspaceThroughTheRealHttpAndSqliteBoundaries() throws IOException {
+    @Test void createsAndListsAWorkspaceThroughTheRealHttpAndSqliteBoundaries() throws Exception {
         WebTestClient client = WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port).build();
         String cookie = client.get().uri("/api/ui/session").exchange()
                 .expectStatus().isOk().expectHeader().exists(HttpHeaders.SET_COOKIE)
@@ -79,11 +79,34 @@ class WorkspaceHttpIntegrationTest {
 
         Map<?,?> created = new com.fasterxml.jackson.databind.ObjectMapper().readValue(createdBody, Map.class);
         String workspaceId = created.get("id").toString();
-        client.post().uri("/api/workspaces/{workspaceId}/agents/{agentId}/start",
+        Map<?, ?> accepted = client.post().uri("/api/workspaces/{workspaceId}/agents/{agentId}/start",
                         workspaceId, workspaceId + ":orchestrator")
                 .header(HttpHeaders.COOKIE, token).bodyValue(Map.of())
-                .exchange().expectStatus().isEqualTo(409).expectBody()
-                .jsonPath("$.error").value(value -> assertTrue(value.toString().contains("input prompt")));
+                .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
+        assertEquals(java.util.Set.of("run_id"), Objects.requireNonNull(accepted).keySet());
+        String runId = accepted.get("run_id").toString();
+        Map<?, ?> detail = null;
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+        do {
+            detail = client.get().uri("/api/runtime/runs/" + runId).header(HttpHeaders.COOKIE, token)
+                    .exchange().expectStatus().isOk().expectBody(Map.class).returnResult().getResponseBody();
+            if ("failed".equals(Objects.requireNonNull(detail).get("startup_phase"))
+                    && java.util.Set.of("exited", "error").contains(detail.get("status"))) break;
+            Thread.sleep(20);
+        } while (System.nanoTime() < deadline);
+        assertEquals("failed", detail.get("startup_phase"));
+        assertTrue(detail.get("startup_message").toString().contains("exited before startup completed"));
+        assertTrue(java.util.Set.of("exited", "error").contains(detail.get("status")));
+        database.read("verify failed startup remained durably terminal", connection -> {
+            try (var statement = connection.prepareStatement("SELECT status FROM agent_runs WHERE run_id=?")) {
+                statement.setString(1, runId);
+                try (var result = statement.executeQuery()) {
+                    assertTrue(result.next());
+                    assertTrue(java.util.Set.of("exited", "error").contains(result.getString(1)));
+                }
+            }
+            return null;
+        });
 
         client.get().uri("/api/workspaces").header(HttpHeaders.COOKIE, token).exchange()
                 .expectStatus().isOk().expectBody()

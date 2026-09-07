@@ -1,5 +1,7 @@
 package dev.termestra.execution.adapter.out.persistence;
 
+import dev.termestra.execution.adapter.out.terminal.VtPromptTerminal;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.termestra.execution.application.exception.ExecutionConflict;
 import dev.termestra.execution.application.port.in.ExecutionInputLimits;
@@ -163,7 +165,7 @@ class JdbcAgentExecutionLegacyBoundaryTest {
                 sessionCapture,
                 (presetId, command) -> List.of(),
                 recovery,
-                Clock.fixed(Instant.parse("2026-08-11T00:00:00Z"), ZoneOffset.UTC),
+                VtPromptTerminal::new, Clock.fixed(Instant.parse("2026-08-11T00:00:00Z"), ZoneOffset.UTC),
                 new RuntimeOperationCoordinator());
     }
 

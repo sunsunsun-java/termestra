@@ -1,5 +1,7 @@
 package dev.termestra.execution.application.service;
 
+import dev.termestra.execution.adapter.out.terminal.VtPromptTerminal;
+
 import dev.termestra.execution.application.port.in.AgentRunView;
 import dev.termestra.execution.application.port.in.ConfigureAgentCommand;
 import dev.termestra.execution.application.port.in.MessageDeliveryResult;
@@ -18,6 +20,8 @@ import dev.termestra.execution.domain.model.AgentLaunchConfiguration;
 import dev.termestra.execution.domain.model.RunStatus;
 import dev.termestra.shared.concurrency.RuntimeOperationCoordinator;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -51,7 +55,7 @@ class AgentExecutionServiceConcurrencyTest {
 
     @Test void startupOutputCannotPublishRunningBeforeStartupEnterCompletes() throws Exception {
         RecordingRepository repository = new RecordingRepository("cursor-agent");
-        PromptingPty pty = new PromptingPty();
+        PromptingPty pty = new PromptingPty("  → Plan, search, build anything");
         pty.blockNextEnter();
         AgentExecutionService service = service(repository, ignored -> pty);
         ExecutorService requests = Executors.newSingleThreadExecutor();
@@ -59,16 +63,160 @@ class AgentExecutionServiceConcurrencyTest {
             Future<AgentRunView> start = requests.submit(() -> service.start(
                     new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010")));
             assertTrue(pty.awaitBlockedEnter(3, TimeUnit.SECONDS));
-            assertFalse(start.isDone());
+            assertEquals("starting", start.get(1, TimeUnit.SECONDS).status());
             assertEquals("starting", service.listActiveSummaries(WORKSPACE_ID).getFirst().status());
             assertEquals(0, repository.runningTransitions.get());
             pty.releaseBlockedEnter();
-            assertEquals("running", start.get(2, TimeUnit.SECONDS).status());
+            awaitStatus(service, start.get().runId(), "running");
             assertEquals(1, repository.runningTransitions.get());
         } finally {
             pty.releaseBlockedEnter();
             requests.shutdownNow();
             service.close();
+        }
+    }
+
+    @Test void userConfirmationKeepsThePtyWritableAndSubmitsStartupExactlyOnce() throws Exception {
+        RecordingRepository repository = new RecordingRepository("cursor-agent");
+        UserGatePty pty = new UserGatePty();
+        try (var service = service(repository, ignored -> pty)) {
+            AgentRunView first = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
+            assertEquals("starting", first.status());
+            awaitPhase(service, first.runId(), "waiting_for_user");
+            assertTrue(pty.writes.isEmpty(), "automatic startup must not answer the trust page");
+            assertTrue(pty.alive());
+            assertEquals(0, repository.runningTransitions.get());
+            AgentRunView duplicate = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
+            assertEquals(first.runId(), duplicate.runId());
+            assertEquals(1, repository.insertedRunIds.size());
+            MessageDeliveryResult dispatch = service.deliver(WORKSPACE_ID, AGENT_ID, "too-early",
+                    "orchestrator", "worker", "task", "4010");
+            assertFalse(dispatch.delivered());
+            assertFalse(dispatch.inputAttempted());
+            assertTrue(pty.writes.isEmpty());
+            service.write(first.runId(), "CONFIRM".getBytes(StandardCharsets.UTF_8));
+            awaitStatus(service, first.runId(), "running");
+            assertEquals("ready", service.get(first.runId()).startupPhase());
+            assertEquals(1, pty.writes.stream().filter("\r"::equals).count());
+            assertEquals(1, repository.runningTransitions.get());
+            assertEquals(1, pty.writes.stream().filter(value -> value.contains("<termestra-message kind=\"startup\">")).count());
+            assertFalse(pty.writes.stream().anyMatch(value -> value.contains("too-early")));
+        }
+    }
+
+    @Test void chatInputDuringOrchestratorSetupFailsWithoutQueuingAnotherStartup() throws Exception {
+        RecordingRepository repository = new RecordingRepository("cursor-agent");
+        String orchestrator = WORKSPACE_ID + ":orchestrator";
+        AgentDescriptor descriptor = new AgentDescriptor(WORKSPACE_ID, "Workspace", "/tmp", orchestrator,
+                "Orchestrator", "Coordinate tasks", "orchestrator");
+        UserGatePty pty = new UserGatePty();
+        try (var service = new AgentExecutionService(repository, (workspace, agent) -> Optional.of(descriptor),
+                credentials(), ignored -> pty, noSessionCapture(), (preset, command) -> List.of(), noRecovery(),
+                VtPromptTerminal::new, Clock.systemUTC(), new RuntimeOperationCoordinator());
+             var requests = Executors.newVirtualThreadPerTaskExecutor()) {
+            AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, orchestrator, "4010"));
+            awaitPhase(service, run.runId(), "waiting_for_user");
+            MessageDeliveryResult result = requests.submit(() -> service.userInput(WORKSPACE_ID, "chat task"))
+                    .get(1, TimeUnit.SECONDS);
+            assertFalse(result.delivered());
+            assertFalse(result.inputAttempted());
+            assertTrue(pty.writes.isEmpty());
+            service.stop(run.runId());
+        }
+    }
+
+    @Test void stoppingAndDeletingWhileWaitingCannotResurrectTheRun() throws Exception {
+        for (boolean delete : List.of(false, true)) {
+            RecordingRepository repository = new RecordingRepository("cursor-agent");
+            UserGatePty pty = new UserGatePty();
+            try (var service = service(repository, ignored -> pty);
+                 var requests = Executors.newVirtualThreadPerTaskExecutor()) {
+                AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
+                awaitPhase(service, run.runId(), "waiting_for_user");
+                requests.submit(() -> {
+                    if (delete) service.forgetAgent(WORKSPACE_ID, AGENT_ID);
+                    else service.stop(run.runId());
+                }).get(1, TimeUnit.SECONDS);
+                pty.emitReady();
+                assertFalse(pty.alive());
+                assertTrue(service.listActiveSummaries(WORKSPACE_ID).isEmpty());
+                assertEquals(0, repository.runningTransitions.get());
+                assertTrue(pty.writes.isEmpty());
+                if (delete) assertThrows(RunNotFound.class, () -> service.get(run.runId()));
+                else assertFalse("running".equals(service.get(run.runId()).status()));
+            }
+        }
+    }
+
+    @Test void startupFailureKeepsItsOutputAndRetryCreatesANewRun() throws Exception {
+        RecordingRepository repository = new RecordingRepository("cursor-agent");
+        List<UserGatePty> processes = new CopyOnWriteArrayList<>();
+        try (var service = service(repository, ignored -> {
+            UserGatePty pty = new UserGatePty(); processes.add(pty); return pty;
+        })) {
+            AgentRunView first = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
+            awaitPhase(service, first.runId(), "waiting_for_user");
+            processes.getFirst().exit(1);
+            awaitStatus(service, first.runId(), "error");
+            assertEquals("failed", service.get(first.runId()).startupPhase());
+            assertTrue(service.get(first.runId()).output().contains("Do you trust"));
+            assertTrue(service.listActiveSummaries(WORKSPACE_ID).isEmpty());
+            assertEquals(List.of(first.runId()), service.listTerminalSummaries(WORKSPACE_ID).stream()
+                    .map(run -> run.runId()).toList());
+            MessageDeliveryResult automaticRetry = service.deliver(WORKSPACE_ID, AGENT_ID, "after-startup-failure",
+                    "orchestrator", "worker", "task", "4010");
+            assertFalse(automaticRetry.delivered());
+            assertFalse(automaticRetry.inputAttempted());
+            assertFalse(automaticRetry.uncertain());
+            assertFalse(automaticRetry.deferred(), "a failed startup requires explicit restart, not continued deferral");
+            assertEquals(1, processes.size(), "automatic delivery must not restart the failed CLI");
+            assertEquals(List.of(first.runId()), repository.insertedRunIds);
+            assertTrue(processes.getFirst().writes.isEmpty());
+            AgentRunView second = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
+            assertFalse(first.runId().equals(second.runId()));
+            assertEquals(2, processes.size());
+            assertEquals(List.of(second.runId()), service.listTerminalSummaries(WORKSPACE_ID).stream()
+                    .map(run -> run.runId()).toList(), "the current attempt supersedes its old failure");
+        }
+    }
+
+    private static void awaitPhase(AgentExecutionService service, String runId, String phase)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        while (!phase.equals(service.get(runId).startupPhase()) && System.nanoTime() < deadline) Thread.sleep(10);
+        assertEquals(phase, service.get(runId).startupPhase());
+    }
+
+    @Test void terminalSummariesKeepEveryConcurrentShellRun() {
+        RecordingRepository repository = new RecordingRepository();
+        String shell = WORKSPACE_ID + ":shell";
+        AtomicInteger launched = new AtomicInteger();
+        try (var service = service(repository, ignored -> new TestPty(launched.incrementAndGet()), shell, "shell")) {
+            AgentRunView first = service.start(new StartAgentCommand(WORKSPACE_ID, shell, "4010"));
+            AgentRunView second = service.start(new StartAgentCommand(WORKSPACE_ID, shell, "4010"));
+            assertFalse(first.runId().equals(second.runId()));
+            assertEquals(java.util.Set.of(first.runId(), second.runId()), service.listTerminalSummaries(WORKSPACE_ID)
+                    .stream().map(run -> run.runId()).collect(java.util.stream.Collectors.toSet()));
+            assertEquals(2, service.listActiveSummaries(WORKSPACE_ID).size());
+            service.stop(first.runId());
+            assertEquals(List.of(second.runId()), service.listTerminalSummaries(WORKSPACE_ID)
+                    .stream().map(run -> run.runId()).toList());
+        }
+    }
+
+    @Test void shellExitingDuringActivationIsSuccessfulAndNotRetainedAsAStartupFailure() {
+        RecordingRepository repository = new RecordingRepository();
+        String shell = WORKSPACE_ID + ":shell";
+        TestPty pty = new TestPty(46, true);
+        try (var service = service(repository, ignored -> pty, shell, "shell")) {
+            AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, shell, "4010"));
+            assertEquals("exited", run.status());
+            assertEquals(0, run.exitCode());
+            assertEquals("ready", run.startupPhase());
+            assertEquals(null, run.startupMessage());
+            assertTrue(service.listActiveSummaries(WORKSPACE_ID).isEmpty());
+            assertTrue(service.listTerminalSummaries(WORKSPACE_ID).isEmpty());
+            assertEquals(1, repository.finishAttempts.get());
         }
     }
 
@@ -103,7 +251,7 @@ class AgentExecutionServiceConcurrencyTest {
                 noSessionCapture(),
                 (presetId, command) -> List.of(),
                 noRecovery(),
-                Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC),
+                VtPromptTerminal::new, Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC),
                 new RuntimeOperationCoordinator());
         ExecutorService starts = Executors.newFixedThreadPool(2);
 
@@ -216,6 +364,61 @@ class AgentExecutionServiceConcurrencyTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "\u001b]10;rgb:ffff/ffff/ffff\u001b\\",
+            "\u001b]11;rgb:0000/0000/0000\u0007",
+            "\u001b[>0;276;0c",
+            "\u001b[?1;2c",
+            "\u001b[12;4R",
+            "\u001b[?12;4R",
+            "\u001b[12;4R\u001b[>0;276;0c"
+    })
+    void browserTerminalResponsesPreserveTheCurrentReadyPrompt(String response) throws Exception {
+        RecordingRepository repository = new RecordingRepository("hermes");
+        PromptingPty pty = new PromptingPty();
+        AgentExecutionService service = service(repository, ignored -> pty);
+        ExecutorService requests = Executors.newSingleThreadExecutor();
+        try {
+            AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
+            awaitStatus(service, run.runId(), "running");
+            pty.emitPrompt();
+            service.write(run.runId(), response.getBytes(StandardCharsets.UTF_8));
+            MessageDeliveryResult result = requests.submit(() -> service.deliver(WORKSPACE_ID, AGENT_ID,
+                    "after-terminal-response", "orchestrator", "worker", "task", "4010"))
+                    .get(3, TimeUnit.SECONDS);
+            assertTrue(result.delivered(), "a browser response must not require another CLI redraw");
+            assertTrue(pty.writes().contains(response), "terminal responses must still reach the process unchanged");
+            assertEquals(1, pty.writes().stream().filter(value -> value.contains("after-terminal-response")).count());
+        } finally {
+            service.close();
+            requests.shutdownNow();
+        }
+    }
+
+    @Test void keyboardInputInvalidatesReadinessUntilTheCliDrawsAnotherEmptyPrompt() throws Exception {
+        RecordingRepository repository = new RecordingRepository("hermes");
+        PromptingPty pty = new PromptingPty();
+        AgentExecutionService service = service(repository, ignored -> pty);
+        ExecutorService requests = Executors.newSingleThreadExecutor();
+        try {
+            AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
+            awaitStatus(service, run.runId(), "running");
+            pty.emitPrompt();
+            service.write(run.runId(), "draft task".getBytes(StandardCharsets.UTF_8));
+            Future<MessageDeliveryResult> delivery = requests.submit(() -> service.deliver(WORKSPACE_ID, AGENT_ID,
+                    "after-keyboard-input", "orchestrator", "worker", "task", "4010"));
+            Thread.sleep(150);
+            assertFalse(delivery.isDone(), "automatic input must not use the prompt that preceded manual typing");
+            assertFalse(pty.writes().stream().anyMatch(value -> value.contains("after-keyboard-input")));
+            pty.emitPrompt();
+            assertTrue(delivery.get(3, TimeUnit.SECONDS).delivered());
+        } finally {
+            service.close();
+            requests.shutdownNow();
+        }
+    }
+
     @Test void interactiveDeliveriesAreFifoRequireFreshPromptsAndExcludeManualWrites() throws Exception {
         RecordingRepository repository = new RecordingRepository("hermes");
         PromptingPtyLauncher launcher = new PromptingPtyLauncher();
@@ -224,7 +427,8 @@ class AgentExecutionServiceConcurrencyTest {
 
         try {
             AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
-            assertTrue(launcher.pty.hasSubmittedEnter(), "startup delivery must include Enter before start returns");
+            awaitStatus(service, run.runId(), "running");
+            assertTrue(launcher.pty.hasSubmittedEnter(), "running requires the complete startup submission");
 
             Future<MessageDeliveryResult> first = requests.submit(() -> service.deliver(
                     WORKSPACE_ID, AGENT_ID, "dispatch-one", "orchestrator", "worker", "first task", "4010"));
@@ -274,6 +478,7 @@ class AgentExecutionServiceConcurrencyTest {
 
         try {
             AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
+            awaitStatus(service, run.runId(), "running");
             Future<MessageDeliveryResult> waiting = requests.submit(() -> service.deliver(
                     WORKSPACE_ID, AGENT_ID, "dispatch-after-exit", "orchestrator", "worker", "task", "4010"));
             Thread.sleep(100);
@@ -302,6 +507,7 @@ class AgentExecutionServiceConcurrencyTest {
         try{
             AgentRunView run=service.start(new StartAgentCommand(
                     WORKSPACE_ID,AGENT_ID,"4010"));
+            awaitStatus(service, run.runId(), "running");
             launcher.pty.blockNextWrite();
             Future<?> manual=requests.submit(()->service.write(
                     run.runId(),"blocked-manual-input".getBytes(StandardCharsets.UTF_8)));
@@ -330,7 +536,7 @@ class AgentExecutionServiceConcurrencyTest {
         }
     }
 
-    @Test void startupInputFailureIsNotReportedAsAttemptedDispatchAndDoesNotLeakRun() {
+    @Test void startupInputFailureIsNotReportedAsAttemptedDispatchAndDoesNotLeakRun() throws Exception {
         RecordingRepository repository = new RecordingRepository("hermes");
         FailingStartupPtyLauncher launcher = new FailingStartupPtyLauncher();
         AgentExecutionService service = service(repository, launcher);
@@ -341,6 +547,7 @@ class AgentExecutionServiceConcurrencyTest {
 
             assertFalse(result.delivered());
             assertFalse(result.inputAttempted(), "startup bytes are not an attempt to deliver the task body");
+            awaitStatus(service, repository.insertedRunIds.getFirst(), "error");
             assertFalse(launcher.pty.alive());
             assertTrue(service.listActiveSummaries(WORKSPACE_ID).isEmpty());
         } finally {
@@ -453,7 +660,7 @@ class AgentExecutionServiceConcurrencyTest {
                 repository,
                 (workspaceId, agentId) -> Optional.of(agent),
                 credentials(), launcher, noSessionCapture(), (presetId, command) -> List.of(), noRecovery(),
-                Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC),
+                VtPromptTerminal::new, Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC),
                 new RuntimeOperationCoordinator(),new RunCapacityBudget(1, 1));
 
         try {
@@ -487,7 +694,7 @@ class AgentExecutionServiceConcurrencyTest {
                 (workspaceId,agentId)->Optional.of(agent),credentials(),ignored->{
                     TestPty pty=new TestPty(90+processes.size());processes.add(pty);return pty;
                 },noSessionCapture(),(presetId,command)->List.of(),noRecovery(),
-                Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"),ZoneOffset.UTC),
+                VtPromptTerminal::new, Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"),ZoneOffset.UTC),
                 new RuntimeOperationCoordinator(),new RunCapacityBudget(1,1));
 
         try{
@@ -531,7 +738,7 @@ class AgentExecutionServiceConcurrencyTest {
         AgentExecutionService service=new AgentExecutionService(repository,
                 (workspaceId,agentId)->Optional.of(agent),credentials(),ignored->pty,failingCleanup,
                 (presetId,command)->List.of(),noRecovery(),
-                Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"),ZoneOffset.UTC),
+                VtPromptTerminal::new, Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"),ZoneOffset.UTC),
                 new RuntimeOperationCoordinator());
 
         try{
@@ -545,14 +752,19 @@ class AgentExecutionServiceConcurrencyTest {
 
     private static AgentExecutionService service(RecordingRepository repository,
                                                   dev.termestra.execution.application.port.out.PseudoTerminalLauncher launcher) {
+        return service(repository, launcher, AGENT_ID, "coder");
+    }
+
+    private static AgentExecutionService service(RecordingRepository repository, PseudoTerminalLauncher launcher,
+                                                 String targetAgentId, String role) {
         AgentDescriptor agent = new AgentDescriptor(
-                WORKSPACE_ID, "Workspace", "/tmp", AGENT_ID, "Worker", "Implement tasks", "coder");
+                WORKSPACE_ID, "Workspace", "/tmp", targetAgentId, "Worker", "Implement tasks", role);
         return new AgentExecutionService(
                 repository,
-                (workspaceId, agentId) -> workspaceId.equals(WORKSPACE_ID) && agentId.equals(AGENT_ID)
+                (workspaceId, agentId) -> workspaceId.equals(WORKSPACE_ID) && agentId.equals(targetAgentId)
                         ? Optional.of(agent) : Optional.empty(),
                 credentials(), launcher, noSessionCapture(), (presetId, command) -> List.of(), noRecovery(),
-                Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC),
+                VtPromptTerminal::new, Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC),
                 new RuntimeOperationCoordinator());
     }
 
@@ -651,9 +863,14 @@ class AgentExecutionServiceConcurrencyTest {
         private volatile IntConsumer exitListener;
         private volatile Consumer<byte[]> outputListener;
 
-        private TestPty(long pid) { this.pid = pid; }
+        private final boolean exitOnActivate;
+        private TestPty(long pid) { this(pid, false); }
+        private TestPty(long pid, boolean exitOnActivate) { this.pid = pid; this.exitOnActivate = exitOnActivate; }
         @Override public long pid() { return pid; }
-        @Override public void activate(Consumer<byte[]> output, IntConsumer exit) { outputListener = output; exitListener = exit; }
+        @Override public void activate(Consumer<byte[]> output, IntConsumer exit) {
+            outputListener = output; exitListener = exit;
+            if (exitOnActivate) exit(0);
+        }
         @Override public void write(byte[] input) { }
         @Override public void resize(int columns, int rows) { }
         @Override public void pauseOutput() { }
@@ -681,6 +898,33 @@ class AgentExecutionServiceConcurrencyTest {
         @Override public boolean alive() { return alive.get(); }
     }
 
+    private static final class UserGatePty implements PseudoTerminalHandle {
+        private final AtomicBoolean alive = new AtomicBoolean(true);
+        private final List<String> writes = new CopyOnWriteArrayList<>();
+        private volatile Consumer<byte[]> output;
+        private volatile IntConsumer exit;
+        @Override public long pid() { return 45; }
+        @Override public void activate(Consumer<byte[]> output, IntConsumer exit) {
+            this.output = output; this.exit = exit;
+            output.accept("Do you trust the files in this folder?\r\nEnter to confirm".getBytes(StandardCharsets.UTF_8));
+        }
+        @Override public void write(byte[] bytes) {
+            if (!alive()) throw new IllegalStateException("PTY is stopped");
+            String value = new String(bytes, StandardCharsets.UTF_8);
+            writes.add(value);
+            if ("CONFIRM".equals(value)) emitReady();
+        }
+        private void emitReady() {
+            output.accept("\u001b[2J\u001b[H  → Plan, search, build anything".getBytes(StandardCharsets.UTF_8));
+        }
+        private void exit(int code) { if (alive.compareAndSet(true, false)) exit.accept(code); }
+        @Override public void stop() { exit(143); }
+        @Override public boolean alive() { return alive.get(); }
+        @Override public void resize(int columns, int rows) { }
+        @Override public void pauseOutput() { }
+        @Override public void resumeOutput() { }
+    }
+
     private static final class PromptingPtyLauncher implements dev.termestra.execution.application.port.out.PseudoTerminalLauncher {
         private final PromptingPty pty = new PromptingPty();
         @Override public PseudoTerminalHandle start(ProcessLaunchRequest request) { return pty; }
@@ -702,7 +946,7 @@ class AgentExecutionServiceConcurrencyTest {
         @Override public long pid(){return 44;}
         @Override public void activate(Consumer<byte[]> output,IntConsumer exit){
             this.output=output;this.exit=exit;
-            output.accept("Welcome to Hermes Agent!\n❯\n".getBytes(StandardCharsets.UTF_8));
+            output.accept("\u001b[2J\u001b[HWelcome to Hermes Agent!\r\n❯ ".getBytes(StandardCharsets.UTF_8));
         }
         @Override public void write(byte[] input){
             if(blockNextWrite.compareAndSet(true,false)){
@@ -716,7 +960,12 @@ class AgentExecutionServiceConcurrencyTest {
                 }
             }
             if(!alive.get())throw new IllegalStateException("PTY is stopped");
-            if(output!=null)output.accept("\n❯\n".getBytes(StandardCharsets.UTF_8));
+            if (output != null) {
+                String value = new String(input, StandardCharsets.UTF_8);
+                String response = value.contains("\u001b[200~")
+                        ? "[Pasted text #1: 5 lines → /tmp/paste.txt]" : "\u001b[2J\u001b[H❯ ";
+                output.accept(response.getBytes(StandardCharsets.UTF_8));
+            }
         }
         @Override public void resize(int columns,int rows){}
         @Override public void pauseOutput(){}
@@ -748,7 +997,7 @@ class AgentExecutionServiceConcurrencyTest {
         @Override public long pid() { return 43; }
         @Override public void activate(Consumer<byte[]> output, IntConsumer exit) {
             exitListener = exit;
-            output.accept("Welcome to Hermes Agent!\n❯\n".getBytes(StandardCharsets.UTF_8));
+            output.accept("\u001b[2J\u001b[HWelcome to Hermes Agent!\r\n❯ ".getBytes(StandardCharsets.UTF_8));
         }
         @Override public void write(byte[] input) { throw new IllegalStateException("simulated PTY write failure"); }
         @Override public void resize(int columns, int rows) { }
@@ -761,6 +1010,9 @@ class AgentExecutionServiceConcurrencyTest {
     }
 
     private static final class PromptingPty implements PseudoTerminalHandle {
+        private final String prompt;
+        private PromptingPty() { this("Welcome to Hermes Agent!\r\n❯ "); }
+        private PromptingPty(String prompt) { this.prompt = prompt; }
         private final AtomicBoolean alive = new AtomicBoolean(true);
         private final CopyOnWriteArrayList<String> writes = new CopyOnWriteArrayList<>();
         private final AtomicBoolean blockNextEnter = new AtomicBoolean();
@@ -801,7 +1053,7 @@ class AgentExecutionServiceConcurrencyTest {
 
         private void emitPrompt() {
             Consumer<byte[]> listener = outputListener;
-            if (listener != null) listener.accept("Welcome to Hermes Agent!\n❯\n".getBytes(StandardCharsets.UTF_8));
+            if (listener != null) listener.accept(("\u001b[2J\u001b[H" + prompt).getBytes(StandardCharsets.UTF_8));
         }
         private boolean hasSubmittedEnter() { return writes.contains("\r"); }
         private void blockNextEnter() { blockNextEnter.set(true); }

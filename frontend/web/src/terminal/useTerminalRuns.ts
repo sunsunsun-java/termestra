@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { listTerminalRuns, type TerminalRunSummary } from '../api.js'
+import { isRunActive } from './run-startup.js'
 import { createVisiblePagePoller } from '../lib/visible-page-poller.js'
 import {
   initialTerminalRunsPollState,
@@ -27,6 +28,8 @@ const areTerminalRunsEqual = (a: TerminalRunSummary[], b: TerminalRunSummary[]):
       run.agent_name === other.agent_name &&
       run.run_id === other.run_id &&
       run.status === other.status &&
+      run.startup_phase === other.startup_phase &&
+      run.startup_message === other.startup_message &&
       run.terminal_input_profile === other.terminal_input_profile
     )
   })
@@ -111,9 +114,11 @@ export const findOrchestratorRun = (
   runs: TerminalRunSummary[],
   workspaceId: string
 ): TerminalRunSummary | undefined =>
-  runs.find((run) => run.agent_id === orchestratorAgentId(workspaceId))
+  findRunByAgentId(runs, orchestratorAgentId(workspaceId))
 
 export const findRunByAgentId = (
   runs: TerminalRunSummary[],
   agentId: string
-): TerminalRunSummary | undefined => runs.find((run) => run.agent_id === agentId)
+): TerminalRunSummary | undefined =>
+  runs.find((run) => run.agent_id === agentId && isRunActive(run)) ??
+  runs.find((run) => run.agent_id === agentId)

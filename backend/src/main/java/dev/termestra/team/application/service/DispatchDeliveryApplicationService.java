@@ -20,8 +20,8 @@ public final class DispatchDeliveryApplicationService implements DispatchDeliver
     /**
      * An active-worker delivery can legitimately spend 2 seconds acquiring its runtime
      * coordinator, 30 seconds waiting for a CLI prompt, and 3 seconds completing paste
-     * acknowledgement. A cold worker may require a second prompt/paste cycle while it starts.
-     * Ninety seconds covers both bounded cycles plus scheduling and SQLite acknowledgement margin.
+     * acknowledgement. Ninety seconds leaves scheduling and SQLite acknowledgement margin.
+     * Cold startup is asynchronous and defers its claim without holding this lease while waiting.
      */
     private static final Duration LEASE_DURATION = Duration.ofSeconds(90);
     private static final Duration RUNTIME_BUSY_RETRY_DELAY = Duration.ofSeconds(1);
@@ -67,8 +67,8 @@ public final class DispatchDeliveryApplicationService implements DispatchDeliver
 
     private void deferClaim(DispatchDeliveryWork work, String reason) {
         Instant now = Instant.now(clock);
-        // This is scheduling contention, not a delivery attempt. A short durable delay avoids
-        // repeatedly claiming and rewriting the same row while the runtime resource stays busy.
+        // Contention and ongoing startup have not attempted input. A short durable delay avoids
+        // repeatedly claiming and rewriting the same row while the runtime is not ready.
         ledger.deferDeliveryClaim(work.attemptId(), boundedError(reason),
                 now.plus(RUNTIME_BUSY_RETRY_DELAY), now);
     }
@@ -96,6 +96,10 @@ public final class DispatchDeliveryApplicationService implements DispatchDeliver
             return;
         }
         String error = boundedError(delivery.error() == null ? "Worker input was not accepted" : delivery.error());
+        if (delivery.deferred()) {
+            deferClaim(work, error);
+            return;
+        }
         if (delivery.inputAttempted() || delivery.uncertain()) {
             ledger.markDeliveryUncertain(work.attemptId(), error, completedAt);
             return;

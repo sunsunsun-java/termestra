@@ -222,7 +222,7 @@ public class RuntimeWiring {
             AgentExecutionRepository repository, AgentDirectory directory,
             AgentCredentialIssuer credentials, PseudoTerminalLauncher launcher,AgentSessionCapture sessionCapture,CommandPresetPolicy presetPolicy,AgentRecoveryContextProvider recovery, Clock clock,
             RuntimeOperationCoordinator operations) {
-        return new AgentExecutionService(repository, directory, credentials, launcher,sessionCapture,presetPolicy,recovery, clock,operations);
+        return new AgentExecutionService(repository, directory, credentials, launcher,sessionCapture,presetPolicy,recovery, dev.termestra.execution.adapter.out.terminal.VtPromptTerminal::new, clock,operations);
     }
     @Bean TerminalRuntimeGateway terminalRuntimeGateway(AgentExecutionUseCase execution, RunOutputUseCase output) {
         return new TerminalRuntimeGateway() {
@@ -298,7 +298,7 @@ public class RuntimeWiring {
         return new AgentTeamNotifier() {
             private DeliveryResult result(MessageDeliveryResult result) {
                 return new DeliveryResult(result.delivered(), result.inputAttempted(),
-                        result.uncertain(), result.error());
+                        result.uncertain(), result.deferred(), result.error());
             }
             @Override public DeliveryResult deliver(Dispatch dispatch, TeamMember worker, String runtimePort) {
                 return result(messaging.deliver(dispatch.workspaceId().toString(), worker.id().toString(),

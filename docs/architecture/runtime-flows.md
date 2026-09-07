@@ -31,7 +31,7 @@ sequenceDiagram
     alt new Workspace and autostart enabled
         W->>E: start Orchestrator
         E->>DB: persist Run
-        E->>E: activate PTY and inject startup/recovery input
+        E->>E: activate PTY and schedule startup/recovery input
     end
     W-->>UI: Workspace + orchestrator_start
 ```
@@ -47,11 +47,25 @@ Orchestrator，因此 Orchestrator 失败不会删除已经有效的 Workspace�
 事务内校验来源 revision 并复制其最终命令、参数、环境、preset、model 与恢复元数据。
 这是创建时快照，不是后续联动配置。
 
-`AgentExecutionService` 在启动/恢复输入完整提交前保留 `starting`；PTY 的欢迎、登录或
-信任提示输出不会把 Run 推进到 `running`。Team 的运行状态适配器只把 `running` Run
-用于 `idle/working` 投影，避免前端轮询先发出“已启动”通知。`CreateWorkerService`
-在自动启动结束后重新读取成员状态，避免创建响应用启动前的 `stopped` 覆盖最新投影。
-若成员已被并发删除，返回 `TeamConflict`（HTTP 409），不返回过时的成功快照。
+`AgentExecutionService` 在持久化并激活交互式 PTY 后返回 Run，由每 Run 一次的后台任务
+完成启动或恢复输入。创建响应的 `agent_start.ok`（Workspace 对应 `orchestrator_start.ok`）
+表示进程创建请求已接受，不表示 CLI 已能接收任务。`CreateWorkerService` 在启动请求返回后
+重新读取成员状态；若成员已被并发删除，返回 `TeamConflict`（HTTP 409）。启动失败不会
+删除已保存的 Worker，用户可以查看失败输出、重试或删除。
+
+Run 在提示识别和启动/恢复输入完整提交（含 Enter）前保持 `starting`；原生 session
+恢复只等待就绪，不重复注入启动或恢复文本。`startup_phase` 区分 `initializing`、
+`waiting_for_user`、`ready` 和 `failed`。确认、登录或初始化选择页优先于普通输入框识别：
+后台等待期间保留 PTY，浏览器可人工完成操作，Termestra 不向该页面自动提交指令。
+识别到当前输入框稳定后才继续后台输入；非用户等待的初始化累计上限为 120 秒，整个
+启动等待上限为 10 分钟。停止、删除或服务关闭会取消后台启动输入。
+
+Team 的运行状态适配器只把 `running` Run 用于 `idle/working` 投影。Run 仍在 `starting`
+时，自动输入返回内部 typed `deferred`，保证尚未尝试 PTY 写入。已入 outbox 的 Delivery
+通过 `deferDeliveryClaim` 延后处理，不消耗五次失败重试额度，避免初始化或人工确认尚未
+结束就耗尽重试。若 Agent 已无 active Run，且最新 retained Run 为启动失败，派单返回
+普通失败，不自动新建 Run；用户显式启动仍可重试。这项保护只覆盖进程内尚保留的失败
+证据。输入可能触达 PTY 时仍使用 `uncertain`，禁止自动重试。
 
 Cursor 内置预设使用 `--force --trust`，信任用户已注册的 Workspace。schema v33 只升级
 仍为默认 `--force` 的内置 Cursor 策略，递增 preset revision，保留用户自定义策略与参数；
@@ -60,10 +74,14 @@ schema v34 另外修复已固化参数的内置 Cursor 默认快照：在默认�
 `cursor-agent --force`（可带已记录的显式 `--model`）追加 `--trust` 并递增 Launch
 Configuration revision。自定义命令、额外参数、显式 startup 与已带 `--trust` 的快照保留
 原样；该一次性兼容修复不恢复快照与预设的后续联动。
-`InteractiveInputSubmitter` 识别 Cursor 的初始与后续输入框提示；若 3 秒后仍停留在登录或
-首次设置提示，启动失败会明确要求在该 Workspace 运行 `cursor-agent` 完成设置或执行
-`cursor-agent login`，不会向确认界面写入启动指令。失败保留成员，清理 Run 和凭据，用户
-完成设置后可再次启动。
+`InteractiveOutputTail` 随输出到达更新有界 VT 屏幕和提示识别状态，
+`InteractiveInputSubmitter` 等待当前屏幕中的输入框，不再使用“三秒后自动放行”的兜底。
+Hermes 支持光标位于占位文字前的输入框；Claude、Codex、Antigravity 的确认页按渲染后的
+屏幕识别，Cursor 与 OpenCode 沿用各自输入框特征。Pi 仅保留本次 Run 已观察到的 CLI
+身份，是否可输入仍由当前屏幕决定，避免横幅重绘后漏检或把旧的就绪状态用于新派单。
+输入行的绘制版本区分相同内容的重新绘制与旧提示；人工输入后必须观察新的输入框证据，
+标题更新、纯光标移动和浏览器终端查询响应不会作为用户编辑或新输入框。
+识别回归样本覆盖这些 CLI 的实际终端输出及不同分块。
 
 ## 可靠派单
 
@@ -90,6 +108,9 @@ sequenceDiagram
     alt complete input accepted
         Exec-->>Delivery: forwarded
         Delivery->>Ledger: Delivery submitted + Dispatch submitted
+    else startup still pending
+        Exec-->>Delivery: deferred, input_attempted=false
+        Delivery->>Ledger: defer claim without consuming failure retry budget
     else proven no input
         Exec-->>Delivery: failed, input_attempted=false
         Delivery->>Ledger: bounded retry_wait or failed

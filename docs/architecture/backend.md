@@ -33,6 +33,7 @@ Auth、Marketplace 等简单上下文可以使用较小结构；是否分层由�
 | `AgentExecutionUseCase` / `AgentMessagingUseCase` | Run 容量、PTY 生命周期、输入串行、恢复与持久状态 | `AgentExecutionService` |
 | `ConfigureAgentLaunchUseCase` | preset/model 解析、最终参数生成、revision 校验与继承快照 | `AgentLaunchConfigurator` |
 | `PseudoTerminalLauncher` | 平台 PTY 启动、进程组/Job Object 终止 | `Pty4jProcessLauncher` |
+| `PromptTerminal` | 交互式提示所需的有界可见屏幕、光标与粘贴模式 | `VtPromptTerminal` |
 | `TerminalRuntimeGateway` | Terminal 与 Run 所有权隔离 | `RuntimeWiring` 中的 Execution adapter |
 | `TasksDocumentStore` | 真实目录/文件校验、大小限制、原子替换 | `NioTasksDocumentStore` |
 | `ConfigurationRepository` | 内建项刷新、自定义项容量和 legacy 行防护 | `JdbcConfigurationRepository` |
@@ -112,15 +113,26 @@ pty4j 的输出流读取可能阻塞在原生调用，因此每个受全局 Run 
 自动输入 mailbox 和 provider session capture 等不进入阻塞原生
 边界的任务仍可使用虚拟线程。
 
-Team Scenario 在持久化完整 roster 后，按 catalog 顺序逐个启动成员；一个成员的 PTY
-启动返回前不启动下一个。某个启动失败仍会继续尝试余下成员，然后报告最早失败；这保留
-已创建成员可见、可显式重试或删除的部分成功语义，并避免多个虚拟线程同时进入原生 PTY
-创建。
+Team Scenario 在持久化完整 roster 后，按 catalog 顺序逐个请求启动成员；一个成员的
+PTY 创建返回前不创建下一个，但已经创建的交互式 Run 可各自继续后台就绪握手。进程
+创建失败仍会继续尝试余下成员，然后报告最早的同步失败；后续握手失败由各 Run 的
+启动投影报告。这保留已创建成员可见、可显式重试或删除的部分成功语义，并避免多个
+虚拟线程同时进入原生 PTY 创建。
 
 ## 进程与恢复
 
-Run 启动采用 DB-first 注册：启动 PTY 后先插入 `agent_runs`，再激活输出回调和
-输入注入。如果初始化失败，进程、credential、容量与持久状态按失败阶段回收。
+Run 启动采用 DB-first 注册：启动 PTY 后先插入 `agent_runs`，再激活输出回调。交互式
+Agent 随即返回 Run，并在每 Run 一个后台任务中等待提示、执行一次启动/恢复输入；等待
+用户操作时不持有跨上下文生命周期锁，也不阻止浏览器输入。只有就绪握手完成才持久化
+`running`。停止、删除、进程退出和服务关闭取消该任务；初始化失败按失败阶段回收
+进程、credential 与容量，保留有界失败证据。
+
+Execution 的 `PromptTerminal` 端口由 `VtPromptTerminal` 适配到
+`platform.terminal.HeadlessTerminalMirror`。Terminal 的 `TerminalWebSocketHandler`
+复用同一 VT 实现生成 restore；两个用途各自持有有界屏幕实例，Execution 不依赖
+Terminal application。`InteractiveOutputTail` 在每次输出到达时更新当前提示状态，
+识别所需的尾部文本固定为 8,192 字符。活动 Run 上限仍为全局 128、每 Workspace 32；
+后台任务随 Run 清理，已完成 Run 沿用全局最多 16 个的保留上限。
 
 后端重启时：
 

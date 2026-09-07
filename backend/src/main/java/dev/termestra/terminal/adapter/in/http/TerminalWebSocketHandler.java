@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import dev.termestra.terminal.application.port.in.*;
-import dev.termestra.terminal.application.service.HeadlessTerminalMirror;
+import dev.termestra.platform.terminal.HeadlessTerminalMirror;
 import dev.termestra.execution.application.exception.ExecutionConflict;
 import dev.termestra.execution.application.exception.RunNotFound;
 import org.slf4j.Logger;

@@ -42,6 +42,16 @@ frontend/
 前端不会把 Terminal detail 作为 TeamMember 或 Run list 的来源。卡片上的
 `last_pty_line` 只是固定长度的提示，正式 Worker 结果只能来自 Report。
 
+Run ID 表示已有可查看的 Run；`status` 与 `startup_phase` 才决定启动展示和操作。
+`starting/initializing` 显示正在启动，`waiting_for_user` 提示进入终端完成操作，只有
+`running/ready` 表示启动成功并允许派单。创建成员与启动进程分开展示：启动已接受时
+保留启动进度，不立即显示就绪成功。启动错误按当前 Run 管理，新尝试不沿用旧 Run 的
+错误；失败 Run 的有界输出仍可打开查看，避免停止视图遮住失败原因。
+
+UI Run 轮询包含 active Run 和后端仍保留的每 Agent 最新启动失败；失败项只用于诊断，
+不计入活动终端、运行通知或 PWA 的活动进程保护。新的 active Run 替换同 Agent 的旧
+失败项，Workspace 切换和删除沿用既有有界投影清理。
+
 ## HTTP adapter
 
 `web/src/api.ts` 与 `lib/ui-session-fetch.ts` 集中处理：

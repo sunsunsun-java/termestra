@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TerminalRunSummary } from '../api.js'
 import { type OrchestratorStartResult, startAgentRun, stopAgentRun } from '../api.js'
+import { isRunActive, runStartupPhase } from '../terminal/run-startup.js'
 import { useI18n } from '../i18n.js'
 import { findOrchestratorRun, orchestratorAgentId } from '../terminal/useTerminalRuns.js'
 import { presentAgentStartError } from './agent-start-error.js'
@@ -26,6 +27,7 @@ interface UseOrchestratorPaneStateOutput {
   state: OrchestratorPaneState
   start: () => void
   restart: () => void
+  stop: () => Promise<void>
 }
 
 /**
@@ -61,13 +63,12 @@ export const useOrchestratorPaneState = ({
   }, [suppressAutostartRunId])
 
   useEffect(() => {
-    if (orchestratorRun) {
-      setPendingStartWorkspaceId(null)
+    if (orchestratorRun && (!optimisticRunId || optimisticRunId === orchestratorRun.run_id)) {
       setOptimisticRun(null)
       setSuppressedRunId(null)
-      if (autostartError) onClearAutostartError()
+      if (autostartError && isRunActive(orchestratorRun)) onClearAutostartError()
     }
-  }, [autostartError, onClearAutostartError, orchestratorRun])
+  }, [autostartError, onClearAutostartError, orchestratorRun, optimisticRunId])
 
   useEffect(() => {
     if (!suppressedRunId || orchestratorRun) return
@@ -76,18 +77,23 @@ export const useOrchestratorPaneState = ({
   }, [suppressedRunId, orchestratorRun])
 
   useEffect(() => {
-    if (!optimisticRunId || orchestratorRun) return
+    if (!optimisticRunId || optimisticRunId === orchestratorRun?.run_id) return
     const timer = window.setTimeout(() => setOptimisticRun(null), 2000)
     return () => window.clearTimeout(timer)
   }, [optimisticRunId, orchestratorRun])
 
   let state: OrchestratorPaneState
-  if (orchestratorRun) {
-    state = { kind: 'running', runId: orchestratorRun.run_id }
-  } else if (optimisticRunId) {
-    state = { kind: 'running', runId: optimisticRunId }
+  const phase = runStartupPhase(orchestratorRun)
+  if (optimisticRunId && optimisticRunId !== orchestratorRun?.run_id) {
+    state = { kind: 'starting', runId: optimisticRunId, phase: 'initializing' }
   } else if (pendingStartWorkspaceId === workspaceId || suppressingAutostart) {
     state = { kind: 'starting' }
+  } else if (orchestratorRun && phase === 'ready') {
+    state = { kind: 'running', runId: orchestratorRun.run_id }
+  } else if (orchestratorRun && (phase === 'initializing' || phase === 'waiting_for_user')) {
+    state = { kind: 'starting', runId: orchestratorRun.run_id, phase, message: orchestratorRun.startup_message }
+  } else if (orchestratorRun && phase === 'failed') {
+    state = { kind: 'failed', runId: orchestratorRun.run_id, error: orchestratorRun.startup_message ?? '' }
   } else if (autostartError) {
     state = { kind: 'failed', error: autostartError }
   } else {
@@ -98,7 +104,7 @@ export const useOrchestratorPaneState = ({
     if (
       !workspaceId ||
       startInFlightByWorkspaceRef.current.has(workspaceId) ||
-      orchestratorRun
+      isRunActive(orchestratorRun)
     ) {
       return
     }
@@ -132,7 +138,7 @@ export const useOrchestratorPaneState = ({
 
   const restart = useCallback(() => {
     onClearAutostartError()
-    if (orchestratorRun) {
+    if (orchestratorRun && isRunActive(orchestratorRun)) {
       if (startInFlightByWorkspaceRef.current.has(workspaceId)) return
       startInFlightByWorkspaceRef.current.add(workspaceId)
       setPendingStartWorkspaceId(workspaceId)
@@ -162,5 +168,9 @@ export const useOrchestratorPaneState = ({
     start()
   }, [agentId, language, onAfterStart, onClearAutostartError, orchestratorRun, start, workspaceId])
 
-  return { state, start, restart }
+  const stop = async () => {
+    if (orchestratorRun && isRunActive(orchestratorRun)) await stopAgentRun(orchestratorRun.run_id)
+  }
+
+  return { state, start, restart, stop }
 }

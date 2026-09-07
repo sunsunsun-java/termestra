@@ -41,6 +41,7 @@ export interface WorkerActions {
   createWorker: (input: CreateWorkerActionInput) => Promise<{
     error: string | null
     runId: string | null
+    worker?: TeamListItem
   }>
   deleteWorker: (workerId: string) => Promise<void>
   startWorker: (workerId: string) => Promise<{ error: string | null; runId: string | null }>
@@ -78,7 +79,8 @@ export const useWorkerActions = ({
       }
       return {
         error: result.agentStart.ok ? null : result.agentStart.error,
-        runId: result.agentStart.ok ? result.agentStart.runId : null,
+        runId: result.agentStart.runId,
+        worker: result.worker,
       }
     },
     [activeWorkspaceId, onWorkerRunStarted, setWorkersByWorkspaceId]

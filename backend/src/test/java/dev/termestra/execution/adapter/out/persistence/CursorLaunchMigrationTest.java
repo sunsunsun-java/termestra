@@ -1,5 +1,7 @@
 package dev.termestra.execution.adapter.out.persistence;
 
+import dev.termestra.execution.adapter.out.terminal.VtPromptTerminal;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.termestra.execution.application.port.in.*;
 import dev.termestra.execution.application.port.out.*;
@@ -119,7 +121,7 @@ class CursorLaunchMigrationTest {
         AtomicBoolean alive = new AtomicBoolean(true);
         when(pty.alive()).thenAnswer(ignored -> alive.get());
         doAnswer(call -> {
-            call.<Consumer<byte[]>>getArgument(0).accept("Plan, search, build anything".getBytes(StandardCharsets.UTF_8));
+            call.<Consumer<byte[]>>getArgument(0).accept("  → Plan, search, build anything".getBytes(StandardCharsets.UTF_8));
             return null;
         }).when(pty).activate(any(), any(), any());
         when(pty.stopAndConfirm()).thenAnswer(ignored -> { alive.set(false); return true; });
@@ -127,8 +129,14 @@ class CursorLaunchMigrationTest {
         try (var execution = new AgentExecutionService(repository, (workspace, worker) -> Optional.of(agent), credentials,
                 request -> { launched.set(request); return pty; }, sessions,
                 (preset, command) -> List.of("--force", "--trust"), mock(AgentRecoveryContextProvider.class),
-                Clock.systemUTC(), new RuntimeOperationCoordinator())) {
-            assertEquals("running", execution.start(new StartAgentCommand("workspace", "default", "4010")).status());
+                VtPromptTerminal::new, Clock.systemUTC(), new RuntimeOperationCoordinator())) {
+            var run = execution.start(new StartAgentCommand("workspace", "default", "4010"));
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3);
+            while (!"running".equals(execution.get(run.runId()).status()) && System.nanoTime() < deadline) {
+                try { Thread.sleep(10); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new AssertionError(interrupted); }
+            }
+            assertEquals("running", execution.get(run.runId()).status());
             return launched.get().command();
         }
     }

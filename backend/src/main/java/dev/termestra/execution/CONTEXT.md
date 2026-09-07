@@ -23,8 +23,15 @@ _Avoid_: live inheritance, Command Preset
 **Run**:
 One supervised lifetime of an Agent's local CLI process, identified by a stable
 Run ID. A Run remains starting until its required startup or recovery input
-has been fully submitted; process output alone does not establish readiness.
+has been fully submitted, or a provider-native resumed session is ready for input;
+process output alone does not establish readiness.
 _Avoid_: Agent, Dispatch, terminal viewer
+
+**Startup Phase**:
+The current progress of a Run toward accepting automatic input: initializing,
+waiting for user action, ready, or failed. Waiting for user action keeps the Run
+available for direct human input without making the Agent available for Dispatches.
+_Avoid_: TeamMember status, process existence, Dispatch status
 
 **Provider Session**:
 The CLI provider's own resumable conversation identity captured from a Run.

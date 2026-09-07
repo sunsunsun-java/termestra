@@ -43,40 +43,38 @@ class AgentExecutionHttpIntegrationTest {
     @Autowired SqliteDatabase database;
     @Autowired RuntimeOperationCoordinator operations;
 
-    @Test void workerCreationStaysStoppedUntilStartupInputCompletesAndReturnsTheCurrentStatus() throws Exception {
-        WebTestClient client = WebTestClient.bindToServer().responseTimeout(Duration.ofSeconds(10))
+    @Test void workerCreationReturnsAcceptedStartupBeforeLoginAndBecomesReadyAfterConfirmation() throws Exception {
+        WebTestClient client = WebTestClient.bindToServer().responseTimeout(Duration.ofSeconds(5))
                 .baseUrl("http://127.0.0.1:" + port).build();
         String cookie = uiCookie(client);
         Path path = temp("termestra-cursor-ready-");
         Path ready = path.resolve("ready");
         String workspaceId = cursorWorkspace(client, cookie, path);
-        try (var requests = Executors.newVirtualThreadPerTaskExecutor()) {
-            var creation = requests.submit(() -> createCursorWorker(client, cookie, workspaceId, ready));
-            String runId = null;
-            for (int attempt = 0; attempt < 100; attempt++) {
-                var runs = execution.listActiveSummaries(workspaceId);
-                if (!runs.isEmpty()) { runId = runs.getFirst().runId(); break; }
-                pause();
-            }
-            assertTrue(runId != null, "the PTY must be visible while the create request waits");
+        try {
+            Map<?, ?> result = createCursorWorker(client, cookie, workspaceId, ready);
+            Map<?, ?> started = (Map<?, ?>) result.get("agent_start");
+            assertEquals(Set.of("ok", "error", "run_id"), started.keySet());
+            assertEquals(true, started.get("ok"));
+            assertEquals(null, started.get("error"));
+            assertEquals("stopped", result.get("status"));
+            String runId = started.get("run_id").toString();
+            awaitPhase(runId, "waiting_for_user");
             awaitOutput(client, cookie, runId, "Login required");
-            assertTrue(!creation.isDone());
             client.get().uri("/api/ui/workspaces/" + workspaceId + "/team")
                     .header(HttpHeaders.COOKIE, cookie).exchange().expectStatus().isOk()
                     .expectBody().jsonPath("$[0].status").isEqualTo("stopped");
             client.get().uri("/api/ui/workspaces/" + workspaceId + "/runs")
                     .header(HttpHeaders.COOKIE, cookie).exchange().expectStatus().isOk()
-                    .expectBody().jsonPath("$[0].status").isEqualTo("starting");
+                    .expectBody().jsonPath("$[0].status").isEqualTo("starting")
+                    .jsonPath("$[0].startup_phase").isEqualTo("waiting_for_user")
+                    .jsonPath("$[0].startup_message").value(value -> assertTrue(value.toString().length() <= 500));
             assertEquals("starting", durableRunStatus(runId));
             Files.createFile(ready);
-            Map<?,?> result = creation.get(5, TimeUnit.SECONDS);
-            assertEquals("idle", result.get("status"));
-            Map<?,?> started = (Map<?,?>) result.get("agent_start");
-            assertEquals(Set.of("ok", "error", "run_id"), started.keySet());
-            assertEquals(true, started.get("ok"));
-            assertEquals(null, started.get("error"));
-            assertEquals(runId, started.get("run_id"));
+            awaitPhase(runId, "ready");
             assertEquals("running", durableRunStatus(runId));
+            client.get().uri("/api/ui/workspaces/" + workspaceId + "/team")
+                    .header(HttpHeaders.COOKIE, cookie).exchange().expectStatus().isOk()
+                    .expectBody().jsonPath("$[0].status").isEqualTo("idle");
             assertEquals(Set.of("id", "name", "role", "status", "pending_task_count",
                     "last_pty_line", "command_preset_id", "agent_start"), result.keySet());
         } finally {
@@ -85,36 +83,55 @@ class AgentExecutionHttpIntegrationTest {
         }
     }
 
-    @Test void cursorSetupFailureKeepsTheWorkerStopsTheRunAndCanBeRestartedAfterSetup() throws Exception {
-        WebTestClient client = WebTestClient.bindToServer().responseTimeout(Duration.ofSeconds(10))
+    @Test void waitingStartupCanBeStoppedAndRetriedWithoutCreatingDuplicateRuns() throws Exception {
+        WebTestClient client = WebTestClient.bindToServer().responseTimeout(Duration.ofSeconds(5))
                 .baseUrl("http://127.0.0.1:" + port).build();
         String cookie = uiCookie(client);
         Path path = temp("termestra-cursor-login-");
         Path ready = path.resolve("ready");
         String workspaceId = cursorWorkspace(client, cookie, path);
         try {
-            Map<?,?> worker = createCursorWorker(client, cookie, workspaceId, ready);
+            Map<?, ?> worker = createCursorWorker(client, cookie, workspaceId, ready);
             String workerId = worker.get("id").toString();
-            Map<?,?> failure = (Map<?,?>) worker.get("agent_start");
-            assertEquals(false, failure.get("ok"));
-            assertTrue(failure.get("error").toString().contains("cursor-agent login"));
-            assertEquals("stopped", worker.get("status"));
+            Map<?, ?> accepted = (Map<?, ?>) worker.get("agent_start");
+            assertEquals(true, accepted.get("ok"));
+            String first = accepted.get("run_id").toString();
+            awaitPhase(first, "waiting_for_user");
+            assertEquals(first, start(client, cookie, workspaceId, workerId));
+            assertEquals(1, countRuns(workspaceId, workerId));
+            client.post().uri("/api/runtime/runs/" + first + "/stop").header(HttpHeaders.COOKIE, cookie)
+                    .exchange().expectStatus().isAccepted();
+            awaitStopped(client, cookie, first);
             assertTrue(execution.listActiveSummaries(workspaceId).isEmpty());
             assertTrue(credentials.currentToken(workerId).isEmpty());
-            assertEquals(1, countRuns(workspaceId, workerId));
-            client.post().uri("/api/workspaces/" + workspaceId + "/agents/" + workerId + "/start")
-                    .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of()).exchange()
-                    .expectStatus().isEqualTo(409).expectBody()
-                    .jsonPath("$.error").value(value -> assertTrue(value.toString().contains("then retry")));
-            Files.createFile(ready);
-            String runId = start(client, cookie, workspaceId, workerId);
-            assertEquals("running", durableRunStatus(runId));
-            client.get().uri("/api/ui/workspaces/" + workspaceId + "/team")
+            awaitOutput(client, cookie, first, "Login required");
+            client.get().uri("/api/ui/workspaces/" + workspaceId + "/runs")
                     .header(HttpHeaders.COOKIE, cookie).exchange().expectStatus().isOk()
-                    .expectBody().jsonPath("$[0].status").isEqualTo("idle");
+                    .expectBody().jsonPath("$.length()").isEqualTo(1)
+                    .jsonPath("$[0].run_id").isEqualTo(first)
+                    .jsonPath("$[0].startup_phase").isEqualTo("failed");
+            Files.createFile(ready);
+            String second = start(client, cookie, workspaceId, workerId);
+            assertTrue(!first.equals(second));
+            awaitPhase(second, "ready");
+            assertEquals("running", durableRunStatus(second));
+            assertEquals(2, countRuns(workspaceId, workerId));
+            client.get().uri("/api/ui/workspaces/" + workspaceId + "/runs")
+                    .header(HttpHeaders.COOKIE, cookie).exchange().expectStatus().isOk()
+                    .expectBody().jsonPath("$.length()").isEqualTo(1)
+                    .jsonPath("$[0].run_id").isEqualTo(second)
+                    .jsonPath("$[0].startup_phase").isEqualTo("ready");
         } finally {
             execution.forgetWorkspace(workspaceId);
         }
+    }
+
+    private void awaitPhase(String runId, String phase) {
+        for (int attempt = 0; attempt < 100; attempt++) {
+            if (phase.equals(execution.get(runId).startupPhase())) return;
+            pause();
+        }
+        assertEquals(phase, execution.get(runId).startupPhase());
     }
 
     private String durableRunStatus(String runId) {
@@ -205,7 +222,8 @@ class AgentExecutionHttpIntegrationTest {
         Map<?, ?> summary = Objects.requireNonNull(summaries).stream()
                 .filter(item -> runId.equals(item.get("run_id"))).findFirst().orElseThrow();
         org.junit.jupiter.api.Assertions.assertEquals(
-                Set.of("run_id", "agent_id", "agent_name", "status", "terminal_input_profile"), summary.keySet());
+                Set.of("run_id", "agent_id", "agent_name", "status", "terminal_input_profile",
+                        "startup_phase", "startup_message"), summary.keySet());
         org.junit.jupiter.api.Assertions.assertEquals(orchestratorId, summary.get("agent_id"));
         byte[] summaryPayload = client.get().uri("/api/ui/workspaces/" + workspaceId + "/runs")
                 .header(HttpHeaders.COOKIE, cookie).exchange().expectStatus().isOk()
@@ -217,6 +235,10 @@ class AgentExecutionHttpIntegrationTest {
                 .exchange().expectStatus().isOk().expectBody(Map.class).returnResult().getResponseBody();
         org.junit.jupiter.api.Assertions.assertTrue(Objects.requireNonNull(detail).get("output").toString()
                 .contains("large-history-must-stay-out-of-the-list"));
+        assertEquals(Set.of("run_id", "agent_id", "agent_name", "status", "output", "exit_code", "pid",
+                "terminal_input_profile", "startup_phase", "startup_message"), detail.keySet());
+        assertEquals("ready", detail.get("startup_phase"));
+        assertEquals(null, detail.get("startup_message"));
         org.junit.jupiter.api.Assertions.assertTrue(detail.containsKey("pid"));
         org.junit.jupiter.api.Assertions.assertTrue(detail.containsKey("exit_code"));
 
@@ -417,7 +439,8 @@ class AgentExecutionHttpIntegrationTest {
         Map<?, ?> body = client.post().uri("/api/workspaces/" + workspace + "/agents/" + agent + "/start")
                 .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of()).exchange().expectStatus().isCreated()
                 .expectBody(Map.class).returnResult().getResponseBody();
-        return Objects.requireNonNull(body).get("run_id").toString();
+        assertEquals(Set.of("run_id"), Objects.requireNonNull(body).keySet());
+        return body.get("run_id").toString();
     }
 
     private static void awaitOutput(WebTestClient client, String cookie, String run, String expected) {

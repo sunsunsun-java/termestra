@@ -5,6 +5,7 @@ import {
   isWorkspaceShellRun,
   type OrchestratorStartResult,
   renameWorker,
+  stopAgentRun,
   type TerminalRunSummary,
 } from './api.js'
 import { useI18n } from './i18n.js'
@@ -70,7 +71,7 @@ export const WorkspaceDetail = ({
   const [activeWorkerId, setActiveWorkerId] = useState<string | null>(null)
   const [composerOpen, setComposerOpen] = useState(false)
   const [deleteWorkerError, setDeleteWorkerError] = useState<string | null>(null)
-  const [startWorkerError, setStartWorkerError] = useState<string | null>(null)
+  const [createdWorkerId, setCreatedWorkerId] = useState<string | null>(null)
   const [startingWorkerId, setStartingWorkerId] = useState<string | null>(null)
   const [terminalPanelHidden, setTerminalPanelHidden] = useState(false)
   const workspaceId = workspace?.id ?? ''
@@ -133,12 +134,6 @@ export const WorkspaceDetail = ({
     if (deleteWorkerError) toast.show({ kind: 'error', message: deleteWorkerError })
   }, [deleteWorkerError, toast])
 
-  // Start failures no longer have a modal banner to display them — surface
-  // via toast to keep parity with delete-error feedback.
-  useEffect(() => {
-    if (startWorkerError) toast.show({ kind: 'error', message: startWorkerError })
-  }, [startWorkerError, toast])
-
   // Shell-start failures no longer have a dialog banner — surface via toast.
   useEffect(() => {
     if (shellError) toast.show({ kind: 'error', message: shellError })
@@ -150,7 +145,7 @@ export const WorkspaceDetail = ({
   useEffect(() => {
     setActiveWorkerId(null)
     setDeleteWorkerError(null)
-    setStartWorkerError(null)
+    setCreatedWorkerId(null)
     setStartingWorkerId(null)
     setTerminalPanelHidden(false)
     setComposerOpen(false)
@@ -192,15 +187,16 @@ export const WorkspaceDetail = ({
     const operation = { workspaceId: requestWorkspaceId, workerId: worker.id }
     if (startOperationRef.current?.workspaceId === requestWorkspaceId) return
     startOperationRef.current = operation
-    setStartWorkerError(null)
+    setCreatedWorkerId(null)
     setStartingWorkerId(worker.id)
+    setActiveWorkerId(worker.id)
     void onStartWorker(worker.id)
       .then(({ error }) => {
-        if (error && workspaceIdRef.current === requestWorkspaceId) setStartWorkerError(error)
+        if (error && workspaceIdRef.current === requestWorkspaceId) toast.show({ kind: 'error', message: error })
       })
       .catch((error) => {
         if (workspaceIdRef.current === requestWorkspaceId) {
-          setStartWorkerError(error instanceof Error ? error.message : String(error))
+          toast.show({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
         }
       })
       .finally(() => {
@@ -266,6 +262,11 @@ export const WorkspaceDetail = ({
             }}
             onStart={orchestrator.start}
             onRestart={orchestrator.restart}
+            onStop={() => {
+              void orchestrator.stop().catch((error: unknown) => {
+                if (workspaceIdRef.current === workspace.id) toast.show({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
+              })
+            }}
           />
         </div>
         {/* biome-ignore lint/a11y/useSemanticElements: <hr> can't host pointer/keyboard handlers and the visible accent line; aria role="separator" is the canonical resize-handle role */}
@@ -326,8 +327,13 @@ export const WorkspaceDetail = ({
           <WorkerModal
             onClose={() => setActiveWorkerId(null)}
             onStart={handleStartWorker}
-            runId={activeWorkerRun?.run_id ?? null}
-            startError={startWorkerError}
+            run={activeWorkerRun}
+            created={createdWorkerId === activeWorker.id}
+            onStop={activeWorkerRun ? () => {
+              void stopAgentRun(activeWorkerRun.run_id).catch((error: unknown) => {
+                if (workspaceIdRef.current === workspace.id) toast.show({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
+              })
+            } : undefined}
             starting={startingWorkerId === activeWorker.id}
             worker={activeWorker}
           />
@@ -354,7 +360,14 @@ export const WorkspaceDetail = ({
             onRoleDescriptionReset={composer.resetRoleDescription}
             onRoleChange={composer.setWorkerRole}
             onSaveAsTemplate={composer.saveAsTemplate}
-            onSubmit={(event) => composer.submit(event, () => setComposerOpen(false))}
+            onSubmit={(event) => composer.submit(event, ({ worker, error, runId }) => {
+              setComposerOpen(false)
+              if (worker) {
+                setActiveWorkerId(worker.id)
+                setCreatedWorkerId(worker.id)
+              }
+              if (error && !runId) toast.show({ kind: 'error', message: error })
+            })}
             onStartupCommandChange={composer.setStartupCommand}
             onTemplateChange={composer.selectTemplate}
             roleDescription={composer.roleDescription}

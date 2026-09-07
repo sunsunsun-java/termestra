@@ -76,7 +76,7 @@ pane 或 tab 变化时移动宿主节点，避免每次显示切换都重建 xte
 - Agent Execution 的 live Run output 是一个 1,000,000 UTF-8 bytes 的有界尾部缓冲，不是消息
   transcript。[`AgentExecutionService.java` L20-L32、L508-L514](../../backend/src/main/java/dev/termestra/execution/application/service/AgentExecutionService.java)
 - Terminal mirror 默认只保留 1,000 行，最多 100,000 个 cell，restore transport 上限
-  900 KiB。[`HeadlessTerminalMirror.java` L8-L31、L46-L56、L67-L109](../../backend/src/main/java/dev/termestra/terminal/application/service/HeadlessTerminalMirror.java)
+  900 KiB。[`HeadlessTerminalMirror.java` L8-L31、L46-L56、L67-L109](../../backend/src/main/java/dev/termestra/platform/terminal/HeadlessTerminalMirror.java)
 - Terminal 领域语言明确把 Restore Snapshot 定义为有界 screen image，禁止把它当作
   full terminal history 或 transcript。[`terminal/CONTEXT.md` L22-L29](../../backend/src/main/java/dev/termestra/terminal/CONTEXT.md)
 - 客户端只接受 `restore`、`error`、`exit` 三种 server control message；restore 中没有

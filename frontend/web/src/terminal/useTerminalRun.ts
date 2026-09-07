@@ -50,8 +50,11 @@ const normalizeBinaryTerminalInput = (
 export const useTerminalRun = (
   runId: string,
   inputProfile: TerminalWheelInputProfile = 'default',
-  bookmarksEnabled = false
+  bookmarksEnabled = false,
+  inputEnabled = true
 ) => {
+  const inputEnabledRef = useRef(inputEnabled)
+  inputEnabledRef.current = inputEnabled
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<XtermTerminal | null>(null)
   const bookmarkRegistryRef = useRef<TerminalBookmarkRegistry | null>(null)
@@ -245,7 +248,7 @@ export const useTerminalRun = (
       wheelFallbackDispose = attachAlternateScreenWheelFallback({
         element: containerRef.current,
         profile: inputProfile,
-        sendInput: (chunk) => client?.sendInput(chunk),
+        sendInput: (chunk) => inputEnabledRef.current ? client?.sendInput(chunk) : false,
         terminal: nextTerminal,
       })
 
@@ -286,7 +289,7 @@ export const useTerminalRun = (
         }
         onCompositionEnd = (event: Event) => {
           const composed = (event as CompositionEvent).data
-          if (composed) client?.sendInput(composed)
+          if (composed && inputEnabledRef.current) client?.sendInput(composed)
           // Clear the textarea so xterm's built-in helper has nothing to
           // commit on its deferred setTimeout(0) read, and so its tracked
           // value never accumulates across compositions.
@@ -311,7 +314,7 @@ export const useTerminalRun = (
           switch (action.kind) {
             case 'send':
               event.preventDefault()
-              client?.sendInput(action.bytes)
+              if (inputEnabledRef.current) client?.sendInput(action.bytes)
               return false
             case 'clear':
               event.preventDefault()
@@ -381,7 +384,7 @@ export const useTerminalRun = (
         runId,
       })
       inputSubscription = nextTerminal.onData((chunk) => {
-        if (isComposingRef.current) return
+        if (isComposingRef.current || !inputEnabledRef.current) return
         const submitted = client?.sendInput(chunk) ?? false
         if (
           submitted &&
@@ -398,6 +401,7 @@ export const useTerminalRun = (
       })
       if (typeof nextTerminal.onBinary === 'function') {
         binaryInputSubscription = nextTerminal.onBinary((chunk) => {
+          if (!inputEnabledRef.current) return
           const normalized = normalizeBinaryTerminalInput(chunk, inputProfile)
           if (normalized.binary) client?.sendBinaryInput(normalized.chunk)
           else client?.sendInput(normalized.chunk)

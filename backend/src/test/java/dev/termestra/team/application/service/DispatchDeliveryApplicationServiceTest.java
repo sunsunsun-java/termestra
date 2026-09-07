@@ -82,6 +82,36 @@ class DispatchDeliveryApplicationServiceTest {
                 fixture.notifierCalls.get());
     }
 
+    @Test void startupWaitSurvivesRepeatedClaimsWithoutConsumingAttemptsAndSubmitsOnceReady() {
+        Fixture fixture = fixture("startup-wait.db", DeliveryResult.deferred("Finish setup in the terminal"));
+        String dispatchId = fixture.enqueue("key-startup-wait");
+        String following = fixture.enqueue("key-after-startup");
+
+        int waits = DispatchDeliveryApplicationService.MAX_AUTOMATIC_ATTEMPTS + 2;
+        for (int waiting = 0; waiting < waits; waiting++) {
+            assertTrue(fixture.service.processNext());
+            assertEquals("retry_wait", fixture.value(dispatchId, "delivery.state"));
+            assertEquals("queued", fixture.value(dispatchId, "dispatch.status"));
+            assertEquals(0, fixture.intValue(dispatchId, "attempt_count"));
+            assertEquals(0, fixture.intValue(dispatchId, "input_attempted"));
+            assertEquals("pending", fixture.value(following, "delivery.state"));
+            assertFalse(fixture.service.processNext(), "the deferred head must preserve FIFO and its retry delay");
+            fixture.clock.advance(Duration.ofSeconds(1));
+        }
+
+        fixture.result.set(new DeliveryResult(true, null));
+        assertTrue(fixture.service.processNext());
+        assertEquals("submitted", fixture.value(dispatchId, "delivery.state"));
+        assertEquals("submitted", fixture.value(dispatchId, "dispatch.status"));
+        assertEquals(1, fixture.intValue(dispatchId, "attempt_count"));
+        assertEquals(waits + 1, fixture.notifierCalls.get());
+        assertEquals("pending", fixture.value(following, "delivery.state"));
+        assertTrue(fixture.service.processNext());
+        assertEquals("submitted", fixture.value(following, "dispatch.status"));
+        assertFalse(fixture.service.processNext(), "acknowledged input must not be replayed");
+        assertEquals(1, fixture.intValue(dispatchId, "attempt_count"));
+    }
+
     @Test void restartMakesAnInFlightAttemptExplicitlyUncertainUntilOperatorRetry() {
         Fixture fixture = fixture("restart.db", new DeliveryResult(true, null));
         String dispatchId = fixture.enqueue("key-restart");
@@ -238,11 +268,12 @@ class DispatchDeliveryApplicationServiceTest {
         members.save(worker);
         JdbcTeamLedger ledger = new JdbcTeamLedger(database, new ObjectMapper());
         AtomicInteger calls = new AtomicInteger();
+        AtomicReference<DeliveryResult> currentResult = new AtomicReference<>(result);
         AgentTeamNotifier notifier = new AgentTeamNotifier() {
             @Override public DeliveryResult deliver(Dispatch dispatch, TeamMember member, String runtimePort) {
                 calls.incrementAndGet();
                 duringDelivery.accept(ledger, clock);
-                return result;
+                return currentResult.get();
             }
             @Override public DeliveryResult report(Dispatch dispatch, TeamMember member) { return DeliveryResult.unavailable("unused"); }
             @Override public DeliveryResult status(String workspace, TeamMember member, String text, List<String> artifacts) { return DeliveryResult.unavailable("unused"); }
@@ -250,7 +281,7 @@ class DispatchDeliveryApplicationServiceTest {
         };
         DispatchDeliveryApplicationService service = new DispatchDeliveryApplicationService(ledger,
                 members, notifier, operations, clock);
-        return new Fixture(database, ledger, worker, workspaceId, clock, calls, service);
+        return new Fixture(database, ledger, worker, workspaceId, clock, calls, currentResult, service);
     }
 
     private static String seedWorkspace(SqliteDatabase database, Instant now) {
@@ -271,6 +302,7 @@ class DispatchDeliveryApplicationServiceTest {
 
     private record Fixture(SqliteDatabase database, JdbcTeamLedger ledger, TeamMember worker,
                            String workspaceId, MutableClock clock, AtomicInteger notifierCalls,
+                           AtomicReference<DeliveryResult> result,
                            DispatchDeliveryApplicationService service) {
         String enqueue(String key) {
             Instant now = clock.instant();

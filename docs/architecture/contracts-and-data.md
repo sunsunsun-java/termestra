@@ -122,13 +122,26 @@ stateDiagram-v2
 ```
 
 Delivery 是 Team 自有的技术恢复状态，不取代 Dispatch。只有明确证明输入未触达
-时才自动有限重试；`uncertain` 禁止自动重试。
+时才自动有限重试；`uncertain` 禁止自动重试。启动尚未完成的内部 `deferred` 结果没有
+尝试输入，复用 claim 延后机制而不消耗失败重试额度；它不是新的公开 Dispatch 或
+Delivery 状态。最新 retained Run 已启动失败且没有 active Run 时，自动投递返回普通
+失败，用户可显式重新启动；该防自动重启保护不超出有界 Run 保留范围。
 
 ### Run
 
 Run 持久状态为 `starting`、`running`、`exited`、`error`。前两者 active，后两者
-terminal。`running` 只在启动/恢复输入完整提交（含 Enter）后持久化；PTY 首次输出
-不代表启动完成。无需自动输入的 Run 在进程激活成功后进入 `running`。
+terminal。交互式 Agent 的 `running` 只在输入框就绪且启动/恢复输入完整提交（含 Enter）
+后持久化；provider-native resume 只等输入框就绪，不重复提交启动文本。PTY 首次输出
+不代表启动完成。Shell 和非交互式进程不要求输入框握手。
+
+Run detail 与 terminal summary 另包含 `startup_phase` 和 nullable `startup_message`，
+后者最多 500 字符。phase 为 `initializing`、`waiting_for_user`、`ready` 或 `failed`，
+表示当前受管理 Run 的启动进度，不新增持久 Run 或 TeamMember 状态。
+`waiting_for_user` 的 Run 仍为 `starting`，保留 PTY 供人操作；进程启动请求成功仅表示
+请求已接受，客户端须依据 Run 状态和 phase 判断是否就绪。初始化等待累计最多 120 秒，
+启动等待总计最多 10 分钟；超时作为启动失败清理。phase 与失败提示是有界进程内投影，
+不承诺后端重启后的持久错误历史。
+
 停止或 PTY 退出必须先确认进程树终止并持久化 terminal 状态；UI 可在
 持久化重试期间保守显示终止/错误，而不是继续显示工作中。原生终止调用的等待期限
 只约束请求或生命周期调用方；到期时 Run 仍持有 credential 与容量，直到后台监管器
@@ -167,7 +180,11 @@ adapter 在单事务中删除整个 lifecycle graph。这是销毁一致性的�
 Summary 端点只返回固定字段和固定长度派生数据；Detail 端点按单个 ID 加载，并
 对正文设上限；Stream 只传递增量数据。典型例子：
 
-- Run list 读取 `AgentRunSummaryView`，不构造包含 1 MB output 的 `AgentRunView`；
+- UI Run list 通过 `listTerminalSummaries` 读取 `AgentRunSummaryView`，不构造包含
+  1 MB output 的 `AgentRunView`。保留全部 active Run，并对没有 active Run 的 Agent
+  追加其最新 retained Run 为启动失败的项；正常退出不加入该列表。活动 Run 仍受全局 128、每 Workspace 32
+  的容量约束，失败项共用全局最多 16 个已完成 Run 的保留额度。内部
+  `listActiveSummaries` 继续只返回 active Run，不把失败项用于运行状态投影；
 - Team list 的 `last_pty_line` 固定到 60 code points，只作为 UI hint；
 - Dispatch list 截断任务/报告，detail 才提供更完整但仍有界的内容；
 - Delivery issue 使用专用 SQL projection，不能先截普通队列再由浏览器过滤；

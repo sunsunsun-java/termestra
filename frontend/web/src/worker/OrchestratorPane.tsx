@@ -1,20 +1,22 @@
 import { Copy, Crown, LoaderCircle, Play, RotateCcw } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
+import { StartupStatus } from '../terminal/StartupStatus.js'
 import { useI18n } from '../i18n.js'
 import { EmptyState } from '../ui/EmptyState.js'
 import { Tooltip } from '../ui/Tooltip.js'
 
 export type OrchestratorPaneState =
-  | { kind: 'starting' }
+  | { kind: 'starting'; runId?: string; phase?: 'initializing' | 'waiting_for_user'; message?: string | null | undefined }
   | { kind: 'running'; runId: string }
   | { kind: 'stopped' }
-  | { kind: 'failed'; error: string }
+  | { kind: 'failed'; error: string; runId?: string }
 
 type OrchestratorPaneProps = {
   state: OrchestratorPaneState
   onRemoveWorkspace: () => void
   onStart: () => void
   onRestart: () => void
+  onStop?: (() => void) | undefined
 }
 
 const WAITING_FOR_INPUT_COPY_DELAY_MS = 4_000
@@ -108,6 +110,7 @@ const FailedBody = ({
   error: string
   onRemoveWorkspace: () => void
   onRestart: () => void
+  onStop?: (() => void) | undefined
 }) => {
   const { t } = useI18n()
   const titleId = useId()
@@ -222,6 +225,7 @@ export const OrchestratorPane = ({
   onRemoveWorkspace,
   onRestart,
   onStart,
+  onStop,
 }: OrchestratorPaneProps) => (
   <div
     className="relative flex h-full w-full min-w-0 flex-col"
@@ -231,7 +235,17 @@ export const OrchestratorPane = ({
     }}
     data-testid="orchestrator-terminal-slot"
   >
-    {state.kind === 'running' ? (
+    {state.kind === 'starting' && state.runId ? (
+      <>
+        <StartupStatus phase={state.phase ?? 'initializing'} message={state.message} onStop={onStop} />
+        <div id={`orch-pty-${state.runId}`} className="flex min-h-0 flex-1" data-pty-slot="orchestrator" />
+      </>
+    ) : state.kind === 'failed' && state.runId ? (
+      <>
+        <StartupStatus phase="failed" message={state.error} onRetry={onRestart} />
+        <div id={`orch-pty-${state.runId}`} className="flex min-h-0 flex-1" data-pty-slot="orchestrator" />
+      </>
+    ) : state.kind === 'running' ? (
       <div
         id={`orch-pty-${state.runId}`}
         className="flex h-full w-full"

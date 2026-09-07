@@ -18,7 +18,7 @@ class PtyLastLineTrackerTest {
         String line = "好".repeat(AgentRunSummaryView.MAX_LAST_PTY_LINE_CODE_POINTS + 5);
 
         AgentRunSummaryView summary = new AgentRunSummaryView(
-                "run", "agent", "Agent", "running", "default", line, null);
+                "run", "agent", "Agent", "running", "default", line, null, "ready", null);
 
         assertEquals(AgentRunSummaryView.MAX_LAST_PTY_LINE_CODE_POINTS,
                 summary.lastPtyLine().codePointCount(0, summary.lastPtyLine().length()));

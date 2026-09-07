@@ -10,7 +10,17 @@ package dev.termestra.execution.application.port.in;
  * after it may already have reached the worker.</p>
  */
 public record MessageDeliveryResult(boolean delivered, boolean inputAttempted,
-                                    boolean uncertain, String error) {
+                                    boolean uncertain, boolean deferred, String error) {
+    public MessageDeliveryResult {
+        if (deferred && (delivered || inputAttempted || uncertain)) {
+            throw new IllegalArgumentException("Deferred delivery cannot have attempted input");
+        }
+    }
+
+    public MessageDeliveryResult(boolean delivered, boolean inputAttempted,
+                                 boolean uncertain, String error) {
+        this(delivered, inputAttempted, uncertain, false, error);
+    }
     /** Compatibility constructor for callers that only distinguish success and failure. */
     public MessageDeliveryResult(boolean delivered, String error) {
         this(delivered, delivered, false, error);
@@ -23,6 +33,11 @@ public record MessageDeliveryResult(boolean delivered, boolean inputAttempted,
     /** A definite failure before any input could have reached the worker. */
     public static MessageDeliveryResult failed(String error) {
         return new MessageDeliveryResult(false, false, false, error);
+    }
+
+    /** Startup is still in progress; no delivery attempt has been made. */
+    public static MessageDeliveryResult deferred(String reason) {
+        return new MessageDeliveryResult(false, false, false, true, reason);
     }
 
     /** A write was attempted, but complete submission cannot be proven. */

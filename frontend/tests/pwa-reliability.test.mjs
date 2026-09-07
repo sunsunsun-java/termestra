@@ -270,3 +270,19 @@ test('global terminal safety probing has bounded concurrency', async () => {
   assert.equal(snapshot.ready, true)
   assert.equal(peak, 2)
 })
+
+test('retained startup failure does not block probing other workspaces or safe reload', async () => {
+  const failed = {
+    agent_id: 'worker', agent_name: 'Hermes', run_id: 'failed', status: 'error',
+    startup_phase: 'failed', startup_message: 'Timed out',
+  }
+  const requested = []
+  const snapshot = await probeGlobalTerminalRuns(['one', 'two'], async (workspaceId) => {
+    requested.push(workspaceId)
+    return workspaceId === 'one' ? [failed] : []
+  }, new AbortController().signal, 1)
+  assert.deepEqual(requested, ['one', 'two'])
+  assert.equal(snapshot.ready, true)
+  assert.equal(isServiceWorkerReloadSafe(snapshot.runs, true, { one: [], two: [] }, ['one', 'two']), true)
+  assert.equal(isServiceWorkerReloadSafe([{ ...failed, status: 'starting', startup_phase: 'waiting_for_user' }], true, { one: [] }, ['one']), false)
+})

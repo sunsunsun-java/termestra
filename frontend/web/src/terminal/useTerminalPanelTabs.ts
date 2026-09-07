@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { TeamListItem } from '../../../src/shared/types.js'
-import type { TerminalRunSummary } from '../api.js'
+import type { StartupPhase, TerminalRunSummary } from '../api.js'
 import { isWorkspaceShellRun } from '../api.js'
 import {
   appendBoundedTerminalTab,
   sanitizeTerminalTabIds,
 } from './terminal-tab-state.js'
+import { runStartupPhase } from './run-startup.js'
 import { findRunByAgentId } from './useTerminalRuns.js'
 
 export type TerminalTab =
-  | { id: string; kind: 'worker'; workerId: string; runId: string | null; label: string }
+  | { id: string; kind: 'worker'; workerId: string; runId: string | null; label: string; startupPhase?: StartupPhase | null; startupMessage?: string | null | undefined }
   | { id: string; kind: 'shell'; runId: string; label: string }
 
 const tabsKey = (workspaceId: string) => `termestra.terminal-panel.tabs.${workspaceId}`
@@ -140,6 +141,8 @@ export const useTerminalPanelTabs = ({ workspaceId, workers, terminalRuns }: Par
           kind: 'worker',
           workerId,
           runId: run?.run_id ?? null,
+          startupPhase: runStartupPhase(run),
+          startupMessage: run?.startup_message,
           label: worker.name,
         })
       } else if (id.startsWith('shell:')) {

@@ -499,12 +499,16 @@ export const getWorkerModels = async (
 
 export type TerminalInputProfile = 'default' | 'opencode'
 
+export type StartupPhase = 'initializing' | 'waiting_for_user' | 'ready' | 'failed'
+
 export interface TerminalRunSummary {
   agent_id: string
   agent_name: string
   run_id: string
   status: string
   terminal_input_profile?: TerminalInputProfile
+  startup_phase?: StartupPhase
+  startup_message?: string | null
 }
 
 const workspaceShellAgentId = (workspaceId: string): string => `${workspaceId}:shell`

@@ -58,7 +58,7 @@ interface WorkerComposerState {
   resetRoleDescription: () => void
   resetError: () => void
   applyMarketplaceImport: (input: { name: string; description: string }) => void
-  submit: (event: FormEvent<HTMLFormElement>, onSuccess: () => void) => void
+  submit: (event: FormEvent<HTMLFormElement>, onSuccess: (result: Awaited<ReturnType<WorkerActions['createWorker']>>) => void) => void
 }
 
 const fallbackRoleDescriptions: Record<UiLanguage, Record<WorkerRole, string>> = {
@@ -401,7 +401,7 @@ export const useWorkerComposer = ({
     setModelSelection({ mode, modelId })
   }
 
-  const submit = (event: FormEvent<HTMLFormElement>, onSuccess: () => void) => {
+  const submit = (event: FormEvent<HTMLFormElement>, onSuccess: (result: Awaited<ReturnType<WorkerActions['createWorker']>>) => void) => {
     event.preventDefault()
     if (!scopeKey || createInFlightByScopeRef.current.has(scopeKey)) return
     const requestScope = scopeKey
@@ -436,7 +436,7 @@ export const useWorkerComposer = ({
     const operation = Promise.resolve().then(() => execute(input))
     createInFlightByScopeRef.current.set(requestScope, operation)
     void operation
-      .then(({ error }) => {
+      .then((result) => {
         if (scopeRef.current !== requestScope) return
         setWorkerName('')
         workerNameGeneratedRef.current = false
@@ -445,8 +445,8 @@ export const useWorkerComposer = ({
         setCommandPresetId('claude')
         setModelSelection(DEFAULT_MODEL_SELECTION)
         setStartupCommand('')
-        onSuccess()
-        if (error) setCreateWorkerError(error)
+        onSuccess(result)
+        if (result.error && !result.worker) setCreateWorkerError(result.error)
       })
       .catch((error) => {
         if (scopeRef.current === requestScope) {

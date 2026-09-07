@@ -8,6 +8,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
+import dev.termestra.execution.application.port.out.PromptTerminal;
 import java.util.regex.Pattern;
 
 final class InteractiveInputSubmitter {
@@ -15,8 +16,6 @@ final class InteractiveInputSubmitter {
             "agy", "claude", "codex", "cursor-agent", "gemini", "grok", "hermes", "opencode", "pi", "qwen");
     private static final Set<String> BRACKETED_PASTE = Set.of(
             "agy", "claude", "codex", "grok", "hermes", "opencode", "pi");
-    private static final Set<String> NO_SOFT_READY_TIMEOUT = Set.of(
-            "agy", "gemini", "hermes", "opencode", "pi", "qwen");
     private static final Pattern COMMAND_NAME = Pattern.compile(
             "(?:^|[/\\\\\\s\\\"'])(agy|claude|codex|cursor-agent|gemini|grok|hermes|opencode|pi|qwen)(?:\\.cmd|\\.exe)?(?:$|[\\s\\\"'])",
             Pattern.CASE_INSENSITIVE);
@@ -25,7 +24,9 @@ final class InteractiveInputSubmitter {
     private static final Pattern HERMES_PROMPT = Pattern.compile(
             "^(?:[\\p{L}\\p{N}_.-]+\\s+)?[❯›>](?:\\s*[─━═╌╍┄┅┈┉-]+)?\\s*$");
     private static final Pattern DECORATION_LINE = Pattern.compile("^[─━═╌╍┄┅┈┉-]{6,}$");
-    private static final long READY_TIMEOUT_MS = 3_000;
+    private static final long READY_SETTLE_MS = 250;
+    private static final long STARTUP_TIMEOUT_MS = 120_000;
+    private static final long USER_WAIT_TIMEOUT_MS = 600_000;
     private static final long HARD_READY_TIMEOUT_MS = 30_000;
     private static final long PASTE_ACK_TIMEOUT_MS = 3_000;
     private static final long PASTE_ACK_SETTLE_MS = 100;
@@ -82,34 +83,75 @@ final class InteractiveInputSubmitter {
         return acceptedPromptPosition;
     }
 
+    static long submitStartup(String command, String text, BooleanSupplier active,
+                              Supplier<InteractiveOutputTail.Snapshot> output,
+                              Consumer<byte[]> input, Consumer<String> onWaitingForUser) {
+        Objects.requireNonNull(onWaitingForUser, "onWaitingForUser");
+        String executable = commandName(command);
+        if (executable == null) {
+            return submit(command, text, active, output, input, NO_READY_POSITION);
+        }
+        long acceptedPosition = awaitStartup(command, active, output, onWaitingForUser);
+        pasteAndComplete(executable, text, active, output, input);
+        return acceptedPosition;
+    }
+
+    static long awaitStartup(String command, BooleanSupplier active,
+                             Supplier<InteractiveOutputTail.Snapshot> output,
+                             Consumer<String> onWaitingForUser) {
+        Objects.requireNonNull(onWaitingForUser, "onWaitingForUser");
+        String executable = commandName(command);
+        if (executable == null) {
+            requireActive(active, false, "Process exited before startup completed");
+            return snapshot(output, false).position();
+        }
+        return awaitReadyPrompt(executable, active, output, NO_READY_POSITION, onWaitingForUser);
+    }
+
     private static long awaitReadyPrompt(String executable, BooleanSupplier active,
                                          Supplier<InteractiveOutputTail.Snapshot> output,
                                          long readyAfterPosition) {
+        return awaitReadyPrompt(executable, active, output, readyAfterPosition, null);
+    }
+
+    private static long awaitReadyPrompt(String executable, BooleanSupplier active,
+                                         Supplier<InteractiveOutputTail.Snapshot> output,
+                                         long readyAfterPosition, Consumer<String> onWaitingForUser) {
         long started = System.nanoTime();
-        long deadline = deadlineAfter(HARD_READY_TIMEOUT_MS);
+        long lastPoll = started;
+        long initializingNanos = 0;
+        Long readySince = null;
+        String waitingReason = null;
         while (true) {
             requireActive(active, false, "Process exited before an input prompt became ready");
             InteractiveOutputTail.Snapshot snapshot = snapshot(output, false);
-            boolean hasNewOutput = readyAfterPosition < 0 || snapshot.position() > readyAfterPosition;
-            String candidate = readyAfterPosition < 0
-                    ? snapshot.tail()
-                    : snapshot.appendedSince(readyAfterPosition);
-            long elapsed = elapsedMillis(started);
-            boolean softFallback = !NO_SOFT_READY_TIMEOUT.contains(executable)
-                    && elapsed >= READY_TIMEOUT_MS;
-            boolean readyPrompt = promptReady(candidate, executable);
-            if (hasNewOutput && (readyPrompt || (!firstRunSetupPrompt(candidate) && softFallback))) {
-                return snapshot.position();
+            InteractiveOutputTail.Readiness readiness = snapshot.readiness();
+            long now = System.nanoTime();
+            if (waitingReason == null) initializingNanos += now - lastPoll;
+            lastPoll = now;
+            String nextReason = readiness.state() == InteractiveOutputTail.State.WAITING_FOR_USER
+                    ? readiness.reason() : null;
+            if (!Objects.equals(waitingReason, nextReason)) {
+                waitingReason = nextReason;
+                if (onWaitingForUser != null) onWaitingForUser.accept(waitingReason);
             }
-            if ("cursor-agent".equals(executable) && elapsed >= READY_TIMEOUT_MS
-                    && firstRunSetupPrompt(candidate)) {
-                throw new SubmissionException(
-                        "Cursor CLI is waiting for login or initial setup. Run 'cursor-agent' in this workspace "
-                                + "to complete setup (use 'cursor-agent login' to sign in), then retry.", false);
+            if (waitingReason != null && onWaitingForUser == null) {
+                throw new SubmissionException(executable + " is waiting for user action: " + waitingReason
+                        + ". Complete it in the terminal, then retry.", false);
             }
-            if (System.nanoTime() >= deadline) {
-                throw new SubmissionException(
-                        "Timed out waiting for " + executable + " input prompt", false);
+            boolean ready = readiness.state() == InteractiveOutputTail.State.READY
+                    && (readyAfterPosition < 0 || readiness.position() > readyAfterPosition);
+            if (ready) {
+                if (readySince == null) readySince = now;
+                if (elapsedMillis(readySince) >= READY_SETTLE_MS) return snapshot.position();
+            } else readySince = null;
+            boolean expired = onWaitingForUser == null ? elapsedMillis(started) >= HARD_READY_TIMEOUT_MS
+                    : elapsedMillis(started) >= USER_WAIT_TIMEOUT_MS
+                        || initializingNanos >= Duration.ofMillis(STARTUP_TIMEOUT_MS).toNanos();
+            if (expired) {
+                throw new SubmissionException(waitingReason == null
+                        ? "Timed out waiting for " + executable + " input prompt"
+                        : "Timed out waiting for user action in " + executable + ": " + waitingReason, false);
             }
             pause(false, "Interrupted while waiting for an input prompt");
         }
@@ -214,44 +256,90 @@ final class InteractiveInputSubmitter {
         }
     }
 
-    private static boolean promptReady(String output, String executable) {
-        String plain = plainTail(output);
-        String last = lastNonEmptyLine(plain);
-        if (last.matches("[❯›]")) return true;
-        return switch (executable) {
-            case "cursor-agent" -> plain.contains("Plan, search, build anything")
-                    || plain.contains("Add a follow-up");
-            case "agy" -> plain.matches("(?s).*(?:^|\\n)\\s*>\\s*\\n\\s*(?:[─-]{8,}|\\?\\s*for shortcuts).*");
-            case "gemini", "qwen" -> plain.contains("Type your message");
-            case "grok" -> plain.matches("(?s).*\\b(?:Enter:send|Composer\\s+\\S+).*");
-            case "hermes" -> hermesPromptNearTail(plain);
-            case "opencode" -> plain.contains("Ask anything...") || plain.matches("(?s).*\\besc\\s+interrupt\\b.*");
-            case "pi" -> plain.matches("(?is).*\\bpi\\s+v\\d+(?:\\.\\d+){1,3}.*\\b(?:escape\\s+interrupt|ctrl\\+c/ctrl\\+d\\s+clear/exit)\\b.*");
+    static String waitingReason(String plain) {
+        // Inspect the current rendered screen, not old terminal history. Confirmation always wins
+        // over prompt-shaped selection arrows, including menus with a blank selection line.
+        String normalized = plain.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
+        if (normalized.matches("(?s).*(?:do you trust|trust this (?:directory|folder|workspace|project)|yes,? i trust|workspace trust required).*")) {
+            return "Confirm workspace trust in the terminal";
+        }
+        if (normalized.matches("(?s).*(?:login required|sign in to|log in to|please (?:log|sign) in|choose (?:a )?login|select (?:a )?login|open (?:this|the) (?:url|link).*sign in).*")) {
+            return "Complete CLI login in the terminal";
+        }
+        if (normalized.matches("(?s).*(?:enter to confirm|return to confirm|press enter to continue|enter confirm|choose a (?:theme|option|provider)|pick a (?:theme|option|provider)|select a (?:theme|option|provider)).*")) {
+            return "Complete CLI setup in the terminal";
+        }
+        return null;
+    }
+
+    static boolean screenReady(PromptTerminal.View view, String executable, boolean piIdentity) {
+        String screen = String.join("\n", view.lines());
+        if (waitingReason(screen) != null) return false;
+        if ("codex".equals(executable)
+                && screen.matches("(?is).*(?:model|directory):\\s*(?:loading|connecting)\\b.*")) return false;
+        if (screen.matches("(?is).*\\besc(?:ape)?\\s+(?:to\\s+)?interrupt\\b.*")
+                && !"pi".equals(executable)) return false;
+        int row = view.cursorRow();
+        String current = row >= 0 && row < view.lines().size() ? view.lines().get(row) : "";
+        String trimmed = current.trim();
+        return switch (executable == null ? "" : executable) {
+            case "hermes" -> hermesScreenPrompt(view);
+            case "claude" -> (trimmed.matches("[❯›]\\s*") && emptyPromptAtCursor(current, view.cursorColumn()))
+                    || (trimmed.startsWith("❯ ") && cursorBeforeText(current, view.cursorColumn(), '❯'));
+            case "codex" -> (trimmed.matches("[❯›]\\s*") && emptyPromptAtCursor(current, view.cursorColumn()))
+                    || (trimmed.startsWith("› ") && cursorBeforeText(current, view.cursorColumn(), '›'));
+            case "pi" -> piIdentity && trimmed.isEmpty() && row > 0 && row + 1 < view.lines().size()
+                    && DECORATION_LINE.matcher(view.lines().get(row - 1).trim()).matches()
+                    && DECORATION_LINE.matcher(view.lines().get(row + 1).trim()).matches();
+            case "cursor-agent" -> cursorComposer(view).matches("\\s*→\\s*(?:Plan, search, build anything|Add a follow-up)\\s*");
+            case "opencode" -> current.contains("Ask anything...")
+                    && view.cursorColumn() == current.indexOf("Ask anything...");
+            case "agy" -> trimmed.equals(">") && emptyPromptAtCursor(current, view.cursorColumn())
+                    && row + 1 < view.lines().size()
+                    && view.lines().get(row + 1).trim().matches("(?:[─-]{8,}|\\?\\s*for shortcuts.*)");
+            case "gemini", "qwen" -> screen.contains("Type your message");
+            case "grok" -> screen.matches("(?s).*\\b(?:Enter:send|Composer\\s+\\S+).*");
             default -> false;
         };
     }
 
-    private static boolean hermesPromptNearTail(String output) {
-        String[] lines = output.split("\\n");
-        int significantLines = 0;
-        for (int index = lines.length - 1; index >= 0 && significantLines < 8; index--) {
-            String line = lines[index].trim();
-            if (line.isBlank()) continue;
-            significantLines++;
-            if (HERMES_PROMPT.matcher(line).matches()) return true;
-            if (significantLines == 1 && DECORATION_LINE.matcher(line).matches()) continue;
+    static String cursorComposer(PromptTerminal.View view) {
+        int row = cursorComposerRow(view);
+        return row < 0 ? "" : view.lines().get(row);
+    }
+
+    static int cursorComposerRow(PromptTerminal.View view) {
+        for (int row = view.lines().size() - 1; row >= 0; row--) {
+            if (view.lines().get(row).stripLeading().startsWith("→")) return row;
+        }
+        return -1;
+    }
+
+    private static boolean hermesScreenPrompt(PromptTerminal.View view) {
+        int row = view.cursorRow();
+        if (row < 0 || row >= view.lines().size()) return false;
+        String current = view.lines().get(row);
+        if (HERMES_PROMPT.matcher(current.trim()).matches()) return emptyPromptAtCursor(current, view.cursorColumn());
+        return current.trim().matches("(?:[\\p{L}\\p{N}_.-]+\\s+)?[❯›>]\\s+.+")
+                && (cursorBeforeText(current, view.cursorColumn(), '❯')
+                    || cursorBeforeText(current, view.cursorColumn(), '›')
+                    || cursorBeforeText(current, view.cursorColumn(), '>'));
+    }
+
+    private static boolean emptyPromptAtCursor(String line, int column) {
+        for (char marker : new char[] {'❯', '›', '>'}) {
+            int prompt = line.indexOf(marker);
+            if (prompt >= 0 && column > prompt && column <= prompt + 2) return true;
         }
         return false;
     }
 
-    static boolean promptReadyForTest(String output, String executable) {
-        return promptReady(output, executable);
-    }
-
-    private static boolean firstRunSetupPrompt(String output) {
-        String plain = plainTail(output);
-        if (lastNonEmptyLine(plain).matches("[❯›]")) return false;
-        return plain.matches("(?is).*\\b(?:Do you trust|trust this (?:directory|folder|workspace|project)|Log in|Login required|Sign in|Enter to confirm|Return to confirm|Choose a (?:theme|option|provider)|Pick a (?:theme|option|provider)|Select a (?:theme|option|provider))\\b.*");
+    private static boolean cursorBeforeText(String line, int column, char marker) {
+        int prompt = line.indexOf(marker);
+        if (prompt < 0) return false;
+        int text = prompt + 1;
+        while (text < line.length() && Character.isWhitespace(line.charAt(text))) text++;
+        return column > prompt && column <= text;
     }
 
     private static String plainTail(String output) {
@@ -259,14 +347,6 @@ final class InteractiveInputSubmitter {
                 .replaceAll("\\u001B\\][^\\u0007]*(?:\\u0007|\\u001B\\\\)", "")
                 .replaceAll("\\u001B\\[[0-?]*[ -/]*[@-~]", "");
         return plain.substring(Math.max(0, plain.length() - 8_000));
-    }
-
-    private static String lastNonEmptyLine(String output) {
-        String[] lines = output.split("\\n");
-        for (int index = lines.length - 1; index >= 0; index--) {
-            if (!lines[index].isBlank()) return lines[index].trim();
-        }
-        return "";
     }
 
     private static long deadlineAfter(long milliseconds) {

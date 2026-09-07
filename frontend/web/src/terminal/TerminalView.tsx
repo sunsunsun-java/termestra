@@ -16,6 +16,7 @@ const STATUS_KEYS: Record<string, TranslationKey> = {
 
 interface TerminalViewProps {
   bookmarksEnabled?: boolean
+  inputEnabled?: boolean
   inputProfile?: TerminalWheelInputProfile
   runId: string
   title: string
@@ -199,6 +200,7 @@ const useStablePortalHost = (runId: string, target: HTMLElement | null): HTMLEle
 
 export const TerminalView = ({
   bookmarksEnabled = false,
+  inputEnabled = true,
   inputProfile = 'default',
   runId,
   title,
@@ -210,6 +212,7 @@ export const TerminalView = ({
   return createPortal(
     <TerminalPtyView
       bookmarksEnabled={bookmarksEnabled}
+      inputEnabled={inputEnabled}
       inputProfile={inputProfile}
       runId={runId}
       title={title}
@@ -220,6 +223,7 @@ export const TerminalView = ({
 
 const TerminalPtyView = ({
   bookmarksEnabled = false,
+  inputEnabled = true,
   inputProfile,
   runId,
   title: _title,
@@ -233,7 +237,7 @@ const TerminalPtyView = ({
     error,
     selectBookmark,
     status,
-  } = useTerminalRun(runId, inputProfile, bookmarksEnabled)
+  } = useTerminalRun(runId, inputProfile, bookmarksEnabled, inputEnabled)
   const statusKey = STATUS_KEYS[status]
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">

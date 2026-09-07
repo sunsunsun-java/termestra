@@ -1,6 +1,7 @@
 package dev.termestra.execution.application.service;
 
 import org.junit.jupiter.api.Test;
+import dev.termestra.execution.adapter.out.terminal.VtPromptTerminal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -8,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InteractiveOutputTailTest {
     @Test void retainsOnlyTheBoundedTailOfAFullTerminalHistory() {
-        InteractiveOutputTail output = new InteractiveOutputTail();
+        InteractiveOutputTail output = new InteractiveOutputTail("hermes", new VtPromptTerminal());
 
         output.append("x".repeat(1_000_000));
 
@@ -19,7 +20,7 @@ class InteractiveOutputTailTest {
     }
 
     @Test void isolatesOutputProducedAfterTheCurrentPaste() {
-        InteractiveOutputTail output = new InteractiveOutputTail();
+        InteractiveOutputTail output = new InteractiveOutputTail("hermes", new VtPromptTerminal());
         output.append("[Pasted text #7 +2 lines]\n❯");
         long baseline = output.snapshot().position();
 
@@ -31,7 +32,7 @@ class InteractiveOutputTailTest {
     }
 
     @Test void keepsTheNewestPostBaselineOutputWhenAProducerOutrunsTheTail() {
-        InteractiveOutputTail output = new InteractiveOutputTail();
+        InteractiveOutputTail output = new InteractiveOutputTail("hermes", new VtPromptTerminal());
         long baseline = output.snapshot().position();
 
         output.append("noise".repeat(2_000));
@@ -43,7 +44,7 @@ class InteractiveOutputTailTest {
     }
 
     @Test void preservesOrderAcrossRepeatedRingBufferWraps() {
-        InteractiveOutputTail output = new InteractiveOutputTail();
+        InteractiveOutputTail output = new InteractiveOutputTail("hermes", new VtPromptTerminal());
         StringBuilder expected = new StringBuilder();
 
         for (int index = 0; index < 20_000; index++) {

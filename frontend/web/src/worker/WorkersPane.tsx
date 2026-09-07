@@ -3,6 +3,8 @@ import { useMemo, useRef, useState } from 'react'
 
 import type { TeamListItem } from '../../../src/shared/types.js'
 import type { TerminalRunSummary } from '../api.js'
+import { isRunActive, runStartupPhase } from '../terminal/run-startup.js'
+import { findRunByAgentId } from '../terminal/useTerminalRuns.js'
 import { useI18n } from '../i18n.js'
 import { Confirm } from '../ui/Confirm.js'
 import { EmptyState } from '../ui/EmptyState.js'
@@ -28,26 +30,35 @@ type WorkersPaneProps = {
   readOnly?: boolean
 }
 
-const SECTION_ORDER: WorkerStatusKind[] = ['working', 'idle', 'stopped']
-const statusKey = (status: WorkerStatusKind) => {
+type WorkerSection = WorkerStatusKind | 'starting'
+const SECTION_ORDER: WorkerSection[] = ['starting', 'working', 'idle', 'stopped']
+const statusKey = (status: WorkerSection) => {
+  if (status === 'starting') return 'common.starting'
   if (status === 'working') return 'common.running'
   if (status === 'idle') return 'common.idle'
   return 'common.stopped'
 }
 
-const summarizeWorkers = (workers: TeamListItem[]) => {
-  const buckets: Record<WorkerStatusKind, TeamListItem[]> = {
+const summarizeWorkers = (workers: TeamListItem[], runs: TerminalRunSummary[]) => {
+  const buckets: Record<WorkerSection, TeamListItem[]> = {
+    starting: [],
     idle: [],
     working: [],
     stopped: [],
   }
-  for (const worker of workers) buckets[presentWorkerStatus(worker).kind].push(worker)
+  for (const worker of workers) {
+    const phase = runStartupPhase(findRunByAgentId(runs, worker.id))
+    const kind = phase === 'initializing' || phase === 'waiting_for_user'
+      ? 'starting' : presentWorkerStatus(worker).kind
+    buckets[kind].push(worker)
+  }
   return {
     sections: SECTION_ORDER.filter((kind) => buckets[kind].length > 0).map((kind) => ({
       kind,
       workers: buckets[kind],
     })),
     summary: {
+      starting: buckets.starting.length,
       idle: buckets.idle.length,
       stopped: buckets.stopped.length,
       working: buckets.working.length,
@@ -71,11 +82,7 @@ export const WorkersPane = ({
 }: WorkersPaneProps) => {
   const { t } = useI18n()
   const delivery = useDispatchDeliveryIssues(workspaceId)
-  const { sections, summary } = useMemo(() => summarizeWorkers(workers), [workers])
-  const runIdsByAgentId = useMemo(
-    () => new Map(terminalRuns.map((run) => [run.agent_id, run.run_id] as const)),
-    [terminalRuns]
-  )
+  const { sections, summary } = useMemo(() => summarizeWorkers(workers, terminalRuns), [workers, terminalRuns])
   const [pendingDelete, setPendingDelete] = useState<TeamListItem | null>(null)
   const [renameTarget, setRenameTarget] = useState<TeamListItem | null>(null)
   const [renameBusy, setRenameBusy] = useState(false)
@@ -167,6 +174,12 @@ export const WorkersPane = ({
         </div>
         {workers.length > 0 ? (
           <div className="flex items-center gap-3 text-xs text-ter">
+            {summary.starting > 0 ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="status-dot status-dot--idle" aria-hidden />
+                <span className="text-sec">{summary.starting}</span> {t('common.starting')}
+              </span>
+            ) : null}
             <span className="inline-flex items-center gap-1.5">
               <span className="status-dot status-dot--working" aria-hidden />
               <span className="text-sec">{summary.working}</span> {t('common.running')}
@@ -262,7 +275,8 @@ export const WorkersPane = ({
                     <li key={worker.id}>
                       <WorkerCard
                         readOnly={readOnly}
-                        hasRun={runIdsByAgentId.has(worker.id)}
+                        hasRun={isRunActive(findRunByAgentId(terminalRuns, worker.id))}
+                        startupPhase={startingWorkerId === worker.id ? 'initializing' : runStartupPhase(findRunByAgentId(terminalRuns, worker.id))}
                         isPending={startingWorkerId === worker.id}
                         onClick={readOnly ? () => {} : onOpenWorker}
                         worker={worker}

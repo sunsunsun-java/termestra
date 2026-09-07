@@ -7,9 +7,11 @@ public record TerminalRunSummaryResponse(@JsonProperty("run_id") String runId,
                                          @JsonProperty("agent_id") String agentId,
                                          @JsonProperty("agent_name") String agentName,
                                          String status,
-                                         @JsonProperty("terminal_input_profile") String terminalInputProfile) {
+                                         @JsonProperty("terminal_input_profile") String terminalInputProfile,
+                                         @JsonProperty("startup_phase") String startupPhase,
+                                         @JsonProperty("startup_message") String startupMessage) {
     static TerminalRunSummaryResponse from(AgentRunSummaryView view) {
         return new TerminalRunSummaryResponse(view.runId(), view.agentId(), view.agentName(), view.status(),
-                view.terminalInputProfile());
+                view.terminalInputProfile(),view.startupPhase(),view.startupMessage());
     }
 }

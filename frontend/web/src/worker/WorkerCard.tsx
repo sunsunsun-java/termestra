@@ -2,6 +2,7 @@ import { Pencil, Play, Trash2 } from 'lucide-react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 
 import type { TeamListItem } from '../../../src/shared/types.js'
+import type { StartupPhase } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { CliAgentAvatar } from './CliAgentAvatar.js'
@@ -21,6 +22,7 @@ export type WorkerCardActionKind = 'start' | 'rename' | 'delete'
 
 type WorkerCardProps = {
   hasRun: boolean
+  startupPhase?: StartupPhase | null | undefined
   isPending?: boolean
   onAction?: (kind: WorkerCardActionKind, worker: TeamListItem) => void
   onClick: (worker: TeamListItem) => void
@@ -36,6 +38,7 @@ type WorkerCardProps = {
  */
 export const WorkerCard = ({
   hasRun,
+  startupPhase,
   isPending = false,
   onAction,
   onClick,
@@ -43,7 +46,9 @@ export const WorkerCard = ({
   worker,
 }: WorkerCardProps) => {
   const { t } = useI18n()
-  const status = presentWorkerStatus(worker)
+  const waiting = startupPhase === 'initializing' || startupPhase === 'waiting_for_user'
+  const status = presentWorkerStatus(waiting ? { status: 'idle' } : worker)
+  const label = startupPhase && startupPhase !== 'ready' ? t(`startup.${startupPhase}`) : t(statusTranslationKey(status.kind))
 
   const handleAction =
     (kind: WorkerCardActionKind): ((event: ReactMouseEvent<HTMLButtonElement>) => void) =>
@@ -89,10 +94,10 @@ export const WorkerCard = ({
         <span
           className={`pill ${pillToneByStatus[status.kind]} worker-card__status`}
           role="status"
-          title={t(statusTranslationKey(status.kind))}
+          title={label}
         >
           <span className={status.dotClass} aria-hidden />
-          {t(statusTranslationKey(status.kind))}
+          {label}
         </span>
       </button>
 

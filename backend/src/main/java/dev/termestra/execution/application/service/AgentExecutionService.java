@@ -15,6 +15,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.atomic.*;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public final class AgentExecutionService implements AgentExecutionUseCase,AgentLaunchConfigurationQuery,AgentMessagingUseCase,RunOutputUseCase,AutoCloseable {
     private static final Logger LOG=LoggerFactory.getLogger(AgentExecutionService.class);
@@ -30,28 +31,30 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
     private final PseudoTerminalLauncher launcher; private final AgentSessionCapture sessionCapture;private final CommandPresetPolicy presetPolicy;private final AgentRecoveryContextProvider recovery;private final Clock clock; private final ConcurrentHashMap<String,LiveRun> runs=new ConcurrentHashMap<>();
     private final RunOutputHub outputHub=new RunOutputHub();
     private final RunCapacityBudget runCapacity;
+    private final Supplier<PromptTerminal> promptTerminals;
     private final RuntimeOperationCoordinator operations;
     private final TerminalTransitionRetrier terminalTransitions;
     private final ProcessTerminationSupervisor processTerminations;
     private final ReentrantReadWriteLock lifecycle=new ReentrantReadWriteLock(true);
     private final AtomicBoolean closed=new AtomicBoolean();
+    private final AtomicLong runOrder=new AtomicLong();
 
     public AgentExecutionService(AgentExecutionRepository repository,AgentDirectory directory,AgentCredentialIssuer credentials,
-                                 PseudoTerminalLauncher launcher,AgentSessionCapture sessionCapture,CommandPresetPolicy presetPolicy,AgentRecoveryContextProvider recovery,Clock clock,RuntimeOperationCoordinator operations){this(repository,directory,credentials,launcher,sessionCapture,presetPolicy,recovery,clock,operations,new RunCapacityBudget(MAX_ACTIVE_RUNS,MAX_ACTIVE_RUNS_PER_WORKSPACE));}
+                                 PseudoTerminalLauncher launcher,AgentSessionCapture sessionCapture,CommandPresetPolicy presetPolicy,AgentRecoveryContextProvider recovery,Supplier<PromptTerminal> promptTerminals,Clock clock,RuntimeOperationCoordinator operations){this(repository,directory,credentials,launcher,sessionCapture,presetPolicy,recovery,promptTerminals,clock,operations,new RunCapacityBudget(MAX_ACTIVE_RUNS,MAX_ACTIVE_RUNS_PER_WORKSPACE));}
     AgentExecutionService(AgentExecutionRepository repository,AgentDirectory directory,AgentCredentialIssuer credentials,
                           PseudoTerminalLauncher launcher,AgentSessionCapture sessionCapture,CommandPresetPolicy presetPolicy,
-                          AgentRecoveryContextProvider recovery,Clock clock,RuntimeOperationCoordinator operations,
+                          AgentRecoveryContextProvider recovery,Supplier<PromptTerminal> promptTerminals,Clock clock,RuntimeOperationCoordinator operations,
                           RunCapacityBudget runCapacity){
-        this(repository,directory,credentials,launcher,sessionCapture,presetPolicy,recovery,clock,operations,
+        this(repository,directory,credentials,launcher,sessionCapture,presetPolicy,recovery,promptTerminals,clock,operations,
                 runCapacity,new ProcessTerminationSupervisor());
     }
     AgentExecutionService(AgentExecutionRepository repository,AgentDirectory directory,AgentCredentialIssuer credentials,
                           PseudoTerminalLauncher launcher,AgentSessionCapture sessionCapture,CommandPresetPolicy presetPolicy,
-                          AgentRecoveryContextProvider recovery,Clock clock,RuntimeOperationCoordinator operations,
+                          AgentRecoveryContextProvider recovery,Supplier<PromptTerminal> promptTerminals,Clock clock,RuntimeOperationCoordinator operations,
                           RunCapacityBudget runCapacity,ProcessTerminationSupervisor processTerminations){
         this.repository=repository;this.directory=directory;this.credentials=credentials;this.launcher=launcher;
         this.sessionCapture=sessionCapture;this.presetPolicy=presetPolicy;this.recovery=recovery;this.clock=clock;
-        this.operations=operations;this.runCapacity=runCapacity;
+        this.operations=operations;this.runCapacity=runCapacity;this.promptTerminals=Objects.requireNonNull(promptTerminals,"promptTerminals");
         repository.markUnfinishedRunsStale(Instant.now(clock));
         this.terminalTransitions=new TerminalTransitionRetrier(repository);
         this.processTerminations=Objects.requireNonNull(processTerminations,"processTerminations");
@@ -139,15 +142,12 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
             }
             Optional<AgentSessionCapture.CaptureSnapshot> captureToStart=capture;
             captureToStart.ifPresent(value->captureSession(activatedRun,value));
-            if(recovery.hasPreviousRun(agent.agentId(),runId)){if(nativeResumedSession==null)injectRecoverySummary(live);}else injectStartupInstructions(live);
-            synchronized(live){
-                if(!live.active()||!process.alive()){
-                    if("shell".equals(agent.role()))return live.view();
-                    throw new ExecutionConflict("Agent process exited during startup: "+command.agentId());
-                }
-                if(!repository.markRunning(runId,Instant.now(clock)))throw new ExecutionConflict(
-                        "Agent run disappeared before it could start: "+runId);
-                live.status=RunStatus.RUNNING;
+            if(InteractiveInputSubmitter.supports(inputCommand(live))&&!"shell".equals(agent.role())) {
+                beginStartup(live);
+            } else {
+                // Shell and non-interactive processes have no composer handshake.
+                if(recovery.hasPreviousRun(agent.agentId(),runId)&&nativeResumedSession==null)injectRecoverySummary(live);
+                completeStartup(live);
             }
             return live.view();
         }catch(InteractiveInputSubmitter.SubmissionException error){
@@ -170,7 +170,66 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
     private static void addCleanupFailure(RuntimeException root,RuntimeException cleanupFailure){
         if(cleanupFailure!=null&&cleanupFailure!=root)root.addSuppressed(cleanupFailure);
     }
-    private void abortFailedStart(LiveRun run,RuntimeException root){RuntimeException persistenceFailure=transitionTerminal(run,RunStatus.ERROR,null,true);if(persistenceFailure!=null&&persistenceFailure!=root)root.addSuppressed(persistenceFailure);}
+    private void abortFailedStart(LiveRun run,RuntimeException root){
+        synchronized(run){
+            if(run.active()&&run.status==RunStatus.STARTING){
+                run.startupPhase=StartupPhase.FAILED;
+                run.startupMessage=boundedStartupMessage("Agent startup failed: "+Objects.requireNonNullElse(root.getMessage(),root.getClass().getSimpleName()));
+            }
+        }
+        RuntimeException persistenceFailure=transitionTerminal(run,RunStatus.ERROR,null,true);
+        if(persistenceFailure!=null&&persistenceFailure!=root)root.addSuppressed(persistenceFailure);
+    }
+
+    private void beginStartup(LiveRun run) {
+        Thread task=Thread.ofVirtual().name("termestra-startup-"+run.id).unstarted(()->{
+            try {
+                if(!run.active())return;
+                if(recovery.hasPreviousRun(run.agent.agentId(),run.id)) {
+                    if(run.resumedSessionId==null)injectRecoverySummary(run);
+                    else awaitResumedStartup(run);
+                } else injectStartupInstructions(run);
+                operations.withAgent(run.agent.workspaceId(),run.agent.agentId(),()->{
+                    if(run.active()&&directory.find(run.agent.workspaceId(),run.agent.agentId()).isPresent())completeStartup(run);
+                });
+            } catch(RuntimeException failure) {
+                if(run.active())abortFailedStart(run,failure);
+            }
+        });
+        run.startupThread=task;
+        task.start();
+    }
+
+    private void awaitResumedStartup(LiveRun run) {
+        InteractiveInputSubmitter.awaitStartup(inputCommand(run),run::active,
+                run.interactiveOutput::snapshot,reason->waitingForUser(run,reason));
+    }
+
+    private void completeStartup(LiveRun run) {
+        synchronized(run){
+            if(!run.active()||!run.process.alive()){
+                if("shell".equals(run.agent.role()))return;
+                throw new ExecutionConflict("Agent process exited during startup: "+run.agent.agentId());
+            }
+            if(!repository.markRunning(run.id,Instant.now(clock)))throw new ExecutionConflict("Agent run disappeared before it could start: "+run.id);
+            run.status=RunStatus.RUNNING;
+            run.startupPhase=StartupPhase.READY;
+            run.startupMessage=null;
+        }
+    }
+
+    private void waitingForUser(LiveRun run,String reason) {
+        synchronized(run){
+            if(!run.active()||run.status!=RunStatus.STARTING)return;
+            run.startupPhase=reason==null?StartupPhase.INITIALIZING:StartupPhase.WAITING_FOR_USER;
+            run.startupMessage=boundedStartupMessage(reason);
+        }
+    }
+
+    private static String boundedStartupMessage(String message) {
+        return message==null?null:message.substring(0,Math.min(message.length(),AgentRunSummaryView.MAX_STARTUP_MESSAGE_CHARS));
+    }
+
     private boolean hasResumeArgs(List<String> arguments){return arguments.stream().anyMatch(Set.of("--resume","-r","--continue","-c","--session","-s")::contains)||(!arguments.isEmpty()&&"resume".equals(arguments.getFirst()));}
     private void captureSession(LiveRun run,AgentSessionCapture.CaptureSnapshot snapshot){
         Thread captureThread=Thread.ofVirtual().name("termestra-session-capture-"+run.id).unstarted(()->{
@@ -276,8 +335,12 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
     }
 
     private RuntimeException transitionTerminal(LiveRun run,RunStatus terminal,Integer exitCode,boolean stopProcess){
-        if(!run.terminalTransition.compareAndSet(false,true)){
-            synchronized(run){return run.terminalPersistenceFailure;}
+        synchronized(run){
+            if(!run.terminalTransition.compareAndSet(false,true))return run.terminalPersistenceFailure;
+            if(run.status==RunStatus.STARTING&&run.startupPhase!=StartupPhase.READY){
+                run.startupPhase=StartupPhase.FAILED;
+                if(run.startupMessage==null)run.startupMessage=stopProcess?"Agent stopped before startup completed.":"Agent exited before startup completed (exit code "+exitCode+").";
+            }
         }
         Instant ended=Instant.now(clock);
         if(stopProcess){
@@ -354,6 +417,8 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
     }
     private void quiesceAutomaticInput(LiveRun run){
         if(!run.inputQuiesced.compareAndSet(false,true))return;
+        Thread startup=run.startupThread;
+        if(startup!=null&&startup!=Thread.currentThread())startup.interrupt();
         try{run.automaticInput.close();}
         catch(RuntimeException failure){LOG.warn("Could not close automatic input for run {}",run.id,failure);}
     }
@@ -375,6 +440,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
         try{
             run.ptyInputLock.lockInterruptibly();locked=true;
             if(!run.active())throw new ExecutionConflict("PTY is not active for run: "+runId);
+            if(!isTerminalResponse(input))run.interactiveOutput.invalidateForUserInput();
             run.process.write(input);
         }catch(InterruptedException interrupted){
             Thread.currentThread().interrupt();
@@ -382,12 +448,34 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
                     interrupted);
         }finally{if(locked)run.ptyInputLock.unlock();}
     }
-    @Override public void resize(String runId,int columns,int rows){if(columns<=0||rows<=0)throw new IllegalArgumentException("terminal size must be positive");live(runId).process.resize(columns,rows);}
+    private static boolean isTerminalResponse(byte[] input) {
+        String text=new String(input,java.nio.charset.StandardCharsets.US_ASCII);
+        return text.matches("(?:\\u001B\\[[?>]?[0-9;]*[Rc]|\\u001B\\]\\d+;[^\\u0007\\u001B]*(?:\\u0007|\\u001B\\\\))+");
+    }
+
+    @Override public void resize(String runId,int columns,int rows){if(columns<=0||rows<=0)throw new IllegalArgumentException("terminal size must be positive");LiveRun run=live(runId);if(run.active())run.process.resize(columns,rows);run.interactiveOutput.resize(columns,rows);}
     @Override public void pauseOutput(String runId){LiveRun run=live(runId);if(run.active())run.process.pauseOutput();}
     @Override public void resumeOutput(String runId){LiveRun run=live(runId);if(run.active())run.process.resumeOutput();}
     @Override public AgentRunView get(String runId){return live(runId).view();}
     @Override public AgentRunSummaryView getSummary(String runId){return live(runId).summary();}
     @Override public List<AgentRunSummaryView> listActiveSummaries(String workspaceId){return runs.values().stream().filter(run->run.agent.workspaceId().equals(workspaceId)&&run.active()).sorted(Comparator.comparing(run->run.startedAt)).map(LiveRun::summary).toList();}
+    @Override public List<AgentRunSummaryView> listTerminalSummaries(String workspaceId){
+        List<LiveRun> visible=new ArrayList<>();
+        Set<String> activeAgents=new HashSet<>();
+        Map<String,LiveRun> latest=new HashMap<>();
+        for(LiveRun run:runs.values()){
+            if(!run.agent.workspaceId().equals(workspaceId))continue;
+            if(run.active()){
+                visible.add(run);
+                activeAgents.add(run.agent.agentId());
+            }
+            latest.merge(run.agent.agentId(),run,(first,second)->first.order>second.order?first:second);
+        }
+        for(LiveRun run:latest.values()){
+            if(!activeAgents.contains(run.agent.agentId())&&run.startupPhase==StartupPhase.FAILED)visible.add(run);
+        }
+        return visible.stream().sorted(Comparator.comparingLong(run->run.order)).map(LiveRun::summary).toList();
+    }
     @Override public void forgetWorkspace(String workspaceId){
         operations.deletingWorkspace(workspaceId,()->forgetConcurrently(runs.values().stream()
                 .filter(run->run.agent.workspaceId().equals(workspaceId)).toList()));
@@ -430,19 +518,40 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
     @Override public RunOutputSnapshot open(String runId,java.util.function.Consumer<String> listener){LiveRun run=live(runId);synchronized(run){if(!run.active())return new RunOutputSnapshot(run.output.toString(),()->{});run.outputViewers++;RunOutputSubscription underlying=outputHub.subscribe(runId,run.outputSequence,listener);AtomicBoolean closed=new AtomicBoolean();RunOutputSubscription leased=()->{if(!closed.compareAndSet(false,true))return;underlying.close();synchronized(run){run.outputViewers--;}retainRecentCompletedRuns();};return new RunOutputSnapshot(run.output.toString(),leased);}}
 
     @Override public MessageDeliveryResult userInput(String workspaceId,String text){String validated=ExecutionInputLimits.userInput(text);String agentId=workspaceId+":orchestrator";return operations.withAgent(workspaceId,agentId,()->userInputCoordinated(workspaceId,agentId,validated));}
-    private MessageDeliveryResult userInputCoordinated(String workspaceId,String agentId,String text){Optional<LiveRun> active=findActiveRun(workspaceId,agentId);if(active.isEmpty())return MessageDeliveryResult.failed("No active orchestrator run");try{LiveRun run=active.orElseThrow();PersistedMessageDelivery.execute(()->recovery.appendUserInput(workspaceId,agentId,text,Instant.now(clock)),recovery::deleteMessage,()->deliverText(run,AgentPromptBuilder.userInput(text)));return MessageDeliveryResult.success();}catch(InterruptedException interrupted){Thread.currentThread().interrupt();return MessageDeliveryResult.failed("User input delivery was interrupted");}catch(InteractiveInputSubmitter.SubmissionException error){return deliveryFailure(error);}catch(RuntimeException error){return MessageDeliveryResult.failed(error.getMessage());}}
+    private MessageDeliveryResult userInputCoordinated(String workspaceId,String agentId,String text){Optional<LiveRun> active=findActiveRun(workspaceId,agentId);if(active.isEmpty())return MessageDeliveryResult.failed("No active orchestrator run");if(!active.orElseThrow().ready())return MessageDeliveryResult.deferred("Agent startup is not complete; finish setup in its terminal before retrying.");try{LiveRun run=active.orElseThrow();PersistedMessageDelivery.execute(()->recovery.appendUserInput(workspaceId,agentId,text,Instant.now(clock)),recovery::deleteMessage,()->deliverText(run,AgentPromptBuilder.userInput(text)));return MessageDeliveryResult.success();}catch(InterruptedException interrupted){Thread.currentThread().interrupt();return MessageDeliveryResult.failed("User input delivery was interrupted");}catch(InteractiveInputSubmitter.SubmissionException error){return deliveryFailure(error);}catch(RuntimeException error){return MessageDeliveryResult.failed(error.getMessage());}}
     @Override public MessageDeliveryResult deliver(String workspaceId,String workerId,String dispatchId,String senderName,String workerDescription,String text,String runtimePort){return operations.withAgent(workspaceId,workerId,()->deliverCoordinated(workspaceId,workerId,dispatchId,senderName,workerDescription,text,runtimePort));}
-    private MessageDeliveryResult deliverCoordinated(String workspaceId,String workerId,String dispatchId,String senderName,String workerDescription,String text,String runtimePort){try{requireAgent(workspaceId,workerId);LiveRun run=findActiveRun(workspaceId,workerId).orElseGet(()->live(startCoordinated(new StartAgentCommand(workspaceId,workerId,runtimePort)).runId()));requireAgent(workspaceId,workerId);deliverText(run,AgentPromptBuilder.dispatch(senderName,workerDescription,dispatchId,text));return MessageDeliveryResult.success();}catch(InteractiveInputSubmitter.SubmissionException error){return deliveryFailure(error);}catch(RuntimeException error){return MessageDeliveryResult.failed(error.getMessage());}}
+    private MessageDeliveryResult deliverCoordinated(String workspaceId,String workerId,String dispatchId,String senderName,String workerDescription,String text,String runtimePort){
+        try{
+            requireAgent(workspaceId,workerId);
+            Optional<LiveRun> active=findActiveRun(workspaceId,workerId);
+            if(active.isEmpty()){
+                Optional<LiveRun> latest=runs.values().stream()
+                        .filter(run->run.agent.workspaceId().equals(workspaceId)&&run.agent.agentId().equals(workerId))
+                        .max(Comparator.comparingLong(run->run.order));
+                if(latest.isPresent()&&latest.orElseThrow().startupPhase==StartupPhase.FAILED)
+                    return MessageDeliveryResult.failed("Agent startup failed; inspect its terminal and explicitly retry startup.");
+            }
+            LiveRun run=active.orElseGet(()->live(startCoordinated(new StartAgentCommand(workspaceId,workerId,runtimePort)).runId()));
+            requireAgent(workspaceId,workerId);
+            if(!run.ready())return MessageDeliveryResult.deferred("Agent startup is not complete; finish setup in its terminal before retrying.");
+            deliverText(run,AgentPromptBuilder.dispatch(senderName,workerDescription,dispatchId,text));
+            return MessageDeliveryResult.success();
+        }catch(InteractiveInputSubmitter.SubmissionException error){return deliveryFailure(error);}
+        catch(RuntimeException error){return MessageDeliveryResult.failed(error.getMessage());}
+    }
     @Override public MessageDeliveryResult report(String workspaceId,String workerName,String text,List<String> artifacts){return writeToAgent(workspaceId,workspaceId+":orchestrator",AgentPromptBuilder.report(workerName,text,artifacts));}
     @Override public MessageDeliveryResult status(String workspaceId,String workerName,String text,List<String> artifacts){return writeToAgent(workspaceId,workspaceId+":orchestrator",AgentPromptBuilder.status(workerName,text,artifacts));}
     @Override public MessageDeliveryResult cancel(String workspaceId,String workerId,String dispatchId,String reason){return writeToAgent(workspaceId,workerId,AgentPromptBuilder.cancel(dispatchId,reason));}
     private MessageDeliveryResult writeToAgent(String workspaceId,String agentId,String text){return operations.withAgent(workspaceId,agentId,()->writeToAgentCoordinated(workspaceId,agentId,text));}
-    private MessageDeliveryResult writeToAgentCoordinated(String workspaceId,String agentId,String text){Optional<LiveRun> active=findActiveRun(workspaceId,agentId);if(active.isEmpty())return MessageDeliveryResult.failed("No active run for agent: "+agentId);try{requireAgent(workspaceId,agentId);deliverText(active.orElseThrow(),text);return MessageDeliveryResult.success();}catch(InteractiveInputSubmitter.SubmissionException error){return deliveryFailure(error);}catch(RuntimeException error){return MessageDeliveryResult.failed(error.getMessage());}}
+    private MessageDeliveryResult writeToAgentCoordinated(String workspaceId,String agentId,String text){Optional<LiveRun> active=findActiveRun(workspaceId,agentId);if(active.isEmpty())return MessageDeliveryResult.failed("No active run for agent: "+agentId);if(!active.orElseThrow().ready())return MessageDeliveryResult.deferred("Agent startup is not complete; finish setup in its terminal before retrying.");try{requireAgent(workspaceId,agentId);deliverText(active.orElseThrow(),text);return MessageDeliveryResult.success();}catch(InteractiveInputSubmitter.SubmissionException error){return deliveryFailure(error);}catch(RuntimeException error){return MessageDeliveryResult.failed(error.getMessage());}}
     private void deliverText(LiveRun run,String text){run.automaticInput.submit(text);}
     private long submitAutomaticInput(LiveRun run,String text,long readyAfterPosition){
         LockedPtyWriter writer=new LockedPtyWriter(run);
         try{
             if(!run.active())throw new ExecutionConflict("PTY is not active for run: "+run.id);
+            if(run.status==RunStatus.STARTING)return InteractiveInputSubmitter.submitStartup(
+                    inputCommand(run),text,run::active,run.interactiveOutput::snapshot,writer,
+                    reason->waitingForUser(run,reason));
             return InteractiveInputSubmitter.submit(inputCommand(run),text,run::active,run.interactiveOutput::snapshot,writer,readyAfterPosition);
         }finally{writer.close();}
     }
@@ -502,13 +611,14 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
     }
 
     private final class LiveRun {
-        final String id;final AgentDescriptor agent;final AgentLaunchConfiguration configuration;final PseudoTerminalHandle process;final Instant startedAt;final String resumedSessionId;final String token;final BoundedUtf8TextBuffer output=new BoundedUtf8TextBuffer(MAX_OUTPUT);final IncrementalUtf8Decoder decoder=new IncrementalUtf8Decoder();final InteractiveOutputTail interactiveOutput=new InteractiveOutputTail();final PtyLastLineTracker lastLine=new PtyLastLineTracker();final ArrayDeque<OutputPublication> publications=new ArrayDeque<>();
+        final long order=runOrder.incrementAndGet();final String id;final AgentDescriptor agent;final AgentLaunchConfiguration configuration;final PseudoTerminalHandle process;final Instant startedAt;final String resumedSessionId;final String token;final BoundedUtf8TextBuffer output=new BoundedUtf8TextBuffer(MAX_OUTPUT);final IncrementalUtf8Decoder decoder=new IncrementalUtf8Decoder();final InteractiveOutputTail interactiveOutput;final PtyLastLineTracker lastLine=new PtyLastLineTracker();final ArrayDeque<OutputPublication> publications=new ArrayDeque<>();
         final ReentrantLock ptyInputLock=new ReentrantLock(true);final AtomicBoolean terminalTransition=new AtomicBoolean();final AtomicBoolean terminationPending=new AtomicBoolean();final AtomicBoolean inputQuiesced=new AtomicBoolean();final AtomicBoolean runtimeCleaned=new AtomicBoolean();final AtomicBoolean capacityReleased=new AtomicBoolean();final RunCapacityBudget.Lease capacity;final AutomaticInputMailbox automaticInput;
-        volatile Thread captureThread;volatile boolean durablyDeleted;RunStatus status=RunStatus.STARTING;Integer exitCode;Instant endedAt;RuntimeException terminalPersistenceFailure;int outputViewers;int pendingPublicationCharacters;long outputSequence;boolean publishing;boolean removeWhenTerminal;
-        LiveRun(String id,AgentDescriptor agent,AgentLaunchConfiguration configuration,PseudoTerminalHandle process,Instant startedAt,String resumedSessionId,String token,RunCapacityBudget.Lease capacity){this.id=id;this.agent=agent;this.configuration=configuration;this.process=process;this.startedAt=startedAt;this.resumedSessionId=resumedSessionId;this.token=token;this.capacity=capacity;this.automaticInput=new AutomaticInputMailbox(id,(text,position)->submitAutomaticInput(this,text,position));}
-        AgentRunView view(){synchronized(this){return new AgentRunView(id,agent.agentId(),agent.name(),agent.workspaceId(),process.pid(),status.wireValue(),output.toString(),exitCode,startedAt.toEpochMilli(),endedAt==null?null:endedAt.toEpochMilli(),terminalInputProfile());}}
-        AgentRunSummaryView summary(){synchronized(this){String visibleStatus=status.active()&&terminalTransition.get()&&!terminationPending.get()?RunStatus.ERROR.wireValue():status.wireValue();return new AgentRunSummaryView(id,agent.agentId(),agent.name(),visibleStatus,terminalInputProfile(),lastLine.lastLine(),exitCode);}}
+        volatile Thread captureThread;volatile Thread startupThread;volatile boolean durablyDeleted;RunStatus status=RunStatus.STARTING;volatile StartupPhase startupPhase=StartupPhase.INITIALIZING;String startupMessage;Integer exitCode;Instant endedAt;RuntimeException terminalPersistenceFailure;int outputViewers;int pendingPublicationCharacters;long outputSequence;boolean publishing;boolean removeWhenTerminal;
+        LiveRun(String id,AgentDescriptor agent,AgentLaunchConfiguration configuration,PseudoTerminalHandle process,Instant startedAt,String resumedSessionId,String token,RunCapacityBudget.Lease capacity){this.id=id;this.agent=agent;this.configuration=configuration;this.process=process;this.startedAt=startedAt;this.resumedSessionId=resumedSessionId;this.token=token;this.capacity=capacity;if("shell".equals(agent.role()))this.startupPhase=StartupPhase.READY;this.interactiveOutput=new InteractiveOutputTail(Objects.requireNonNullElse(configuration.interactiveCommand(),configuration.command()),promptTerminals.get());this.automaticInput=new AutomaticInputMailbox(id,(text,position)->submitAutomaticInput(this,text,position));}
+        AgentRunView view(){synchronized(this){return new AgentRunView(id,agent.agentId(),agent.name(),agent.workspaceId(),process.pid(),status.wireValue(),output.toString(),exitCode,startedAt.toEpochMilli(),endedAt==null?null:endedAt.toEpochMilli(),terminalInputProfile(),startupPhase.wireValue(),startupMessage);}}
+        AgentRunSummaryView summary(){synchronized(this){String visibleStatus=status.active()&&terminalTransition.get()&&!terminationPending.get()?RunStatus.ERROR.wireValue():status.wireValue();return new AgentRunSummaryView(id,agent.agentId(),agent.name(),visibleStatus,terminalInputProfile(),lastLine.lastLine(),exitCode,startupPhase.wireValue(),startupMessage);}}
         boolean active(){synchronized(this){return status.active()&&!terminalTransition.get();}}
+        boolean ready(){synchronized(this){return active()&&status==RunStatus.RUNNING;}}
         boolean acceptsOutput(){synchronized(this){return status.active()&&!durablyDeleted&&!runtimeCleaned.get();}}
         boolean pendingTerminalPersistence(){synchronized(this){return status.active()&&terminalTransition.get();}}
         boolean durablyTerminal(){synchronized(this){return !status.active();}}
@@ -519,7 +629,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
     private record OutputPublication(long sequence,String text) { }
 
     private static final class LockedPtyWriter implements Consumer<byte[]>,AutoCloseable {
-        private final LiveRun run;private boolean locked;
+        private final LiveRun run;private boolean locked;private boolean firstWrite=true;
         private LockedPtyWriter(LiveRun run){this.run=run;}
         @Override public void accept(byte[] input){
             if(!locked){
@@ -531,6 +641,12 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
                 }
             }
             if(!run.active())throw new ExecutionConflict("PTY is not active for run: "+run.id);
+            if(firstWrite&&InteractiveInputSubmitter.supports(Objects.requireNonNullElse(
+                    run.configuration.interactiveCommand(),run.configuration.command()))
+                    &&run.interactiveOutput.snapshot().readiness().state()!=InteractiveOutputTail.State.READY){
+                throw new InteractiveInputSubmitter.SubmissionException("Terminal input changed before automatic input could be written; retry after the prompt is ready.",false);
+            }
+            firstWrite=false;
             run.process.write(input);
         }
         @Override public void close(){if(locked){locked=false;run.ptyInputLock.unlock();}}

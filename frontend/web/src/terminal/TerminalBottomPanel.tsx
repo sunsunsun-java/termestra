@@ -2,6 +2,7 @@ import { LoaderCircle, Play, Terminal as TerminalIcon } from 'lucide-react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 
 import { useI18n } from '../i18n.js'
+import { StartupStatus } from './StartupStatus.js'
 import { TerminalTabs } from './TerminalTabs.js'
 import { TERMINAL_PANEL_MIN_HEIGHT, useTerminalPanelHeight } from './useTerminalPanelHeight.js'
 import type { TerminalTab } from './useTerminalPanelTabs.js'
@@ -51,12 +52,12 @@ const TerminalContent = ({ onStartWorker, startingWorkerId, tab }: TerminalConte
 
   if (tab.runId) {
     return (
-      <div
-        id={`worker-pty-${tab.runId}`}
-        className="flex h-full w-full"
-        data-pty-slot="worker"
-        data-testid={`terminal-panel-slot-worker-${tab.workerId}`}
-      />
+      <div className="flex h-full flex-col">
+        {tab.startupPhase ? <StartupStatus phase={tab.startupPhase} message={tab.startupMessage}
+          onRetry={() => onStartWorker(tab.workerId)} pending={startingWorkerId === tab.workerId} /> : null}
+        <div id={`worker-pty-${tab.runId}`} className="flex min-h-0 flex-1" data-pty-slot="worker"
+          data-testid={`terminal-panel-slot-worker-${tab.workerId}`} />
+      </div>
     )
   }
 

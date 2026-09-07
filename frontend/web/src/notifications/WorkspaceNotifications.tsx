@@ -116,7 +116,7 @@ const describeEvent = (
 
 /** Observes the bounded Team projection and emits only transitions visible to the user. */
 export const WorkspaceNotifications = ({
-  terminalRuns: _terminalRuns,
+  terminalRuns,
   workers,
   workspace,
 }: WorkspaceNotificationsProps) => {
@@ -136,9 +136,13 @@ export const WorkspaceNotifications = ({
     if (!prior || prior.workspaceId !== workspace.id) return
 
     for (const event of transitionsSince(prior, workersNow)) {
+      const run = terminalRuns.find((item) => item.agent_id === event.worker.id)
+      // Startup failures are explained once, beside the retained terminal output.
+      if (event.kind === 'stopped' && run?.startup_phase === 'failed') continue
+      if (event.kind === 'started' && run && run.status !== 'running') continue
       notify(describeEvent(event, workspace, t))
     }
-  }, [notify, t, workers, workspace])
+  }, [notify, t, terminalRuns, workers, workspace])
 
   return null
 }

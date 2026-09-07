@@ -22,7 +22,7 @@ public final class AgentExecutionController {
     @PostMapping("/api/runtime/runs/{runId}/stop") @ResponseStatus(HttpStatus.ACCEPTED)
     Mono<Map<String,Boolean>> stop(@PathVariable String runId){return blocking(()->{execution.stop(runId);return Map.of("ok",true);});}
     @GetMapping("/api/runtime/runs/{runId}") Mono<AgentRunResponse> get(@PathVariable String runId){return blocking(()->AgentRunResponse.from(execution.get(runId)));}
-    @GetMapping("/api/ui/workspaces/{workspaceId}/runs") Mono<List<TerminalRunSummaryResponse>> list(@PathVariable String workspaceId){return blocking(()->execution.listActiveSummaries(workspaceId).stream().map(TerminalRunSummaryResponse::from).toList());}
+    @GetMapping("/api/ui/workspaces/{workspaceId}/runs") Mono<List<TerminalRunSummaryResponse>> list(@PathVariable String workspaceId){return blocking(()->execution.listTerminalSummaries(workspaceId).stream().map(TerminalRunSummaryResponse::from).toList());}
     @PostMapping("/api/workspaces/{workspaceId}/user-input") @ResponseStatus(HttpStatus.ACCEPTED)
     Mono<Map<String,Boolean>> userInput(@PathVariable String workspaceId,@RequestBody Map<String,Object> body){return blocking(()->{String text=body.get("text") instanceof String value?value:null;if(text==null||text.isBlank())throw new TeamBadRequest("text is required");MessageDeliveryResult result=messaging.userInput(workspaceId,text);if(!result.delivered())throw new dev.termestra.execution.application.exception.ExecutionConflict(result.error());return Map.of("ok",true);});}
     private static <T> Mono<T> blocking(java.util.concurrent.Callable<T> work){return Mono.fromCallable(work).subscribeOn(Schedulers.boundedElastic());}

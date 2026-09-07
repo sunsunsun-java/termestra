@@ -14,7 +14,8 @@ and `bootstrap` are supporting modules rather than business contexts.
   cancellation, and scenario membership.
 - [Agent Execution](backend/src/main/java/dev/termestra/execution/CONTEXT.md) —
   owns launch configuration, real CLI/PTY Run lifecycle, process credentials,
-  bounded output, provider session capture, and restart recovery.
+  bounded output, interactive startup readiness and user-action waits, provider
+  session capture, and restart recovery.
 - [Terminal](backend/src/main/java/dev/termestra/terminal/CONTEXT.md) — owns the
   browser viewing protocol for a Run: restore, resize, input/control channels,
   per-viewer flow control, and terminal-screen projection.
@@ -64,7 +65,8 @@ and `bootstrap` are supporting modules rather than business contexts.
 - [`shared`](backend/src/main/java/dev/termestra/shared) — stable identifiers and
   exact-key runtime coordination shared across contexts.
 - [`platform`](backend/src/main/java/dev/termestra/platform) — SQLite migration,
-  process, common web error, and CLI mechanisms used by adapters.
+  process, bounded VT screen projection, common web error, and CLI mechanisms
+  used by adapters.
 - [`bootstrap`](backend/src/main/java/dev/termestra/bootstrap) — Spring entry point
   and the only composition root; cross-context adapters are assembled in
   `RuntimeWiring`.

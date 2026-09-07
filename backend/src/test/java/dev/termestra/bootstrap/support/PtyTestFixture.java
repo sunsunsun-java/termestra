@@ -26,7 +26,7 @@ public final class PtyTestFixture {
                         Thread.sleep(10);
                     }
                 }
-                System.out.println("Plan, search, build anything");
+                System.out.print("\u001b[2J\u001b[H  → Plan, search, build anything");
                 System.out.flush();
                 echoInput();
             }

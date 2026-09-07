@@ -6,7 +6,8 @@ process, and keeps restore-to-live output consistent under backpressure.
 ## Language
 
 **Terminal Viewer**:
-One browser client observing and controlling a Run through a paired connection.
+One browser client observing and controlling a Run through a paired connection,
+including a Run waiting for startup confirmation or retained startup-failure evidence.
 _Avoid_: Run, Agent, PTY process
 
 **IO Channel**:
@@ -26,4 +27,5 @@ _Avoid_: Full terminal history, Run output buffer
 
 **Terminal Mirror**:
 The bounded headless screen projection from which Restore Snapshots are made.
+Screen rendering does not own the Agent's startup-readiness decision.
 _Avoid_: Transcript, PTY
