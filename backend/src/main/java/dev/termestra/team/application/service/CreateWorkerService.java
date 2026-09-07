@@ -1,5 +1,6 @@
 package dev.termestra.team.application.service;
 
+import dev.termestra.team.application.exception.TeamConflict;
 import dev.termestra.team.application.port.in.*;
 import dev.termestra.team.application.port.out.*;
 import dev.termestra.team.domain.model.TeamMember;
@@ -40,7 +41,8 @@ public final class CreateWorkerService implements CreateWorkerUseCase {
             }
         }
         TeamMemberView current=team.listForUi(command.workspaceId()).stream()
-                .filter(value->value.id().equals(member.id().toString())).findFirst().orElseThrow();
+                .filter(value->value.id().equals(member.id().toString())).findFirst().orElseThrow(()->new TeamConflict(
+                        "Worker was removed during creation: "+member.id()));
         return new CreatedWorkerView(current,start);
     }
 }

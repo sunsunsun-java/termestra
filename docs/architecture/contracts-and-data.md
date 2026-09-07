@@ -136,7 +136,7 @@ terminal。`running` 只在启动/恢复输入完整提交（含 Enter）后持�
 
 ## SQLite 所有权
 
-当前 schema 版本为 33，由 `SqliteSchemaMigrator` 在启动时事务迁移。
+当前 schema 版本为 34，由 `SqliteSchemaMigrator` 在启动时事务迁移。
 
 | 表 | 所有者 | 说明 |
 | --- | --- | --- |

@@ -51,10 +51,15 @@ Orchestrator，因此 Orchestrator 失败不会删除已经有效的 Workspace�
 信任提示输出不会把 Run 推进到 `running`。Team 的运行状态适配器只把 `running` Run
 用于 `idle/working` 投影，避免前端轮询先发出“已启动”通知。`CreateWorkerService`
 在自动启动结束后重新读取成员状态，避免创建响应用启动前的 `stopped` 覆盖最新投影。
+若成员已被并发删除，返回 `TeamConflict`（HTTP 409），不返回过时的成功快照。
 
 Cursor 内置预设使用 `--force --trust`，信任用户已注册的 Workspace。schema v33 只升级
 仍为默认 `--force` 的内置 Cursor 策略，递增 preset revision，保留用户自定义策略与参数；
 已有、允许 preset augmentation 的 Launch Configuration 在下次启动时同样获得该参数。
+schema v34 另外修复已固化参数的内置 Cursor 默认快照：在默认预设策略仍有效时，仅对
+`cursor-agent --force`（可带已记录的显式 `--model`）追加 `--trust` 并递增 Launch
+Configuration revision。自定义命令、额外参数、显式 startup 与已带 `--trust` 的快照保留
+原样；该一次性兼容修复不恢复快照与预设的后续联动。
 `InteractiveInputSubmitter` 识别 Cursor 的初始与后续输入框提示；若 3 秒后仍停留在登录或
 首次设置提示，启动失败会明确要求在该 Workspace 运行 `cursor-agent` 完成设置或执行
 `cursor-agent login`，不会向确认界面写入启动指令。失败保留成员，清理 Run 和凭据，用户
@@ -158,7 +163,7 @@ sequenceDiagram
 
 后端重启后的恢复顺序是：
 
-1. 打开数据目录并把 SQLite schema 迁移到 v33；
+1. 打开数据目录并把 SQLite schema 迁移到 v34；
 2. 恢复 Workspace Registration：尚未开始元数据初始化的 `reserved` 可安全失败释放；
    旧版本遗留的 `switching/uncertain` 保留诊断证据但失败并释放路径 claim；已记录
    `checkout_applied` 的注册继续初始化元数据并激活；

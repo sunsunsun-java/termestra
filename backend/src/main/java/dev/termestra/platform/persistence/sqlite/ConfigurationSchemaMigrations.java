@@ -30,7 +30,8 @@ final class ConfigurationSchemaMigrations {
                 new SchemaMigration(24, this::refreshPresets),
                 new SchemaMigration(31, this::addStructuredModelSelection),
                 new SchemaMigration(32, this::addDiscoverableBuiltinModels),
-                new SchemaMigration(33, this::trustCursorWorkspace));
+                new SchemaMigration(33, this::trustCursorWorkspace),
+                new SchemaMigration(34, this::trustExistingCursorSnapshots));
     }
 
     private void v7(Connection c) throws SQLException {
@@ -140,6 +141,24 @@ final class ConfigurationSchemaMigrations {
                 SET yolo_args_json='["--force","--trust"]', revision=revision+1, updated_at=?
                 WHERE id='cursor' AND is_builtin=1 AND command='cursor-agent'
                   AND yolo_args_json='["--force"]'
+                """)){
+            statement.setLong(1,clock.millis());
+            statement.executeUpdate();
+        }
+    }
+
+    private void trustExistingCursorSnapshots(Connection connection) throws SQLException {
+        if(!hasColumn(connection,"agent_launch_configs","command_preset_id")
+                ||!hasColumn(connection,"command_presets","yolo_args_json"))return;
+        try(PreparedStatement statement=connection.prepareStatement("""
+                UPDATE agent_launch_configs
+                SET args_json=json_insert(args_json,'$[#]','--trust'), revision=revision+1, updated_at=?
+                WHERE command_preset_id='cursor' AND command='cursor-agent'
+                  AND preset_augmentation_disabled=1 AND interactive_command IS NULL
+                  AND (args_json='["--force"]'
+                    OR (model_id IS NOT NULL AND args_json=json_array('--force','--model',model_id)))
+                  AND EXISTS(SELECT 1 FROM command_presets WHERE id='cursor' AND is_builtin=1
+                    AND command='cursor-agent' AND yolo_args_json='["--force","--trust"]')
                 """)){
             statement.setLong(1,clock.millis());
             statement.executeUpdate();
