@@ -28,6 +28,8 @@ process output alone does not establish readiness.
 After input submission, a busy runtime coordinator delays only the durable running
 transition. Its retry budget is 60 seconds plus at most one acquisition window;
 startup input is not repeated, and stop, deletion, or close cancels the wait.
+Explicit stop claims the terminal transition before interrupting startup, so the
+interrupted startup handler cannot steal termination ownership from its caller.
 _Avoid_: Agent, Dispatch, terminal viewer
 
 **Startup Phase**:

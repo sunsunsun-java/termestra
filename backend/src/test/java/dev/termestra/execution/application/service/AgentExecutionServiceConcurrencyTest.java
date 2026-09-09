@@ -215,7 +215,7 @@ class AgentExecutionServiceConcurrencyTest {
         }
     }
 
-    @Test void stoppingAndDeletingWhileWaitingCannotResurrectTheRun() throws Exception {
+    @org.junit.jupiter.api.RepeatedTest(20) void stoppingAndDeletingWhileWaitingCannotResurrectTheRun() throws Exception {
         for (boolean delete : List.of(false, true)) {
             RecordingRepository repository = new RecordingRepository("cursor-agent");
             UserGatePty pty = new UserGatePty();

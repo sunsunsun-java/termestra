@@ -451,8 +451,9 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
         // Process termination must precede the coordinator. An in-flight delivery can own the
         // coordinator while blocked inside a PTY write; killing the PTY is what releases that write.
         // terminalTransition is the per-run serialization point and startCoordinated rejects a
-        // replacement while durable terminal persistence is pending.
-        quiesceAutomaticInput(run);
+        // replacement while durable terminal persistence is pending. Claim the transition before
+        // interrupting startup: otherwise its failure handler can take ownership and stop() may
+        // return while that handler has not yet terminated the PTY.
         RuntimeException failure=transitionTerminal(run,RunStatus.ERROR,null,true);
         if(failure!=null)throw failure;
     }
