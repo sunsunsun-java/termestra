@@ -125,7 +125,7 @@ sequenceDiagram
     alt complete input accepted
         Exec-->>Delivery: forwarded
         Delivery->>Ledger: Delivery submitted + Dispatch submitted
-    else startup still pending
+    else startup still pending or CLI visibly busy
         Exec-->>Delivery: deferred, input_attempted=false
         Delivery->>Ledger: defer claim without consuming failure retry budget
     else proven no input
@@ -138,7 +138,21 @@ sequenceDiagram
 ```
 
 Worker `report` 或 Orchestrator `cancel` 可以终结公开 Dispatch，并关闭 Delivery；
-迟到的投递确认不能复活终态。完整状态机和恢复分类见
+迟到的投递确认不能复活终态。明确的 CLI 生成中提示会返回 `deferred`，不占用
+30 秒输入等待，也不消耗失败次数；未知屏幕、草稿、权限弹窗仍保留原有保护。
+
+`TeamApplicationService.report` 在同一 SQLite 事务中写入汇报 Message、终结 Dispatch、
+关闭派单 Delivery 并创建唯一的 `report_deliveries` 通知行，然后立即返回
+`ok=true, forwarded=false`；这表示汇报已接收、通知由后台处理。既有
+`DispatchDeliveryRuntime` 同时消费派单与汇报通知，每个 Workspace 最多一条汇报通知
+在途，不在请求线程等待指挥官 PTY，也不持有来源 Worker 的运行锁等待指挥官。
+重复携带同一 `dispatch_id` 和相同 result/status/artifacts 的汇报返回成功，不新增
+Message 或通知；不同内容返回 409 并明确提示该派单已经汇报。没有 dispatch ID 的旧调用
+仍只关联最老的未关闭派单，不能据其内容推断幂等身份。
+
+汇报通知的忙碌延期不消耗失败次数，明确未写入的失败最多尝试 5 次；不确定写入、
+租约过期或服务在通知中重启均保留 `uncertain`，不自动重复通知。
+完整状态机和恢复分类见
 [可靠派单设计](../design/reliable-dispatch.md)。
 
 ## 打开 Terminal Viewer
@@ -201,7 +215,7 @@ sequenceDiagram
 
 后端重启后的恢复顺序是：
 
-1. 打开数据目录并把 SQLite schema 迁移到 v34；
+1. 打开数据目录并把 SQLite schema 迁移到 v35；
 2. 恢复 Workspace Registration：尚未开始元数据初始化的 `reserved` 可安全失败释放；
    旧版本遗留的 `switching/uncertain` 保留诊断证据但失败并释放路径 claim；已记录
    `checkout_applied` 的注册继续初始化元数据并激活；

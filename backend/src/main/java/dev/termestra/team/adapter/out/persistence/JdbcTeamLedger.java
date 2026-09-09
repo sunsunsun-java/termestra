@@ -186,6 +186,76 @@ public final class JdbcTeamLedger implements TeamLedger, OpenDispatchCountSource
         });
     }
 
+    @Override public Optional<ReportDeliveryWork> claimNextReportDelivery(Instant now, Instant leaseExpiresAt) {
+        return database.write("claim report notification", connection -> {
+            try (PreparedStatement expired = connection.prepareStatement("""
+                    UPDATE report_deliveries SET state='uncertain',lease_expires_at=NULL,
+                      last_error='Report notification lease expired with an unknown terminal outcome',updated_at=?
+                    WHERE state='delivering' AND lease_expires_at<?
+                    """)) {
+                expired.setLong(1, now.toEpochMilli()); expired.setLong(2, now.toEpochMilli());
+                expired.executeUpdate();
+            }
+            String id;
+            try (PreparedStatement query = connection.prepareStatement("""
+                    SELECT r.dispatch_id FROM report_deliveries r JOIN dispatches d ON d.id=r.dispatch_id
+                    WHERE r.state='pending' AND r.next_attempt_at<=? AND d.status='reported'
+                      AND NOT EXISTS(SELECT 1 FROM report_deliveries active
+                        JOIN dispatches other ON other.id=active.dispatch_id
+                        WHERE active.state='delivering' AND other.workspace_id=d.workspace_id)
+                    ORDER BY r.next_attempt_at,d.sequence LIMIT 1
+                    """)) {
+                query.setLong(1, now.toEpochMilli());
+                try (ResultSet rows = query.executeQuery()) {
+                    if (!rows.next()) return Optional.empty();
+                    id = rows.getString(1);
+                }
+            }
+            String attemptId = UUID.randomUUID().toString();
+            int count;
+            try (PreparedStatement claim = connection.prepareStatement("""
+                    UPDATE report_deliveries SET state='delivering',attempt_id=?,attempt_count=attempt_count+1,
+                      lease_expires_at=?,updated_at=? WHERE dispatch_id=? RETURNING attempt_count
+                    """)) {
+                claim.setString(1, attemptId); claim.setLong(2, leaseExpiresAt.toEpochMilli());
+                claim.setLong(3, now.toEpochMilli()); claim.setString(4, id);
+                try (ResultSet rows = claim.executeQuery()) { rows.next(); count = rows.getInt(1); }
+            }
+            try (PreparedStatement query = connection.prepareStatement("SELECT " + storedTransitionColumns("artifacts")
+                    + " FROM dispatches WHERE id=?")) {
+                query.setString(1, id);
+                try (ResultSet rows = query.executeQuery()) {
+                    rows.next(); return Optional.of(new ReportDeliveryWork(map(rows), attemptId, count));
+                }
+            }
+        });
+    }
+
+    @Override public void finishReportDelivery(String attemptId, ReportDeliveryWork.Outcome outcome,
+                                               String error, Instant nextAttemptAt, Instant updatedAt) {
+        String state = switch (outcome) {
+            case SUBMITTED -> "submitted";
+            case DEFERRED, RETRY -> "pending";
+            case FAILED -> "failed";
+            case UNCERTAIN -> "uncertain";
+        };
+        database.write("finish report notification", connection -> {
+            try (PreparedStatement update = connection.prepareStatement("""
+                    UPDATE report_deliveries SET state=?,last_error=?,next_attempt_at=?,updated_at=?,
+                      lease_expires_at=NULL,attempt_count=attempt_count-?
+                    WHERE attempt_id=? AND state='delivering'
+                    """)) {
+                update.setString(1, state); update.setString(2, error);
+                update.setLong(3, nextAttemptAt.toEpochMilli()); update.setLong(4, updatedAt.toEpochMilli());
+                update.setInt(5, outcome == ReportDeliveryWork.Outcome.DEFERRED ? 1 : 0);
+                update.setString(6, attemptId);
+                // A deleted workspace/worker removes its notification through the dispatch FK.
+                update.executeUpdate();
+            }
+            return null;
+        });
+    }
+
     @Override public void rescheduleDelivery(String attemptId, String error, Instant nextAttemptAt,
                                              Instant updatedAt) {
         database.write("reschedule dispatch delivery", connection -> {
@@ -211,6 +281,14 @@ public final class JdbcTeamLedger implements TeamLedger, OpenDispatchCountSource
 
     @Override public int recoverInterruptedDeliveries(Instant recoveredAt) {
         return database.write("recover interrupted dispatch deliveries", connection -> {
+            int reports;
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    UPDATE report_deliveries SET state='uncertain',lease_expires_at=NULL,
+                      last_error='Termestra restarted while report notification was in progress',updated_at=?
+                    WHERE state='delivering'
+                    """)) {
+                statement.setLong(1, recoveredAt.toEpochMilli()); reports = statement.executeUpdate();
+            }
             try (PreparedStatement statement = connection.prepareStatement("""
                     UPDATE dispatch_deliveries
                     SET state='uncertain',input_attempted=1,
@@ -219,7 +297,7 @@ public final class JdbcTeamLedger implements TeamLedger, OpenDispatchCountSource
                     WHERE state='delivering'
                     """)) {
                 statement.setLong(1, recoveredAt.toEpochMilli());
-                return statement.executeUpdate();
+                return reports + statement.executeUpdate();
             }
         });
     }
@@ -290,11 +368,60 @@ public final class JdbcTeamLedger implements TeamLedger, OpenDispatchCountSource
                 }
             }
             if (updated.isPresent()) {
-                insertMessage(connection, message);
-                closeDelivery(connection, updated.orElseThrow().dispatch().id().toString(), reportedAt);
+                String id = updated.orElseThrow().dispatch().id().toString();
+                insertMessage(connection, new TeamMessage(message.workspaceId(), message.workerId(), message.type(),
+                        message.fromAgentId(), message.toAgentId(), message.text(), message.status(),
+                        message.artifacts(), message.createdAt(), id));
+                closeDelivery(connection, id, reportedAt);
+                try (PreparedStatement notification = connection.prepareStatement("""
+                        INSERT INTO report_deliveries(dispatch_id,state,next_attempt_at,updated_at)
+                        VALUES(?,'pending',?,?)
+                        """)) {
+                    notification.setString(1, id);
+                    notification.setLong(2, reportedAt.toEpochMilli());
+                    notification.setLong(3, reportedAt.toEpochMilli());
+                    notification.executeUpdate();
+                }
+            } else if (dispatchId != null) {
+                try (PreparedStatement replay = connection.prepareStatement("SELECT " + returning + """
+                         FROM dispatches WHERE workspace_id=? AND to_agent_id=? AND id=? AND status='reported'
+                        """)) {
+                    replay.setString(1, workspaceId);
+                    replay.setString(2, workerId);
+                    replay.setString(3, dispatchId);
+                    try (ResultSet rows = replay.executeQuery()) {
+                        if (rows.next()) {
+                            StoredDispatch original = map(rows);
+                            if (!original.dispatch().reportText().orElse("").equals(result)
+                                    || !original.dispatch().artifacts().equals(artifacts)
+                                    || !sameReportStatus(connection, workspaceId, workerId,
+                                            dispatchId, original.dispatch().reportedAt().orElseThrow(), message.status())) {
+                                throw new TeamConflict("Dispatch already reported with different content: " + dispatchId);
+                            }
+                            return Optional.of(original);
+                        }
+                    }
+                }
             }
             return updated;
         });
+    }
+
+    private boolean sameReportStatus(Connection connection, String workspace, String worker,
+                                     String dispatchId, Instant reportedAt, String status) throws SQLException {
+        try (PreparedStatement query = connection.prepareStatement("""
+                SELECT status FROM messages WHERE workspace_id=? AND worker_id=? AND type='report'
+                  AND (dispatch_id=? OR (dispatch_id IS NULL AND created_at=?))
+                ORDER BY dispatch_id IS NULL,sequence DESC LIMIT 1
+                """)) {
+            query.setString(1, workspace);
+            query.setString(2, worker);
+            query.setString(3, dispatchId);
+            query.setLong(4, reportedAt.toEpochMilli());
+            try (ResultSet rows = query.executeQuery()) {
+                return rows.next() && Objects.equals(status, rows.getString(1));
+            }
+        }
     }
 
     @Override public Optional<StoredDispatch> cancelOne(String workspaceId, String dispatchId,

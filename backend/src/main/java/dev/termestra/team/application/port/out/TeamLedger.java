@@ -10,6 +10,9 @@ public interface TeamLedger {
                                   String idempotencyKey);
     Optional<DispatchDeliveryWork> claimNextDelivery(String leaseOwner, Instant now,
                                                      Instant leaseExpiresAt);
+    Optional<ReportDeliveryWork> claimNextReportDelivery(Instant now, Instant leaseExpiresAt);
+    void finishReportDelivery(String attemptId, ReportDeliveryWork.Outcome outcome, String error,
+                              Instant nextAttemptAt, Instant updatedAt);
     void deferDeliveryClaim(String attemptId, String reason, Instant nextAttemptAt, Instant updatedAt);
     void markDeliverySubmitted(String attemptId, Instant submittedAt);
     void rescheduleDelivery(String attemptId, String error, Instant nextAttemptAt, Instant updatedAt);

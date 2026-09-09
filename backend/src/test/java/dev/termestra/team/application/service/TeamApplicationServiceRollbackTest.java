@@ -187,8 +187,11 @@ class TeamApplicationServiceRollbackTest {
                 worker.id().toString(),"token",reportedId,"done",null,List.of()));
 
         assertTrue(cancelled.forwarded());
-        assertTrue(reported.forwarded());
-        assertEquals(List.of("cancel","report"),notifications);
+        assertFalse(reported.forwarded());
+        assertEquals(List.of("cancel"), notifications);
+        assertTrue(new DispatchDeliveryApplicationService(ledger, members, notifier,
+                new RuntimeOperationCoordinator(), Clock.systemUTC()).processNext());
+        assertEquals(List.of("cancel", "report"), notifications);
         assertEquals(0,service.listForUi(workspace).getFirst().pendingTaskCount());
         database.read("verify poisoned transitions committed",connection->{
             try(var statement=connection.prepareStatement("""
@@ -373,6 +376,14 @@ class TeamApplicationServiceRollbackTest {
         };
     }
     private static class DelegatingTeamLedger implements TeamLedger {
+        @Override public java.util.Optional<dev.termestra.team.application.port.out.ReportDeliveryWork> claimNextReportDelivery(java.time.Instant now, java.time.Instant lease) {
+            return delegate.claimNextReportDelivery(now, lease);
+        }
+        @Override public void finishReportDelivery(String attemptId, dev.termestra.team.application.port.out.ReportDeliveryWork.Outcome outcome,
+                                                  String error, java.time.Instant next, java.time.Instant updated) {
+            delegate.finishReportDelivery(attemptId, outcome, error, next, updated);
+        }
+
         private final TeamLedger delegate;
         private DelegatingTeamLedger(TeamLedger delegate){this.delegate=delegate;}
         @Override public DispatchEnqueueResult enqueue(Dispatch dispatch,TeamMessage message,String runtimePort,String idempotencyKey){return delegate.enqueue(dispatch,message,runtimePort,idempotencyKey);}

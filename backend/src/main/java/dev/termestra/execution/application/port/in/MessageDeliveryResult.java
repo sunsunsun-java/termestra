@@ -35,7 +35,7 @@ public record MessageDeliveryResult(boolean delivered, boolean inputAttempted,
         return new MessageDeliveryResult(false, false, false, error);
     }
 
-    /** Startup is still in progress; no delivery attempt has been made. */
+    /** Startup is in progress or the CLI is visibly busy; no input has been attempted. */
     public static MessageDeliveryResult deferred(String reason) {
         return new MessageDeliveryResult(false, false, false, true, reason);
     }

@@ -140,6 +140,9 @@ final class InteractiveInputSubmitter {
                 throw new SubmissionException(executable + " is waiting for user action: " + waitingReason
                         + ". Complete it in the terminal, then retry.", false);
             }
+            if (onWaitingForUser == null && readiness.busy()) {
+                throw SubmissionException.deferred(executable + " is busy; waiting for its next input prompt");
+            }
             boolean ready = readiness.state() == InteractiveOutputTail.State.READY
                     && (readyAfterPosition < 0 || readiness.position() > readyAfterPosition);
             if (ready) {
@@ -344,10 +347,16 @@ final class InteractiveInputSubmitter {
         return false;
     }
 
-    private static boolean currentBusyIndicator(PromptTerminal terminal, PromptTerminal.View view,
+    static boolean currentBusyIndicator(PromptTerminal terminal, PromptTerminal.View view,
                                                 String executable) {
         int composer = "cursor-agent".equals(executable) ? cursorComposerRow(view) : view.cursorRow();
         if (composer < 0 || composer >= view.lines().size()) return false;
+        // OpenCode sometimes leaves its cursor on the busy footer during a partial repaint.
+        // Require the bottom command bar and adjacent composer metadata, not transcript prose.
+        if ("opencode".equals(executable) && composer >= 2 && composer >= view.lines().size() - 2
+                && BUSY_HINT.matcher(view.lines().get(composer)).find()
+                && view.lines().get(composer).matches(".*\\S+\\s+commands(?:\\s.*)?")
+                && view.lines().get(composer - 2).stripLeading().matches("┃\\s+\\S.* · \\S.*")) return true;
         // CLI shortcut/status footers are below the current composer. Earlier response text may
         // explain the same shortcut and must not keep a ready input blocked indefinitely.
         for (int row = composer + 1; row < view.lines().size(); row++) {
@@ -430,16 +439,27 @@ final class InteractiveInputSubmitter {
 
     static final class SubmissionException extends RuntimeException {
         private final boolean inputAttempted;
+        private final boolean deferred;
 
         SubmissionException(String message, boolean inputAttempted) {
-            super(message);
-            this.inputAttempted = inputAttempted;
+            this(message, inputAttempted, null, false);
         }
 
         SubmissionException(String message, boolean inputAttempted, Throwable cause) {
+            this(message, inputAttempted, cause, false);
+        }
+
+        private SubmissionException(String message, boolean inputAttempted, Throwable cause, boolean deferred) {
             super(message, cause);
             this.inputAttempted = inputAttempted;
+            this.deferred = deferred;
         }
+
+        static SubmissionException deferred(String message) {
+            return new SubmissionException(message, false, null, true);
+        }
+
+        boolean deferred() { return deferred; }
 
         boolean inputAttempted() {
             return inputAttempted;

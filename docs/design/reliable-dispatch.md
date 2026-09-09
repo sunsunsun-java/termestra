@@ -242,10 +242,13 @@ uncertain/failed --explicit retry--> pending
 
 ## 12. Report、Cancel 与迟到结果
 
-- Worker 可以从 `queued` 或 `submitted` 直接 report；report 与 Message 在同一事务提交，Delivery 同时 close。
+- Worker 可以从 `queued` 或 `submitted` 直接 report；report、Message 与唯一 report_deliveries 通知在同一事务提交，Delivery 同时 close；请求立即确认，后台再向指挥官通知。
 - cancel 对 `queued/submitted` 生效，Delivery 同时 close；已经开始的 notifier 可能返回迟到结果，但 guarded SQL 不得复活 Dispatch。
 - 若 uncertain 的 Worker 后来用原 `dispatch_id` report，report 获胜并关闭任务。
+- 显式 dispatch ID 的相同 result/status/artifacts 重试返回既有汇报，不重复 Message 或通知；不同内容返回明确的 409，禁止覆盖。
 - 无 dispatch ID 的 report 仍按最老 open Dispatch 关联；新代码和提示继续要求显式 ID。
+- report_deliveries 的 pending 行在重启后继续领取；delivering 在重启或 90 秒租约过期后进入 uncertain，不能自动重发。普通失败最多 5 次，明确忙碌只延期。后台沿用 8 个有界消费者，每个 Workspace 最多一条通知在途，每次领取至多一条；通知记录随 Dispatch 删除。
+- CLI 输入投递观察到明确的生成中提示后立即 deferred，不再把正常长任务转换成 30 秒输入超时并耗尽重试；未知屏幕与可能写入的失败不适用此延期。
 
 ## 13. 查询与 UI
 

@@ -149,7 +149,7 @@ Run detail 与 terminal summary 另包含 `startup_phase` 和 nullable `startup_
 
 ## SQLite 所有权
 
-当前 schema 版本为 34，由 `SqliteSchemaMigrator` 在启动时事务迁移。
+当前 schema 版本为 35，由 `SqliteSchemaMigrator` 在启动时事务迁移。
 
 | 表 | 所有者 | 说明 |
 | --- | --- | --- |
@@ -159,6 +159,7 @@ Run detail 与 terminal summary 另包含 `startup_phase` 和 nullable `startup_
 | `messages` | Team | send/report/status 的有界审计记录与 Dispatch 关联 |
 | `dispatches` | Team | 公开业务状态与 idempotency key |
 | `dispatch_deliveries` | Team | Team-owned outbox、attempt/lease/错误恢复状态 |
+| `report_deliveries` | Team | 每 Dispatch 至多一条汇报通知；与汇报同事务创建，保存 attempt/lease/错误状态，随 Dispatch 外键级联删除 |
 | `agent_launch_configs` | Agent Execution | 命令、含 yolo/model 展开的最终参数、环境、preset、model、revision 和 session capture 配置 |
 | `agent_runs` | Agent Execution | Run/PID/终态/时间证据 |
 | `agent_sessions` | Agent Execution | 每 Agent 最近可恢复 provider session |

@@ -150,8 +150,14 @@ class JdbcTeamLedgerTest {
                 null, "done", null, List.of(), now);
         assertTrue(ledger.reportOne(workspaceId, workerId, reportId, "done", List.of(), now, message)
                 .isPresent());
-        assertTrue(ledger.reportOne(workspaceId, workerId, reportId, "done", List.of(), now, message)
-                .isEmpty());
+        var replay = ledger.reportOne(workspaceId, workerId, reportId, "done", List.of(), now, message).orElseThrow();
+        assertEquals(reportId, replay.dispatch().id().toString());
+        database.read("identical report does not duplicate messages", connection -> {
+            try (var query=connection.createStatement(); var rows=query.executeQuery("SELECT COUNT(*) FROM messages WHERE type='report'")) {
+                assertTrue(rows.next()); assertEquals(1, rows.getInt(1));
+            }
+            return null;
+        });
     }
 
     @Test void rejectsASubmittedAcknowledgementWhenItsDeliveryAttemptIsNoLongerActive() {

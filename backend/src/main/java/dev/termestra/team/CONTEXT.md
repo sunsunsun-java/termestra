@@ -43,7 +43,10 @@ TeamMember; it requires deliberate recovery rather than automatic retry.
 _Avoid_: Failed Dispatch, queued Delivery
 
 **Report**:
-A TeamMember's durable outcome for a Dispatch.
+A TeamMember's durable outcome for a Dispatch. Acceptance includes one durable
+notification to its Orchestrator; terminal notification is asynchronous and does
+not change the accepted outcome. An identical explicit-Dispatch replay retains
+the same report and notification.
 _Avoid_: Terminal output, status update, last PTY line
 
 **Status Update**:

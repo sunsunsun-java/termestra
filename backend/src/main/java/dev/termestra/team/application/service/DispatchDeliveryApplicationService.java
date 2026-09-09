@@ -14,7 +14,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Executes the durable Team delivery queue without exposing PTY timing to request threads. */
+/** Executes durable Team dispatch and report deliveries without exposing PTY timing to request threads. */
 public final class DispatchDeliveryApplicationService implements DispatchDeliveryUseCase {
     static final int MAX_AUTOMATIC_ATTEMPTS = DeliveryRetryPolicy.MAX_AUTOMATIC_ATTEMPTS;
     /**
@@ -46,6 +46,11 @@ public final class DispatchDeliveryApplicationService implements DispatchDeliver
 
     @Override public boolean processNext() {
         Instant now = Instant.now(clock);
+        Optional<ReportDeliveryWork> report = ledger.claimNextReportDelivery(now, now.plus(LEASE_DURATION));
+        if (report.isPresent()) {
+            deliverReport(report.orElseThrow());
+            return true;
+        }
         Optional<DispatchDeliveryWork> claimed = ledger.claimNextDelivery(
                 leaseOwner, now, now.plus(LEASE_DURATION));
         if (claimed.isEmpty()) return false;
@@ -63,6 +68,41 @@ public final class DispatchDeliveryApplicationService implements DispatchDeliver
             throw interrupted;
         }
         return true;
+    }
+
+    private void deliverReport(ReportDeliveryWork work) {
+        var dispatch = work.dispatch().dispatch();
+        DeliveryResult delivery;
+        try {
+            delivery = operations.withWorkspace(dispatch.workspaceId().toString(), () -> {
+                Optional<TeamMember> worker = members.findById(dispatch.workspaceId().toString(), dispatch.toAgentId().toString());
+                return worker.isEmpty() ? DeliveryResult.unavailable("Worker no longer exists")
+                        : notifier.report(dispatch, worker.orElseThrow());
+            });
+        } catch (RuntimeOperationBusyException busy) {
+            delivery = DeliveryResult.deferred(busy.getMessage());
+        } catch (RuntimeOperationInterruptedException interrupted) {
+            finishReport(work, ReportDeliveryWork.Outcome.DEFERRED, interrupted.getMessage(), RUNTIME_BUSY_RETRY_DELAY);
+            throw interrupted;
+        } catch (RuntimeException unknown) {
+            delivery = DeliveryResult.uncertain("Report notification has an unknown terminal outcome: " + unknown.getMessage());
+        }
+        if (delivery.forwarded()) {
+            finishReport(work, ReportDeliveryWork.Outcome.SUBMITTED, null, Duration.ZERO);
+        } else if (delivery.deferred()) {
+            finishReport(work, ReportDeliveryWork.Outcome.DEFERRED, delivery.error(), RUNTIME_BUSY_RETRY_DELAY);
+        } else if (delivery.inputAttempted() || delivery.uncertain()) {
+            finishReport(work, ReportDeliveryWork.Outcome.UNCERTAIN, delivery.error(), Duration.ZERO);
+        } else {
+            var decision = retryPolicy.afterFailure(work.attemptCount());
+            finishReport(work, decision.retry() ? ReportDeliveryWork.Outcome.RETRY : ReportDeliveryWork.Outcome.FAILED,
+                    delivery.error(), decision.retry() ? decision.delay() : Duration.ZERO);
+        }
+    }
+
+    private void finishReport(ReportDeliveryWork work, ReportDeliveryWork.Outcome outcome, String error, Duration delay) {
+        Instant now = Instant.now(clock);
+        ledger.finishReportDelivery(work.attemptId(), outcome, error == null ? null : boundedError(error), now.plus(delay), now);
     }
 
     private void deferClaim(DispatchDeliveryWork work, String reason) {

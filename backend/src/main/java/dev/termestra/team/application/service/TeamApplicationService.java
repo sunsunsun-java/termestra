@@ -110,8 +110,8 @@ public final class TeamApplicationService implements TeamUseCase, TeamAdminUseCa
                         result, artifacts, now, message)
                 .orElseThrow(() -> new TeamConflict("No open dispatch for worker: " + worker.name()));
         pendingTasks.invalidate(command.workspaceId());
-        DeliveryResult delivery = notifier.report(reported.dispatch(), worker);
-        return new TeamOperationResult(reported.dispatch().id().toString(), delivery.forwarded(), delivery.error());
+        deliveryScheduler.wake();
+        return new TeamOperationResult(reported.dispatch().id().toString(), false, null);
     }
 
     @Override public TeamOperationResult status(StatusTaskCommand command) {

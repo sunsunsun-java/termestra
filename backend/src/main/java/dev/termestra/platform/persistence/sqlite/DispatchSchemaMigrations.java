@@ -13,7 +13,24 @@ final class DispatchSchemaMigrations {
                 new SchemaMigration(14, this::v14),
                 new SchemaMigration(15, this::v15),
                 new SchemaMigration(26, this::v26),
-                new SchemaMigration(29, this::v29));
+                new SchemaMigration(29, this::v29),
+                new SchemaMigration(35, this::v35));
+    }
+
+    private void v35(Connection connection) throws SQLException {
+        execute(connection, """
+                CREATE TABLE IF NOT EXISTS report_deliveries (
+                    dispatch_id TEXT PRIMARY KEY REFERENCES dispatches(id) ON DELETE CASCADE,
+                    state TEXT NOT NULL CHECK(state IN ('pending','delivering','submitted','uncertain','failed')),
+                    attempt_id TEXT UNIQUE,
+                    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count>=0),
+                    next_attempt_at INTEGER NOT NULL,
+                    lease_expires_at INTEGER,
+                    last_error TEXT,
+                    updated_at INTEGER NOT NULL
+                )
+                """);
+        execute(connection, "CREATE INDEX IF NOT EXISTS idx_report_deliveries_due ON report_deliveries(state,next_attempt_at)");
     }
 
     private void v14(Connection connection) throws SQLException {

@@ -16,7 +16,7 @@ import java.util.concurrent.TimeoutException;
 
 final class TeamRuntimeClient {
     static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
-    /** Requests only wait for durable SQLite acceptance; PTY delivery runs in the background. */
+    /** Send/report requests confirm durable SQLite acceptance; their PTY delivery runs in the background. */
     static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
     static final int MAX_RESPONSE_BYTES = 1024 * 1024;
 

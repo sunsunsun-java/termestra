@@ -11,7 +11,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Bounded, restartable runtime for the SQLite-authoritative dispatch delivery queue. */
+/** Bounded, restartable runtime for the SQLite-authoritative dispatch and report notification queues. */
 public final class DispatchDeliveryRuntime implements DispatchDeliveryScheduler, AutoCloseable {
     private static final Logger LOGGER = LoggerFactory.getLogger(DispatchDeliveryRuntime.class);
     private static final int MAX_CONCURRENCY = 8;

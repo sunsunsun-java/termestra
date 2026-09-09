@@ -37,7 +37,7 @@ class TeamProtocolHttpIntegrationTest {
         workspacesWithRealPtys.clear();
     }
 
-    @Test void runsSendReportCancelListAndDispatchQueriesAcrossRealHttpAndSqlite(){
+    @Test void runsSendReportCancelListAndDispatchQueriesAcrossRealHttpAndSqlite() throws IOException {
         WebTestClient client=WebTestClient.bindToServer().baseUrl("http://127.0.0.1:"+port).build();
         String cookie=uiCookie(client);
         Path workspacePath=temp("termestra-team-workspace-");
@@ -64,6 +64,18 @@ class TeamProtocolHttpIntegrationTest {
                         "token",workerToken,"dispatch_id",second,"result","Second done","artifacts",List.of("src/Done.java")))
                 .exchange().expectStatus().isAccepted().expectBody().jsonPath("$.dispatch_id").isEqualTo(second)
                 .jsonPath("$.forwarded").isEqualTo(false);
+        var reportReplay = Map.of("project_id", workspaceId, "from_agent_id", workerId,
+                "token", workerToken, "dispatch_id", second, "result", "Second done", "artifacts", List.of("src/Done.java"));
+        byte[] replayBody = client.post().uri("/api/team/report").bodyValue(reportReplay)
+                .exchange().expectStatus().isAccepted().expectBody().returnResult().getResponseBody();
+        Map<String, Object> expectedReplay = new LinkedHashMap<>();
+        expectedReplay.put("ok", true); expectedReplay.put("dispatch_id", second);
+        expectedReplay.put("forwarded", false); expectedReplay.put("forward_error", null);
+        assertEquals(expectedReplay, json.readValue(replayBody, Map.class));
+        client.post().uri("/api/team/report").bodyValue(Map.of("project_id", workspaceId, "from_agent_id", workerId,
+                        "token", workerToken, "dispatch_id", second, "result", "Changed report", "artifacts", List.of("src/Done.java")))
+                .exchange().expectStatus().isEqualTo(409).expectBody()
+                .jsonPath("$.error").isEqualTo("Dispatch already reported with different content: " + second);
         client.post().uri("/api/team/cancel").bodyValue(Map.of("project_id",workspaceId,"from_agent_id",orchestratorId,
                         "token",orchestratorToken,"dispatch_id",first,"reason","Direction changed"))
                 .exchange().expectStatus().isAccepted().expectBody().jsonPath("$.dispatch_id").isEqualTo(first);

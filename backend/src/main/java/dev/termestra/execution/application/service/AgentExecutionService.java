@@ -576,7 +576,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
             return InteractiveInputSubmitter.submit(inputCommand(run),text,run::active,run.interactiveOutput::snapshot,writer,readyAfterPosition);
         }finally{writer.close();}
     }
-    private MessageDeliveryResult deliveryFailure(InteractiveInputSubmitter.SubmissionException error){return error.inputAttempted()?MessageDeliveryResult.uncertain(error.getMessage()):MessageDeliveryResult.failed(error.getMessage());}
+    private MessageDeliveryResult deliveryFailure(InteractiveInputSubmitter.SubmissionException error){return error.deferred()?MessageDeliveryResult.deferred(error.getMessage()):error.inputAttempted()?MessageDeliveryResult.uncertain(error.getMessage()):MessageDeliveryResult.failed(error.getMessage());}
     private String inputCommand(LiveRun run){return Objects.requireNonNullElse(run.configuration.interactiveCommand(),run.configuration.command());}
     private Optional<LiveRun> findActiveRun(String workspaceId,String agentId){return runs.values().stream().filter(run->run.agent.workspaceId().equals(workspaceId)&&run.agent.agentId().equals(agentId)&&run.active()).findFirst();}
     private synchronized void retainRecentCompletedRuns(){List<LiveRun> completed=runs.values().stream().filter(LiveRun::durablyTerminal).sorted(Comparator.comparing(LiveRun::retentionTime)).toList();int remove=completed.size()-MAX_COMPLETED_RUNS;for(LiveRun expired:completed){if(remove<=0)break;synchronized(expired){if(expired.outputViewers>0)continue;}if(runs.remove(expired.id,expired)){outputHub.clear(expired.id);remove--;}}}

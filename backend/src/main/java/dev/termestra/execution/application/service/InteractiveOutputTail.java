@@ -15,7 +15,7 @@ final class InteractiveOutputTail {
     private final String command;
     private final PromptTerminal terminal;
     private boolean piIdentity;
-    private Readiness readiness = new Readiness(State.INITIALIZING, null, 0);
+    private Readiness readiness = new Readiness(State.INITIALIZING, null, 0, false);
     private String promptFingerprint;
     private String invalidatedFingerprint;
 
@@ -26,7 +26,7 @@ final class InteractiveOutputTail {
 
     synchronized void invalidateForUserInput() {
         invalidatedFingerprint = fingerprint(terminal.view());
-        readiness = new Readiness(State.INITIALIZING, null, position);
+        readiness = new Readiness(State.INITIALIZING, null, position, false);
         promptFingerprint = null;
     }
 
@@ -49,7 +49,8 @@ final class InteractiveOutputTail {
         }
         long readyPosition = state == State.READY && readiness.state() == State.READY
                 && Objects.equals(fingerprint, promptFingerprint) ? readiness.position() : position;
-        readiness = new Readiness(state, waiting, readyPosition);
+        readiness = new Readiness(state, waiting, readyPosition, !"pi".equals(command)
+                && InteractiveInputSubmitter.currentBusyIndicator(terminal, view, command));
         promptFingerprint = state == State.READY ? fingerprint : null;
     }
 
@@ -108,7 +109,7 @@ final class InteractiveOutputTail {
     }
 
     enum State { INITIALIZING, WAITING_FOR_USER, READY }
-    record Readiness(State state, String reason, long position) { }
+    record Readiness(State state, String reason, long position, boolean busy) { }
 
     record Snapshot(long position, String tail, Readiness readiness) {
         String appendedSince(long baseline) {

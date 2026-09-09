@@ -23,7 +23,7 @@ public record DeliveryResult(boolean forwarded, boolean inputAttempted,
         return new DeliveryResult(false, false, false, error);
     }
 
-    /** Runtime startup is still in progress; keep the queued delivery without consuming an attempt. */
+    /** Runtime startup or CLI generation is in progress; defer without consuming an attempt. */
     public static DeliveryResult deferred(String reason) {
         return new DeliveryResult(false, false, false, true, reason);
     }

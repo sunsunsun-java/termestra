@@ -247,7 +247,7 @@ class SqliteSchemaMigratorTest {
         database.read("verify owned tables", connection -> {
             assertEquals(Set.of(
                             "agent_launch_configs", "agent_runs", "agent_sessions", "app_state",
-                            "command_presets", "dispatches", "dispatch_deliveries", "messages", "role_templates",
+                            "command_presets", "dispatches", "dispatch_deliveries", "report_deliveries", "messages", "role_templates",
                             "schema_version", "workers", "workspaces",
                             "workspace_registration_attempts"),
                     values(connection.createStatement(), "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"));

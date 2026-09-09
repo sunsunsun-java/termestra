@@ -25,6 +25,20 @@ import static org.junit.jupiter.api.Assertions.*;
 class OpenCodeInputRecognitionTest {
     @TempDir Path temporaryDirectory;
 
+    @Test void busyGenerationDefersWithoutWaitingForThePromptTimeout() throws Exception {
+        var output = output();
+        output.append(followup(false) + "\u001b[23;1H\u001b[2Kesc to interrupt\u001b[19;6H");
+        List<byte[]> writes = new ArrayList<>();
+        assertTimeoutPreemptively(Duration.ofSeconds(2), () -> {
+            var failure = assertThrows(InteractiveInputSubmitter.SubmissionException.class,
+                    () -> InteractiveInputSubmitter.submit("opencode", "follow-up", () -> true,
+                            output::snapshot, writes::add));
+            assertFalse(failure.inputAttempted());
+            assertTrue(failure.getMessage().contains("busy"));
+        });
+        assertTrue(writes.isEmpty());
+    }
+
     @ParameterizedTest @ValueSource(ints = {1, 79, 4096})
     void recognizesTheRecordedEmptyComposerAfterTheFirstMessage(int chunkSize) throws Exception {
         for (boolean transparent : List.of(false, true)) {
@@ -190,6 +204,17 @@ class OpenCodeInputRecognitionTest {
                     if (event.has("checkpoint")) {
                         String checkpoint = event.get("checkpoint").asText();
                         checkpoints.add(checkpoint);
+                        if ("busy".equals(checkpoint)) {
+                            assertTimeoutPreemptively(Duration.ofSeconds(2), () -> {
+                                for (int retry = 0; retry < 8; retry++) {
+                                    var busy = assertThrows(InteractiveInputSubmitter.SubmissionException.class,
+                                            () -> InteractiveInputSubmitter.submit("opencode", "follow-up", () -> true,
+                                                    output::snapshot, bytes -> fail("busy process must receive no input")));
+                                    assertTrue(busy.deferred());
+                                    assertFalse(busy.inputAttempted());
+                                }
+                            });
+                        }
                         assertEquals(event.get("expected").asText(), output.snapshot().readiness().state().name(),
                                 theme + " " + checkpoint + " chunk size " + chunkSize);
                     }

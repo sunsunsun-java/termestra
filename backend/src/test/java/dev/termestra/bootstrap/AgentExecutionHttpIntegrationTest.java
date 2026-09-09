@@ -284,7 +284,7 @@ class AgentExecutionHttpIntegrationTest {
         client.post().uri("/api/team/report").bodyValue(Map.of(
                         "project_id", workspaceId, "from_agent_id", workerId, "token", workerToken,
                         "dispatch_id", dispatchId, "result", "Feature complete", "artifacts", java.util.List.of("src/Feature.java")))
-                .exchange().expectStatus().isAccepted().expectBody().jsonPath("$.forwarded").isEqualTo(true);
+                .exchange().expectStatus().isAccepted().expectBody().jsonPath("$.forwarded").isEqualTo(false);
         awaitOutput(client, cookie, orchestratorRun, "Feature complete");
 
         client.post().uri("/api/runtime/runs/" + workerRun + "/stop").header(HttpHeaders.COOKIE, cookie)
