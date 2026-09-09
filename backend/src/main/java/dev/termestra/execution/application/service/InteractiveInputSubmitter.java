@@ -293,6 +293,8 @@ final class InteractiveInputSubmitter {
             case "cursor-agent" -> cursorComposer(view).matches("\\s*→\\s*(?:Plan, search, build anything|Add a follow-up)\\s*");
             case "opencode" -> current.contains("Ask anything...")
                     && view.cursorColumn() == current.indexOf("Ask anything...")
+                    || current.contains("Ask anything…")
+                    && view.cursorColumn() == current.indexOf("Ask anything…")
                     || openCodeEmptyComposer(view);
             case "agy" -> trimmed.equals(">") && emptyPromptAtCursor(current, view.cursorColumn())
                     && row + 1 < view.lines().size()
@@ -304,9 +306,8 @@ final class InteractiveInputSubmitter {
     }
 
     private static boolean openCodeEmptyComposer(PromptTerminal.View view) {
-        // OpenCode hides its placeholder after the first input. Its empty composer retains
-        // three bordered rows, agent/model metadata, and a bottom border. Require that whole
-        // shape and the input-start cursor, rather than accepting any blank terminal line.
+        // OpenCode's session page omits the homepage placeholder. Require the complete
+        // empty composer and input-start cursor, rather than any blank terminal line.
         int row = view.cursorRow();
         if (row < 2 || row + 3 >= view.lines().size()) return false;
         String current = view.lines().get(row);
@@ -320,10 +321,13 @@ final class InteractiveInputSubmitter {
         }
         String metadata = view.lines().get(row + 2);
         String bottom = view.lines().get(row + 3);
-        return metadata.indexOf('┃') == border
-                && metadata.stripLeading().matches("┃\\s+\\S.* · \\S.*")
-                && bottom.indexOf('╹') == border
-                && bottom.strip().matches("╹▀+");
+        if (metadata.indexOf('┃') != border
+                || !metadata.stripLeading().matches("┃\\s+\\S.* · \\S.*")) return false;
+        if (bottom.indexOf('╹') == border && bottom.strip().matches("╹▀+")) return true;
+        // Transparent themes paint the bottom border as spaces. The command footer below
+        // it supplies the missing lower-boundary evidence; its shortcut can be customized.
+        return bottom.isBlank() && row + 4 < view.lines().size()
+                && view.lines().get(row + 4).matches(".*\\S+\\s+commands(?:\\s.*)?");
     }
 
     private static boolean codexHeaderLoading(PromptTerminal.View view) {
