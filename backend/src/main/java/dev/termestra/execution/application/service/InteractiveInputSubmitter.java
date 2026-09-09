@@ -24,7 +24,7 @@ final class InteractiveInputSubmitter {
     private static final Pattern HERMES_PROMPT = Pattern.compile(
             "^(?:[\\p{L}\\p{N}_.-]+\\s+)?[❯›>](?:\\s*[─━═╌╍┄┅┈┉-]+)?\\s*$");
     private static final Pattern DECORATION_LINE = Pattern.compile("^[─━═╌╍┄┅┈┉-]{6,}$");
-    private static final Pattern BUSY_HINT = Pattern.compile("(?i)\\besc(?:ape)?\\s+(?:to\\s+)?interrupt\\b");
+    private static final Pattern BUSY_HINT = Pattern.compile("(?i)\\besc(?:ape)?\\s+(?:again\\s+)?(?:to\\s+)?interrupt\\b");
     private static final long READY_SETTLE_MS = 250;
     private static final long STARTUP_TIMEOUT_MS = 120_000;
     private static final long USER_WAIT_TIMEOUT_MS = 600_000;
@@ -292,7 +292,8 @@ final class InteractiveInputSubmitter {
                     && DECORATION_LINE.matcher(view.lines().get(row + 1).trim()).matches();
             case "cursor-agent" -> cursorComposer(view).matches("\\s*→\\s*(?:Plan, search, build anything|Add a follow-up)\\s*");
             case "opencode" -> current.contains("Ask anything...")
-                    && view.cursorColumn() == current.indexOf("Ask anything...");
+                    && view.cursorColumn() == current.indexOf("Ask anything...")
+                    || openCodeEmptyComposer(view);
             case "agy" -> trimmed.equals(">") && emptyPromptAtCursor(current, view.cursorColumn())
                     && row + 1 < view.lines().size()
                     && view.lines().get(row + 1).trim().matches("(?:[─-]{8,}|\\?\\s*for shortcuts.*)");
@@ -300,6 +301,29 @@ final class InteractiveInputSubmitter {
             case "grok" -> screen.matches("(?s).*\\b(?:Enter:send|Composer\\s+\\S+).*");
             default -> false;
         };
+    }
+
+    private static boolean openCodeEmptyComposer(PromptTerminal.View view) {
+        // OpenCode hides its placeholder after the first input. Its empty composer retains
+        // three bordered rows, agent/model metadata, and a bottom border. Require that whole
+        // shape and the input-start cursor, rather than accepting any blank terminal line.
+        int row = view.cursorRow();
+        if (row < 2 || row + 3 >= view.lines().size()) return false;
+        String current = view.lines().get(row);
+        int border = current.indexOf('┃');
+        if (border < 0 || view.cursorColumn() != border + 3) return false;
+        // A multiline draft can leave the last few rows blank; its border extends above them.
+        if (view.lines().get(row - 2).indexOf('┃') == border) return false;
+        for (int inputRow = row - 1; inputRow <= row + 1; inputRow++) {
+            String line = view.lines().get(inputRow);
+            if (!line.trim().equals("┃") || line.indexOf('┃') != border) return false;
+        }
+        String metadata = view.lines().get(row + 2);
+        String bottom = view.lines().get(row + 3);
+        return metadata.indexOf('┃') == border
+                && metadata.stripLeading().matches("┃\\s+\\S.* · \\S.*")
+                && bottom.indexOf('╹') == border
+                && bottom.strip().matches("╹▀+");
     }
 
     private static boolean codexHeaderLoading(PromptTerminal.View view) {

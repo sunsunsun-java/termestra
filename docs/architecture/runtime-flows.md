@@ -87,7 +87,12 @@ Configuration revision。自定义命令、额外参数、显式 startup 与已�
 `InteractiveOutputTail` 随输出到达更新有界 VT 屏幕和提示识别状态，
 `InteractiveInputSubmitter` 等待当前屏幕中的输入框，不再使用“三秒后自动放行”的兜底。
 Hermes 支持光标位于占位文字前的输入框；Claude、Codex、Antigravity 的确认页按渲染后的
-屏幕识别，Cursor 与 OpenCode 沿用各自输入框特征。Pi 仅保留本次 Run 已观察到的 CLI
+屏幕识别，Cursor 与 OpenCode 沿用各自输入框特征。OpenCode 首条输入后会隐藏
+`Ask anything...`，后续输入通过当前空白输入区的三行边界、Agent/模型行、底部边界和
+输入起点光标共同识别；向上延伸的多行输入区仍按草稿处理，草稿、忙碌提示和移出
+输入区的光标不放行自动输入。
+`OpenCodeInputRecognitionTest` 覆盖首条输入后连续派单与终端重绘。
+Pi 仅保留本次 Run 已观察到的 CLI
 身份，是否可输入仍由当前屏幕决定，避免横幅重绘后漏检或把旧的就绪状态用于新派单。
 输入行的绘制版本区分相同内容的重新绘制与旧提示；人工输入后必须观察新的输入框证据，
 标题更新、纯光标移动和浏览器终端查询响应不会作为用户编辑或新输入框。
