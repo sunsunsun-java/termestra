@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class AutomaticInputMailboxTest {
     @Test void closeRejectsEveryLaterSubmissionWithoutLeavingAWaiterBehind() {
-        AutomaticInputMailbox mailbox = new AutomaticInputMailbox("run", (text, position) -> 1);
+        AutomaticInputMailbox mailbox = new AutomaticInputMailbox("run", (text, position, deferIfBusy) -> 1);
         mailbox.close();
 
         assertTimeoutPreemptively(Duration.ofSeconds(1),
@@ -21,7 +21,7 @@ class AutomaticInputMailboxTest {
     @Test void interruptedQueuedSubmissionIsKnownNotToHaveReachedThePty() throws Exception {
         CountDownLatch firstStarted = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
-        AutomaticInputMailbox mailbox = new AutomaticInputMailbox("run", (text, position) -> {
+        AutomaticInputMailbox mailbox = new AutomaticInputMailbox("run", (text, position, deferIfBusy) -> {
             firstStarted.countDown();
             try {
                 releaseFirst.await();
@@ -55,7 +55,7 @@ class AutomaticInputMailboxTest {
     @Test void interruptedInFlightSubmissionIsReportedAsUncertain() throws Exception {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        AutomaticInputMailbox mailbox = new AutomaticInputMailbox("run", (text, position) -> {
+        AutomaticInputMailbox mailbox = new AutomaticInputMailbox("run", (text, position, deferIfBusy) -> {
             started.countDown();
             while (release.getCount() != 0) Thread.onSpinWait();
             return 1;

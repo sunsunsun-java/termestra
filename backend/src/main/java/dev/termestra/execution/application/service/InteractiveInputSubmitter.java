@@ -66,6 +66,12 @@ final class InteractiveInputSubmitter {
     static long submit(String command, String text, BooleanSupplier active,
                        Supplier<InteractiveOutputTail.Snapshot> output,
                        Consumer<byte[]> input, long readyAfterPosition) {
+        return submit(command, text, active, output, input, readyAfterPosition, false);
+    }
+
+    static long submit(String command, String text, BooleanSupplier active,
+                       Supplier<InteractiveOutputTail.Snapshot> output, Consumer<byte[]> input,
+                       long readyAfterPosition, boolean deferIfBusy) {
         Objects.requireNonNull(text, "text");
         Objects.requireNonNull(active, "active");
         Objects.requireNonNull(output, "output");
@@ -79,7 +85,7 @@ final class InteractiveInputSubmitter {
             return acceptedPosition;
         }
 
-        long acceptedPromptPosition = awaitReadyPrompt(executable, active, output, readyAfterPosition);
+        long acceptedPromptPosition = awaitReadyPrompt(executable, active, output, readyAfterPosition, null, deferIfBusy);
         pasteAndComplete(executable, text, active, output, input);
         return acceptedPromptPosition;
     }
@@ -106,18 +112,12 @@ final class InteractiveInputSubmitter {
             requireActive(active, false, "Process exited before startup completed");
             return snapshot(output, false).position();
         }
-        return awaitReadyPrompt(executable, active, output, NO_READY_POSITION, onWaitingForUser);
+        return awaitReadyPrompt(executable, active, output, NO_READY_POSITION, onWaitingForUser, false);
     }
 
     private static long awaitReadyPrompt(String executable, BooleanSupplier active,
                                          Supplier<InteractiveOutputTail.Snapshot> output,
-                                         long readyAfterPosition) {
-        return awaitReadyPrompt(executable, active, output, readyAfterPosition, null);
-    }
-
-    private static long awaitReadyPrompt(String executable, BooleanSupplier active,
-                                         Supplier<InteractiveOutputTail.Snapshot> output,
-                                         long readyAfterPosition, Consumer<String> onWaitingForUser) {
+                                         long readyAfterPosition, Consumer<String> onWaitingForUser, boolean deferIfBusy) {
         long started = System.nanoTime();
         long lastPoll = started;
         long initializingNanos = 0;
@@ -140,7 +140,7 @@ final class InteractiveInputSubmitter {
                 throw new SubmissionException(executable + " is waiting for user action: " + waitingReason
                         + ". Complete it in the terminal, then retry.", false);
             }
-            if (onWaitingForUser == null && readiness.busy()) {
+            if (deferIfBusy && readiness.busy()) {
                 throw SubmissionException.deferred(executable + " is busy; waiting for its next input prompt");
             }
             boolean ready = readiness.state() == InteractiveOutputTail.State.READY

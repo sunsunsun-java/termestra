@@ -125,6 +125,69 @@ class ReportDeliveryAcceptanceTest {
                 worker.id().toString(), "token", first, "done", "first", List.of("different.html"))));
     }
 
+    @Test void ambiguousLegacyStatusIsExplainedWithoutClaimingThePayloadChanged() {
+        String first = send(), second = send();
+        var firstReport = report(first, "done", "first");
+        team.report(firstReport); team.report(report(second, "done", "second"));
+        database.write("legacy unlinked reports", c -> {
+            try(var q=c.createStatement()) { q.executeUpdate("UPDATE messages SET dispatch_id=NULL WHERE type='report'"); }
+            return null;
+        });
+        assertTrue(assertThrows(TeamConflict.class, () -> team.report(firstReport)).getMessage().contains("ambiguous"));
+    }
+
+    @Test void failedAndUncertainNotificationsAreVisibleAndExplicitlyRecoverable() {
+        String id = send(); team.report(report(id, "done", null));
+        notification = () -> DeliveryResult.unavailable("no commander");
+        for (int i=0;i<5;i++) { assertTrue(deliveries.processNext()); clock.advance(); }
+        var issues=deliveries.reportIssues(workspace, 100);
+        assertEquals(1, issues.size()); assertEquals(id, issues.getFirst().dispatchId());
+        assertEquals("failed", issues.getFirst().state());
+        assertTrue(deliveries.retryReport(workspace,id,false));
+        assertFalse(deliveries.retryReport(workspace,id,false), "retry is a single atomic transition");
+        notification=() -> DeliveryResult.uncertain("unknown outcome");
+        assertTrue(deliveries.processNext());
+        assertFalse(deliveries.retryReport(workspace,id,false));
+        assertFalse(deliveries.retryReport(UUID.randomUUID().toString(),id,true));
+        assertEquals("uncertain", deliveries.reportIssues(workspace,1).getFirst().state());
+        assertTrue(deliveries.retryReport(workspace,id,true));
+        notification=() -> new DeliveryResult(true,null);
+        assertTrue(deliveries.processNext());
+        assertTrue(deliveries.reportIssues(workspace,100).isEmpty());
+        assertEquals("reported",ledger.findDetailById(workspace,id).orElseThrow().state());
+    }
+
+    @Test void legacySameTimestampReportsAreMatchedByBodyAndArtifacts() {
+        String first=send(), second=send();
+        var original=report(first,"first result","first");
+        team.report(original); team.report(report(second,"second result","second"));
+        database.write("unlink legacy reports", c -> {
+            try(var q=c.createStatement()) { q.executeUpdate("UPDATE messages SET dispatch_id=NULL WHERE type='report'"); }
+            return null;
+        });
+        assertEquals(first,team.report(original).dispatchId());
+        assertThrows(TeamConflict.class,() -> team.report(report(first,"first result","second")));
+    }
+
+    @Test void deferredReportsPreserveAcceptanceOrderAndDoNotStarveDispatches() {
+        String first=send(), second=send();
+        team.report(report(first,"old result",null)); clock.advance();
+        team.report(report(second,"new result",null));
+        var old=ledger.claimNextReportDelivery(clock.instant(),clock.instant().plusSeconds(90)).orElseThrow();
+        assertEquals(first,old.dispatch().dispatch().id().toString());
+        ledger.finishReportDelivery(old.attemptId(),ReportDeliveryWork.Outcome.DEFERRED,"busy",clock.instant().plusSeconds(1),clock.instant());
+        assertTrue(ledger.claimNextReportDelivery(clock.instant(),clock.instant().plusSeconds(90)).isEmpty());
+        clock.advance();
+        assertTrue(deliveries.processNext());
+        assertEquals("submitted",notificationState(first));
+        String task=send();
+        assertTrue(deliveries.processNext());
+        assertEquals("pending",notificationState(second),"dispatch must get a turn while another report is ready");
+        assertEquals(0,ledger.findDetailById(workspace,task).orElseThrow().deliveryAttemptCount());
+        assertTrue(deliveries.processNext());
+        assertEquals("submitted",notificationState(second));
+    }
+
     @Test void pendingReportsSurviveRestartAndInterruptedWritesAreNeverAutomaticallyReplayed() {
         String id = send(); team.report(report(id, "done", null));
         var reopened = new JdbcTeamLedger(new SqliteDatabase(temporaryDirectory.resolve("reports.db")), new ObjectMapper());

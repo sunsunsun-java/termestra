@@ -10,6 +10,8 @@ public interface TeamLedger {
                                   String idempotencyKey);
     Optional<DispatchDeliveryWork> claimNextDelivery(String leaseOwner, Instant now,
                                                      Instant leaseExpiresAt);
+    List<dev.termestra.team.application.port.in.ReportDeliveryIssue> listReportDeliveryIssues(String workspaceId, int limit);
+    boolean retryReportDelivery(String workspaceId, String dispatchId, boolean confirmUncertain, Instant retriedAt);
     Optional<ReportDeliveryWork> claimNextReportDelivery(Instant now, Instant leaseExpiresAt);
     void finishReportDelivery(String attemptId, ReportDeliveryWork.Outcome outcome, String error,
                               Instant nextAttemptAt, Instant updatedAt);

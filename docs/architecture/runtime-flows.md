@@ -138,8 +138,9 @@ sequenceDiagram
 ```
 
 Worker `report` 或 Orchestrator `cancel` 可以终结公开 Dispatch，并关闭 Delivery；
-迟到的投递确认不能复活终态。明确的 CLI 生成中提示会返回 `deferred`，不占用
-30 秒输入等待，也不消耗失败次数；未知屏幕、草稿、权限弹窗仍保留原有保护。
+迟到的投递确认不能复活终态。持久派单与汇报通知遇到明确的 CLI 生成中提示会返回
+`deferred`，不占用 30 秒输入等待，也不消耗失败次数。没有持久重试队列的同步
+status/cancel 通知仍在有界期限内等待就绪；未知屏幕、草稿、权限弹窗保留原有保护。
 
 `TeamApplicationService.report` 在同一 SQLite 事务中写入汇报 Message、终结 Dispatch、
 关闭派单 Delivery 并创建唯一的 `report_deliveries` 通知行，然后立即返回
@@ -148,10 +149,16 @@ Worker `report` 或 Orchestrator `cancel` 可以终结公开 Dispatch，并关�
 在途，不在请求线程等待指挥官 PTY，也不持有来源 Worker 的运行锁等待指挥官。
 重复携带同一 `dispatch_id` 和相同 result/status/artifacts 的汇报返回成功，不新增
 Message 或通知；不同内容返回 409 并明确提示该派单已经汇报。没有 dispatch ID 的旧调用
-仍只关联最老的未关闭派单，不能据其内容推断幂等身份。
+仍只关联最老的未关闭派单，不能据其内容推断幂等身份。历史 Message 缺少 dispatch ID
+时，用 Worker、时间戳、正文与 artifacts 匹配状态；若这些证据仍对应多个不同状态，
+返回明确的历史状态歧义 409，保留原汇报。
 
 汇报通知的忙碌延期不消耗失败次数，明确未写入的失败最多尝试 5 次；不确定写入、
-租约过期或服务在通知中重启均保留 `uncertain`，不自动重复通知。
+租约过期或服务在通知中重启均保留 `uncertain`，不自动重复通知。失败与不确定通知
+通过有界 UI 查询可见；显式重试只恢复通知，不重开 Dispatch，且不确定状态必须先
+确认可能重复发送。每个 Workspace 的待处理通知按汇报接收时间、Dispatch sequence
+排序，前一条忙碌延期时后一条不得越过；已失败或不确定的通知不阻塞后续通知。
+后台交替优先领取派单和汇报通知，避免持续汇报使派单饥饿，消费者总数仍为 8。
 完整状态机和恢复分类见
 [可靠派单设计](../design/reliable-dispatch.md)。
 

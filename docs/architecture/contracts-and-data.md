@@ -122,10 +122,25 @@ stateDiagram-v2
 ```
 
 Delivery 是 Team 自有的技术恢复状态，不取代 Dispatch。只有明确证明输入未触达
-时才自动有限重试；`uncertain` 禁止自动重试。启动尚未完成的内部 `deferred` 结果没有
+时才自动有限重试；`uncertain` 禁止自动重试。启动尚未完成或 CLI 明确生成中的内部 `deferred` 结果没有
 尝试输入，复用 claim 延后机制而不消耗失败重试额度；它不是新的公开 Dispatch 或
 Delivery 状态。最新 retained Run 已启动失败且没有 active Run 时，自动投递返回普通
 失败，用户可显式重新启动；该防自动重启保护不超出有界 Run 保留范围。
+
+### 汇报通知恢复
+
+汇报已接收与通知已送达分别记录；通知失败不回退 `reported` Dispatch。
+`GET /api/ui/workspaces/{workspaceId}/report-delivery-issues?limit=100` 只返回
+`failed`、`uncertain` 通知，`limit` 默认 100，允许 0–100，越界返回 400。
+每项字段固定为 `dispatch_id`、`worker_id`、`state`、`attempt_count`、`error`、
+`updated_at`；`error` 最多 2048 字符，不携带汇报正文或 artifacts。
+
+`POST /api/ui/workspaces/{workspaceId}/dispatches/{dispatchId}/report-delivery/retry`
+接受可选 JSON `{ "confirm_uncertain": true }`。`failed` 可直接显式重试，
+`uncertain` 必须传入该确认；未确认、跨 Workspace 或状态不符均返回 409。
+成功返回 202 `{ "ok": true, "dispatch_id": "…" }`，原子重置通知尝试次数、
+租约和错误并进入 `pending`，不重建 Report 或改变 Dispatch。两个接口均要求 UI token。
+UI 合并最多 100 条派单问题与 100 条汇报通知问题，不确定通知的重试先展示重复发送确认。
 
 ### Run
 

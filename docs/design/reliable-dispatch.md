@@ -248,7 +248,10 @@ uncertain/failed --explicit retry--> pending
 - 显式 dispatch ID 的相同 result/status/artifacts 重试返回既有汇报，不重复 Message 或通知；不同内容返回明确的 409，禁止覆盖。
 - 无 dispatch ID 的 report 仍按最老 open Dispatch 关联；新代码和提示继续要求显式 ID。
 - report_deliveries 的 pending 行在重启后继续领取；delivering 在重启或 90 秒租约过期后进入 uncertain，不能自动重发。普通失败最多 5 次，明确忙碌只延期。后台沿用 8 个有界消费者，每个 Workspace 最多一条通知在途，每次领取至多一条；通知记录随 Dispatch 删除。
-- CLI 输入投递观察到明确的生成中提示后立即 deferred，不再把正常长任务转换成 30 秒输入超时并耗尽重试；未知屏幕与可能写入的失败不适用此延期。
+- 持久派单和汇报通知观察到明确的生成中提示后立即 deferred，不再把正常长任务转换成 30 秒输入超时并耗尽重试；无持久队列的同步 status/cancel 通知继续有界等待就绪。未知屏幕与可能写入的失败不适用此延期。
+- 汇报通知按 Workspace 内的 reported_at、Dispatch sequence 顺序领取，pending/delivering 前项阻止后项越过；failed/uncertain 不阻塞后项。消费者交替优先领取派单或通知，另一类无工作时回退领取。
+- failed/uncertain 汇报通知通过有界问题列表公开，显式重试只将通知改回 pending；uncertain 必须确认潜在重复发送。字段和 HTTP 状态码见[公开契约](../architecture/contracts-and-data.md#汇报通知恢复)。
+- 历史未关联 dispatch ID 的 Message 按 Worker、时间戳、正文、artifacts 匹配报告状态；仍有多个状态时返回历史状态歧义 409，不猜测、不覆盖已有汇报。
 
 ## 13. 查询与 UI
 

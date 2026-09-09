@@ -12,7 +12,7 @@ import java.util.Objects;
 
 /** One bounded FIFO and one virtual worker own all automatic input for a run. */
 final class AutomaticInputMailbox implements AutoCloseable {
-    interface SubmissionHandler { long submit(String text, long readyAfterPosition); }
+    interface SubmissionHandler { long submit(String text, long readyAfterPosition, boolean deferIfBusy); }
 
     private static final int MAX_PENDING = 64;
     private final String runId;
@@ -30,7 +30,11 @@ final class AutomaticInputMailbox implements AutoCloseable {
     }
 
     long submit(String text) {
-        Request request = new Request(Objects.requireNonNull(text, "text"), new CompletableFuture<>());
+        return submit(text, false);
+    }
+
+    long submit(String text, boolean deferIfBusy) {
+        Request request = new Request(Objects.requireNonNull(text, "text"), deferIfBusy, new CompletableFuture<>());
         synchronized (admission) {
             if (closed.get()) throw new ExecutionConflict("PTY is not active for run: " + runId);
             if (!queue.offer(request)) {
@@ -59,7 +63,7 @@ final class AutomaticInputMailbox implements AutoCloseable {
                 Request request = queue.take();
                 if (request.result().isCancelled()) continue;
                 try {
-                    readyAfterPosition = handler.submit(request.text(), readyAfterPosition);
+                    readyAfterPosition = handler.submit(request.text(), readyAfterPosition, request.deferIfBusy());
                     request.result().complete(readyAfterPosition);
                 } catch (RuntimeException failure) {
                     request.result().completeExceptionally(failure);
@@ -87,5 +91,5 @@ final class AutomaticInputMailbox implements AutoCloseable {
         worker.interrupt();
     }
 
-    private record Request(String text, CompletableFuture<Long> result) { }
+    private record Request(String text, boolean deferIfBusy, CompletableFuture<Long> result) { }
 }

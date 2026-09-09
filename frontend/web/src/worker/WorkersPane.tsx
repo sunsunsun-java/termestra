@@ -82,6 +82,7 @@ export const WorkersPane = ({
 }: WorkersPaneProps) => {
   const { t } = useI18n()
   const delivery = useDispatchDeliveryIssues(workspaceId)
+  const [retryReport, setRetryReport] = useState<{ id: string; workspaceId: string } | null>(null)
   const { sections, summary } = useMemo(() => summarizeWorkers(workers, terminalRuns), [workers, terminalRuns])
   const [pendingDelete, setPendingDelete] = useState<TeamListItem | null>(null)
   const [renameTarget, setRenameTarget] = useState<TeamListItem | null>(null)
@@ -213,7 +214,7 @@ export const WorkersPane = ({
                 <li key={dispatch.id} className="flex min-w-0 items-center gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sec">
-                      {worker?.name ?? dispatch.toAgentId} · {dispatch.deliveryState === 'uncertain'
+                      {worker?.name ?? dispatch.toAgentId} · {dispatch.kind === 'report' ? `${t('report.notification')} · ` : ''}{dispatch.deliveryState === 'uncertain'
                         ? t('dispatch.uncertain')
                         : t('dispatch.failed')}
                     </div>
@@ -226,8 +227,11 @@ export const WorkersPane = ({
                   <button
                     type="button"
                     className="icon-btn icon-btn--tertiary shrink-0"
-                    disabled={delivery.retryingIds.has(dispatch.id)}
-                    onClick={() => void delivery.retry(dispatch.id)}
+                    disabled={readOnly || delivery.retryingIds.has(dispatch.id)}
+                    onClick={() => {
+                      if (dispatch.kind === 'report' && dispatch.deliveryState === 'uncertain') setRetryReport({ id: dispatch.id, workspaceId })
+                      else void delivery.retry(dispatch.id)
+                    }}
                   >
                     <RefreshCw size={13} aria-hidden /> {t('common.retry')}
                   </button>
@@ -291,6 +295,17 @@ export const WorkersPane = ({
         )}
       </div>
 
+      <Confirm
+        open={retryReport !== null && retryReport.workspaceId === workspaceId}
+        onOpenChange={(open) => { if (!open) setRetryReport(null) }}
+        title={t('report.retryTitle')}
+        description={t('report.retryDescription')}
+        confirmLabel={t('common.retry')}
+        onConfirm={() => {
+          if (retryReport?.workspaceId === workspaceId && !readOnly) void delivery.retry(retryReport.id, true)
+          setRetryReport(null)
+        }}
+      />
       <Confirm
         open={pendingDelete !== null}
         onOpenChange={(open) => {

@@ -3,18 +3,23 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   listDispatchDeliveryIssues,
   retryDispatchDelivery,
-  type DispatchSummary,
+  listReportDeliveryIssues,
+  retryReportDelivery,
+  type DeliveryIssue,
 } from '../api.js'
 import { createVisiblePagePoller } from '../lib/visible-page-poller.js'
 
 export const useDispatchDeliveryIssues = (workspaceId: string) => {
-  const [issues, setIssues] = useState<DispatchSummary[]>([])
+  const [issues, setIssues] = useState<DeliveryIssue[]>([])
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
-      return listDispatchDeliveryIssues(workspaceId, signal)
+      const [dispatches, reports] = await Promise.all([
+        listDispatchDeliveryIssues(workspaceId, signal), listReportDeliveryIssues(workspaceId, signal),
+      ])
+      return [...dispatches.map((item) => ({ ...item, kind: 'dispatch' as const })), ...reports]
     },
     [workspaceId]
   )
@@ -59,11 +64,14 @@ export const useDispatchDeliveryIssues = (workspaceId: string) => {
   }, [refresh, workspaceId])
 
   const retry = useCallback(
-    async (dispatchId: string) => {
+    async (dispatchId: string, confirmUncertain = false) => {
+      const issue = issues.find((item) => item.id === dispatchId)
+      if (issue?.kind === 'report' && issue.deliveryState === 'uncertain' && !confirmUncertain) return
       setRetryingIds((current) => new Set(current).add(dispatchId))
       setError(null)
       try {
-        await retryDispatchDelivery(workspaceId, dispatchId)
+        if (issue?.kind === 'report') await retryReportDelivery(workspaceId, dispatchId, confirmUncertain)
+        else await retryDispatchDelivery(workspaceId, dispatchId)
         setIssues((current) => current.filter((item) => item.id !== dispatchId))
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : String(failure))
@@ -75,7 +83,7 @@ export const useDispatchDeliveryIssues = (workspaceId: string) => {
         })
       }
     },
-    [workspaceId]
+    [workspaceId, issues]
   )
 
   return { error, issues, retry, retryingIds }

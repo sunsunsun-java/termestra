@@ -32,6 +32,7 @@ public final class DispatchDeliveryApplicationService implements DispatchDeliver
     private final RuntimeOperationCoordinator operations;
     private final Clock clock;
     private final String leaseOwner = UUID.randomUUID().toString();
+    private final java.util.concurrent.atomic.AtomicInteger deliveryTurn = new java.util.concurrent.atomic.AtomicInteger();
     private final DeliveryRetryPolicy retryPolicy = new DeliveryRetryPolicy();
 
     public DispatchDeliveryApplicationService(TeamLedger ledger, TeamMemberRepository members,
@@ -46,11 +47,19 @@ public final class DispatchDeliveryApplicationService implements DispatchDeliver
 
     @Override public boolean processNext() {
         Instant now = Instant.now(clock);
+        return (deliveryTurn.getAndIncrement() & 1) == 0
+                ? processReport(now) || processDispatch(now)
+                : processDispatch(now) || processReport(now);
+    }
+
+    private boolean processReport(Instant now) {
         Optional<ReportDeliveryWork> report = ledger.claimNextReportDelivery(now, now.plus(LEASE_DURATION));
-        if (report.isPresent()) {
-            deliverReport(report.orElseThrow());
-            return true;
-        }
+        if (report.isEmpty()) return false;
+        deliverReport(report.orElseThrow());
+        return true;
+    }
+
+    private boolean processDispatch(Instant now) {
         Optional<DispatchDeliveryWork> claimed = ledger.claimNextDelivery(
                 leaseOwner, now, now.plus(LEASE_DURATION));
         if (claimed.isEmpty()) return false;
@@ -159,6 +168,15 @@ public final class DispatchDeliveryApplicationService implements DispatchDeliver
 
     @Override public int recoverInterrupted() {
         return ledger.recoverInterruptedDeliveries(Instant.now(clock));
+    }
+
+    @Override public java.util.List<dev.termestra.team.application.port.in.ReportDeliveryIssue> reportIssues(String workspaceId, int limit) {
+        if (limit < 0 || limit > 100) throw new dev.termestra.team.application.exception.TeamBadRequest("limit must be between 0 and 100");
+        return ledger.listReportDeliveryIssues(workspaceId, limit);
+    }
+
+    @Override public boolean retryReport(String workspaceId, String dispatchId, boolean confirmUncertain) {
+        return ledger.retryReportDelivery(workspaceId, dispatchId, confirmUncertain, Instant.now(clock));
     }
 
     @Override public boolean retry(String workspaceId, String dispatchId) {

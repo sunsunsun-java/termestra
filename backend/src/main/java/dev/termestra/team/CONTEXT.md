@@ -33,8 +33,9 @@ _Avoid_: Completion, execution, Dispatch
 
 **Delivery Attempt**:
 One bounded try to perform a Delivery, carrying evidence about whether input may
-have reached the TeamMember. Deferring because the Agent is still starting does
-not consume the failure retry budget and does not authorize input before readiness.
+have reached the TeamMember. Deferring because the Agent is still starting or
+visibly generating does not consume the failure retry budget and does not authorize
+input before readiness.
 _Avoid_: Dispatch retry, task run
 
 **Uncertain Delivery**:
@@ -46,7 +47,9 @@ _Avoid_: Failed Dispatch, queued Delivery
 A TeamMember's durable outcome for a Dispatch. Acceptance includes one durable
 notification to its Orchestrator; terminal notification is asynchronous and does
 not change the accepted outcome. An identical explicit-Dispatch replay retains
-the same report and notification.
+the same report and notification. Failed or uncertain notifications are visible
+recovery issues; retry never reopens the Dispatch, and uncertain retry requires
+explicit confirmation that the Orchestrator may receive a duplicate.
 _Avoid_: Terminal output, status update, last PTY line
 
 **Status Update**:

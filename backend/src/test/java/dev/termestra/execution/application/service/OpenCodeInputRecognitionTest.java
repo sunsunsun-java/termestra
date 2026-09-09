@@ -25,6 +25,23 @@ import static org.junit.jupiter.api.Assertions.*;
 class OpenCodeInputRecognitionTest {
     @TempDir Path temporaryDirectory;
 
+    @Test void synchronousNotificationWaitsForBusyToBecomeReady() throws Exception {
+        var output = output();
+        String frame = followup(false);
+        output.append(frame + "\u001b[23;1H\u001b[2Kesc interrupt\u001b[19;6H");
+        List<String> writes = new ArrayList<>();
+        Thread ready = Thread.ofVirtual().start(() -> {
+            try { Thread.sleep(200); output.append(frame); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        });
+        try {
+            assertTimeoutPreemptively(Duration.ofSeconds(5), () ->
+                    InteractiveInputSubmitter.submit("opencode", "status notification", () -> true, output::snapshot,
+                            bytes -> writes.add(new String(bytes, StandardCharsets.UTF_8))));
+            assertEquals(2, writes.size());
+        } finally { ready.join(); }
+    }
+
     @Test void busyGenerationDefersWithoutWaitingForThePromptTimeout() throws Exception {
         var output = output();
         output.append(followup(false) + "\u001b[23;1H\u001b[2Kesc to interrupt\u001b[19;6H");
@@ -32,7 +49,7 @@ class OpenCodeInputRecognitionTest {
         assertTimeoutPreemptively(Duration.ofSeconds(2), () -> {
             var failure = assertThrows(InteractiveInputSubmitter.SubmissionException.class,
                     () -> InteractiveInputSubmitter.submit("opencode", "follow-up", () -> true,
-                            output::snapshot, writes::add));
+                            output::snapshot, writes::add, -1, true));
             assertFalse(failure.inputAttempted());
             assertTrue(failure.getMessage().contains("busy"));
         });
@@ -58,7 +75,7 @@ class OpenCodeInputRecognitionTest {
         String followup = followup(transparent);
         List<String> writes = new ArrayList<>();
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            try (var mailbox = new AutomaticInputMailbox("opencode-regression", (text, position) ->
+            try (var mailbox = new AutomaticInputMailbox("opencode-regression", (text, position, deferIfBusy) ->
                     InteractiveInputSubmitter.submit("opencode", text, () -> true, output::snapshot, bytes -> {
                         String value = new String(bytes, StandardCharsets.UTF_8);
                         writes.add(value);
@@ -89,7 +106,7 @@ class OpenCodeInputRecognitionTest {
         try {
             pty.activate(bytes -> output.append(decoder.decode(bytes)), ignored -> { });
             assertTimeoutPreemptively(Duration.ofSeconds(8), () -> {
-                try (var mailbox = new AutomaticInputMailbox("opencode-pty-regression", (text, position) ->
+                try (var mailbox = new AutomaticInputMailbox("opencode-pty-regression", (text, position, deferIfBusy) ->
                         InteractiveInputSubmitter.submit("opencode", text, pty::alive,
                                 output::snapshot, pty::write, position))) {
                     mailbox.submit("startup");
@@ -209,7 +226,7 @@ class OpenCodeInputRecognitionTest {
                                 for (int retry = 0; retry < 8; retry++) {
                                     var busy = assertThrows(InteractiveInputSubmitter.SubmissionException.class,
                                             () -> InteractiveInputSubmitter.submit("opencode", "follow-up", () -> true,
-                                                    output::snapshot, bytes -> fail("busy process must receive no input")));
+                                                    output::snapshot, bytes -> fail("busy process must receive no input"), -1, true));
                                     assertTrue(busy.deferred());
                                     assertFalse(busy.inputAttempted());
                                 }
@@ -223,7 +240,7 @@ class OpenCodeInputRecognitionTest {
                 List<byte[]> writes = new ArrayList<>();
                 var failure = assertThrows(InteractiveInputSubmitter.SubmissionException.class, () ->
                         InteractiveInputSubmitter.submit("opencode", "must wait for permission", () -> true,
-                                output::snapshot, writes::add));
+                                output::snapshot, writes::add, -1, true));
                 assertFalse(failure.inputAttempted());
                 assertTrue(writes.isEmpty());
             }

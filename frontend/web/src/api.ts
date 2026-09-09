@@ -408,6 +408,30 @@ export const listDispatchDeliveryIssues = async (
   }))
 }
 
+export type DeliveryIssue = Pick<DispatchSummary, 'id' | 'toAgentId' | 'deliveryState' | 'deliveryError'> & {
+  kind: 'dispatch' | 'report'
+}
+
+export const listReportDeliveryIssues = async (workspaceId: string, signal?: AbortSignal): Promise<DeliveryIssue[]> => {
+  const response = await apiFetch(
+    `/api/ui/workspaces/${encodeURIComponent(workspaceId)}/report-delivery-issues?limit=${COLLECTION_LIMITS.dispatches}`,
+    signal ? { signal } : undefined, HOT_QUERY_TIMEOUT_MS
+  )
+  if (!response.ok) throw new Error('Failed to load report notification status')
+  return requireBoundedList<{ dispatch_id: string; worker_id: string; state: 'failed' | 'uncertain'; error: string | null }>(
+    await response.json(), 'report notifications', COLLECTION_LIMITS.dispatches
+  ).map((item) => ({ id: item.dispatch_id, toAgentId: item.worker_id, deliveryState: item.state, deliveryError: item.error, kind: 'report' }))
+}
+
+export const retryReportDelivery = async (workspaceId: string, dispatchId: string, confirmUncertain: boolean): Promise<void> => {
+  const response = await apiFetch(
+    `/api/ui/workspaces/${encodeURIComponent(workspaceId)}/dispatches/${encodeURIComponent(dispatchId)}/report-delivery/retry`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm_uncertain: confirmUncertain }) },
+    INTERACTIVE_QUERY_TIMEOUT_MS
+  )
+  if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to retry report notification'))
+}
+
 export const retryDispatchDelivery = async (
   workspaceId: string,
   dispatchId: string

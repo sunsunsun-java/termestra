@@ -376,6 +376,8 @@ class TeamApplicationServiceRollbackTest {
         };
     }
     private static class DelegatingTeamLedger implements TeamLedger {
+        @Override public List<dev.termestra.team.application.port.in.ReportDeliveryIssue> listReportDeliveryIssues(String workspaceId,int limit) { return delegate.listReportDeliveryIssues(workspaceId,limit); }
+        @Override public boolean retryReportDelivery(String workspaceId,String dispatchId,boolean confirm,Instant now) { return delegate.retryReportDelivery(workspaceId,dispatchId,confirm,now); }
         @Override public java.util.Optional<dev.termestra.team.application.port.out.ReportDeliveryWork> claimNextReportDelivery(java.time.Instant now, java.time.Instant lease) {
             return delegate.claimNextReportDelivery(now, lease);
         }

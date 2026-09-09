@@ -47,7 +47,10 @@ _Avoid_: Full transcript, Provider Session
 
 **Automatic Input**:
 Termestra-authored input submitted to an Agent after prompt readiness is
-observed, such as startup guidance or a Dispatch. A visible generation indicator
-defers automatic input without attempting a write; it is separate from an unknown
-screen, a user draft, or a prompt awaiting user action.
+observed, such as startup guidance or a Dispatch. For durable Dispatch and Report
+notification requests, a visible generation indicator defers input without a write.
+Synchronous status and cancellation notifications retain bounded readiness waiting
+because they have no durable retry queue. This policy belongs to each mailbox
+request; unknown screens, user drafts, and prompts awaiting user action retain
+their existing protections.
 _Avoid_: Browser keystroke, terminal output

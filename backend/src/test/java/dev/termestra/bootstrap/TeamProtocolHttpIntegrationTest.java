@@ -282,6 +282,45 @@ class TeamProtocolHttpIntegrationTest {
         for(String table:List.of("workers","messages","dispatches","dispatch_deliveries","agent_launch_configs","agent_sessions","agent_runs"))assertEquals(0,count(table,workspaceId,workerId),table);
     }
 
+    @Test void exposesBoundedReportIssuesAndRequiresConfirmationForUncertainRetry() throws Exception {
+        var client=WebTestClient.bindToServer().baseUrl("http://127.0.0.1:"+port).build();
+        String cookie=uiCookie(client);
+        var workspace=client.post().uri("/api/workspaces").header(HttpHeaders.COOKIE,cookie)
+                .bodyValue(Map.of("name","Report Recovery","path",temp("report-recovery-http-").toString(),"autostart_orchestrator",false))
+                .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
+        String id=Objects.requireNonNull(workspace).get("id").toString();
+        var worker=client.post().uri("/api/workspaces/"+id+"/workers").header(HttpHeaders.COOKIE,cookie)
+                .bodyValue(Map.of("name","Reporter","role","coder")).exchange().expectStatus().isCreated()
+                .expectBody(Map.class).returnResult().getResponseBody();
+        String workerId=Objects.requireNonNull(worker).get("id").toString(), dispatch=UUID.randomUUID().toString();
+        seedReportedDispatch(id,workerId,dispatch,"task","R".repeat(50000),"diagram.html");
+        database.write("seed interrupted notification",c -> {
+            try(var q=c.prepareStatement("INSERT INTO report_deliveries(dispatch_id,state,next_attempt_at,last_error,updated_at) VALUES(?,'uncertain',?,?,?)")) {
+                q.setString(1,dispatch); q.setLong(2,1); q.setString(3,"E".repeat(10000)); q.setLong(4,1); q.executeUpdate();
+            } return null;
+        });
+        String issues="/api/ui/workspaces/"+id+"/report-delivery-issues";
+        String retry="/api/ui/workspaces/"+id+"/dispatches/"+dispatch+"/report-delivery/retry";
+        client.get().uri(issues).exchange().expectStatus().isForbidden();
+        client.post().uri(retry).bodyValue(Map.of("confirm_uncertain",true)).exchange().expectStatus().isForbidden();
+        byte[] body=client.get().uri(issues+"?limit=1").header(HttpHeaders.COOKIE,cookie).exchange()
+                .expectStatus().isOk().expectBody().returnResult().getResponseBody();
+        assertNotNull(body); assertTrue(body.length<3000);
+        var row=json.readTree(body).get(0); var fields=new HashSet<String>(); row.fieldNames().forEachRemaining(fields::add);
+        assertEquals(Set.of("dispatch_id","worker_id","state","attempt_count","error","updated_at"),fields);
+        assertEquals(dispatch,row.path("dispatch_id").asText()); assertEquals(2048,row.path("error").asText().length());
+        client.get().uri(issues+"?limit=101").header(HttpHeaders.COOKIE,cookie).exchange().expectStatus().isBadRequest();
+        client.get().uri(issues+"?limit=0").header(HttpHeaders.COOKIE,cookie).exchange().expectStatus().isOk().expectBody().json("[]");
+        client.post().uri(retry).header(HttpHeaders.COOKIE,cookie).bodyValue(Map.of("confirm_uncertain",false))
+                .exchange().expectStatus().isEqualTo(409);
+        client.post().uri(retry.replace(id,UUID.randomUUID().toString())).header(HttpHeaders.COOKIE,cookie)
+                .bodyValue(Map.of("confirm_uncertain",true)).exchange().expectStatus().isEqualTo(409);
+        client.post().uri(retry).header(HttpHeaders.COOKIE,cookie).bodyValue(Map.of("confirm_uncertain",true))
+                .exchange().expectStatus().isAccepted().expectBody().jsonPath("$.dispatch_id").isEqualTo(dispatch);
+        client.get().uri("/api/ui/workspaces/"+id+"/dispatches/"+dispatch).header(HttpHeaders.COOKIE,cookie)
+                .exchange().expectStatus().isOk().expectBody().jsonPath("$.state").isEqualTo("reported");
+    }
+
     private static String send(WebTestClient client,String workspace,String actor,String token,String text){Map<?,?> body=client.post().uri("/api/team/send").bodyValue(Map.of("project_id",workspace,"from_agent_id",actor,"token",token,"to","Alice","text",text,"runtime_port","3000","idempotency_key",UUID.randomUUID().toString())).exchange().expectStatus().isAccepted().expectBody(Map.class).returnResult().getResponseBody();return Objects.requireNonNull(body).get("dispatch_id").toString();}
     private static String uiCookie(WebTestClient client){String header=client.get().uri("/api/ui/session").exchange().expectStatus().isOk().expectBody(Map.class).returnResult().getResponseHeaders().getFirst(HttpHeaders.SET_COOKIE);return Objects.requireNonNull(header).substring(0,header.indexOf(';'));}
     private static Path temp(String prefix){try{return Files.createTempDirectory(prefix).toRealPath();}catch(IOException error){throw new ExceptionInInitializerError(error);}}

@@ -186,6 +186,42 @@ public final class JdbcTeamLedger implements TeamLedger, OpenDispatchCountSource
         });
     }
 
+    @Override public List<dev.termestra.team.application.port.in.ReportDeliveryIssue> listReportDeliveryIssues(String workspaceId, int limit) {
+        if (limit < 0 || limit > 100) throw new IllegalArgumentException("Report issue limit exceeds 100");
+        return database.read("report delivery issues", c -> {
+            List<dev.termestra.team.application.port.in.ReportDeliveryIssue> issues = new ArrayList<>();
+            try (PreparedStatement q = c.prepareStatement("""
+                    SELECT r.dispatch_id,d.to_agent_id,r.state,r.attempt_count,substr(r.last_error,1,2048),r.updated_at
+                    FROM report_deliveries r JOIN dispatches d ON d.id=r.dispatch_id
+                    WHERE d.workspace_id=? AND d.status='reported' AND r.state IN ('failed','uncertain')
+                    ORDER BY r.updated_at,d.sequence LIMIT ?
+                    """)) {
+                q.setString(1, workspaceId); q.setInt(2, limit);
+                try (ResultSet rows=q.executeQuery()) {
+                    while (rows.next()) issues.add(new dev.termestra.team.application.port.in.ReportDeliveryIssue(
+                            rows.getString(1),rows.getString(2),rows.getString(3),rows.getInt(4),rows.getString(5),rows.getLong(6)));
+                }
+            }
+            return List.copyOf(issues);
+        });
+    }
+
+    @Override public boolean retryReportDelivery(String workspaceId, String dispatchId, boolean confirmUncertain, Instant retriedAt) {
+        return database.write("retry report notification", c -> {
+            try (PreparedStatement q=c.prepareStatement("""
+                    UPDATE report_deliveries SET state='pending',attempt_id=NULL,attempt_count=0,
+                      next_attempt_at=?,lease_expires_at=NULL,last_error=NULL,updated_at=?
+                    WHERE dispatch_id=? AND (state='failed' OR (state='uncertain' AND ?))
+                      AND EXISTS(SELECT 1 FROM dispatches d WHERE d.id=report_deliveries.dispatch_id
+                        AND d.workspace_id=? AND d.status='reported')
+                    """)) {
+                q.setLong(1,retriedAt.toEpochMilli()); q.setLong(2,retriedAt.toEpochMilli());
+                q.setString(3,dispatchId); q.setBoolean(4,confirmUncertain); q.setString(5,workspaceId);
+                return q.executeUpdate()==1;
+            }
+        });
+    }
+
     @Override public Optional<ReportDeliveryWork> claimNextReportDelivery(Instant now, Instant leaseExpiresAt) {
         return database.write("claim report notification", connection -> {
             try (PreparedStatement expired = connection.prepareStatement("""
@@ -203,6 +239,11 @@ public final class JdbcTeamLedger implements TeamLedger, OpenDispatchCountSource
                       AND NOT EXISTS(SELECT 1 FROM report_deliveries active
                         JOIN dispatches other ON other.id=active.dispatch_id
                         WHERE active.state='delivering' AND other.workspace_id=d.workspace_id)
+                      AND NOT EXISTS(SELECT 1 FROM report_deliveries earlier
+                        JOIN dispatches previous ON previous.id=earlier.dispatch_id
+                        WHERE previous.workspace_id=d.workspace_id AND earlier.state IN ('pending','delivering')
+                          AND (previous.reported_at<d.reported_at OR
+                            (previous.reported_at=d.reported_at AND previous.sequence<d.sequence)))
                     ORDER BY r.next_attempt_at,d.sequence LIMIT 1
                     """)) {
                 query.setLong(1, now.toEpochMilli());
@@ -395,7 +436,7 @@ public final class JdbcTeamLedger implements TeamLedger, OpenDispatchCountSource
                             if (!original.dispatch().reportText().orElse("").equals(result)
                                     || !original.dispatch().artifacts().equals(artifacts)
                                     || !sameReportStatus(connection, workspaceId, workerId,
-                                            dispatchId, original.dispatch().reportedAt().orElseThrow(), message.status())) {
+                                            dispatchId, original.dispatch().reportedAt().orElseThrow(), result, artifacts, message.status())) {
                                 throw new TeamConflict("Dispatch already reported with different content: " + dispatchId);
                             }
                             return Optional.of(original);
@@ -408,18 +449,28 @@ public final class JdbcTeamLedger implements TeamLedger, OpenDispatchCountSource
     }
 
     private boolean sameReportStatus(Connection connection, String workspace, String worker,
-                                     String dispatchId, Instant reportedAt, String status) throws SQLException {
-        try (PreparedStatement query = connection.prepareStatement("""
-                SELECT status FROM messages WHERE workspace_id=? AND worker_id=? AND type='report'
-                  AND (dispatch_id=? OR (dispatch_id IS NULL AND created_at=?))
-                ORDER BY dispatch_id IS NULL,sequence DESC LIMIT 1
+                                     String dispatchId, Instant reportedAt, String text, List<String> artifacts,
+                                     String status) throws SQLException {
+        try (PreparedStatement linked = connection.prepareStatement("""
+                SELECT status FROM messages WHERE dispatch_id=? AND workspace_id=? AND worker_id=? AND type='report'
+                ORDER BY sequence LIMIT 1
                 """)) {
-            query.setString(1, workspace);
-            query.setString(2, worker);
-            query.setString(3, dispatchId);
-            query.setLong(4, reportedAt.toEpochMilli());
-            try (ResultSet rows = query.executeQuery()) {
-                return rows.next() && Objects.equals(status, rows.getString(1));
+            linked.setString(1, dispatchId); linked.setString(2, workspace); linked.setString(3, worker);
+            try (ResultSet rows = linked.executeQuery()) {
+                if (rows.next()) return Objects.equals(status, rows.getString(1));
+            }
+        }
+        try (PreparedStatement legacy = connection.prepareStatement("""
+                SELECT DISTINCT status FROM messages WHERE workspace_id=? AND worker_id=? AND type='report'
+                  AND dispatch_id IS NULL AND created_at=? AND text=? AND COALESCE(artifacts,'[]')=? LIMIT 2
+                """)) {
+            legacy.setString(1, workspace); legacy.setString(2, worker); legacy.setLong(3, reportedAt.toEpochMilli());
+            legacy.setString(4, text); legacy.setString(5, json(artifacts));
+            try (ResultSet rows = legacy.executeQuery()) {
+                if (!rows.next()) return false;
+                String original = rows.getString(1);
+                if (rows.next()) throw new TeamConflict("Historical report status is ambiguous; dispatch is already reported: " + dispatchId);
+                return Objects.equals(status, original);
             }
         }
     }
