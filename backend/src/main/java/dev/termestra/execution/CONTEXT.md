@@ -42,9 +42,16 @@ _Avoid_: TeamMember status, process existence, Dispatch status
 The CLI provider's own resumable conversation identity captured from a Run.
 _Avoid_: UI session, Run ID, terminal history
 
+A provider resume template applies only to a direct provider executable, never to a
+shell or wrapper identified by a separate interactive-command hint. Wrapped startup
+commands keep their original arguments and receive a Recovery Summary. Resume
+recognition uses the provider's own options; Codex configuration/sandbox flags do
+not mean resume, and its global option values are not subcommands.
+
 **Recovery Summary**:
 A bounded, durable briefing assembled when a provider-native session cannot be
-resumed.
+resumed. Its retained header carries the same Workspace/Agent session binding as
+first-start guidance so the new provider session can be captured for future resume.
 _Avoid_: Full transcript, Provider Session
 
 **Automatic Input**:

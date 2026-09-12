@@ -4,7 +4,9 @@ import dev.termestra.execution.application.exception.ExecutionConflict;
 
 /** Owns the final allocation and delivery budget for text injected into an agent terminal. */
 final class AutomaticPromptLimits {
-    static final int MAX_AUTOMATIC_PROMPT_CHARACTERS=131_072;
+    // A 64 Ki-character role may expand fivefold when XML-escaped at startup.
+    // This also covers a full role plus a 64 Ki-character dispatch and bounded metadata.
+    static final int MAX_AUTOMATIC_PROMPT_CHARACTERS=393_216;
     private static final int RECOVERY_TAIL_CHARACTERS=8_192;
     private static final String TRUNCATION_NOTICE="\n\n[Termestra：恢复上下文已按安全上限截断]\n";
 

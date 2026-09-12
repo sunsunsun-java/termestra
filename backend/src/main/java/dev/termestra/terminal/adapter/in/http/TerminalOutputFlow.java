@@ -8,6 +8,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -49,6 +51,7 @@ final class TerminalOutputFlow implements AutoCloseable {
     private final Runnable completion;
     private final long acknowledgementTimeoutMillis;
     private final ArrayDeque<OutputBatch> pending = new ArrayDeque<>();
+    private final CompletableFuture<Void> drained = new CompletableFuture<>();
 
     private ScheduledFuture<?> flushTask;
     private ScheduledFuture<?> acknowledgementTimeoutTask;
@@ -63,6 +66,7 @@ final class TerminalOutputFlow implements AutoCloseable {
     private boolean effectsDraining;
     private Runnable terminalEffect;
     private boolean closed;
+    private boolean finishing;
 
     TerminalOutputFlow(Consumer<String> emitter, Consumer<Boolean> pressure) {
         this(emitter, pressure, () -> { }, () -> { }, DEFAULT_ACK_TIMEOUT_MILLIS);
@@ -136,7 +140,35 @@ final class TerminalOutputFlow implements AutoCloseable {
         }
         if (drainEffects) drainEffects();
         if (next != null) emitFrom(next);
+        completeDrainIfFinished();
         return accepted;
+    }
+
+    /** Called only after the Run has stopped producing output. ACKs include xterm rendering. */
+    CompletionStage<Void> finish() {
+        synchronized (this) {
+            finishing = true;
+            if (!closed && (unacknowledged > 0 || !pending.isEmpty() || emitting)
+                    && acknowledgementTimeoutTask == null) {
+                scheduleAcknowledgementTimeoutLocked();
+            }
+        }
+        completeDrainIfFinished();
+        return drained.minimalCompletionStage();
+    }
+
+    private void completeDrainIfFinished() {
+        boolean complete;
+        boolean failed;
+        synchronized (this) {
+            failed = closed;
+            complete = finishing && !closed && !emitting && pending.isEmpty()
+                    && unacknowledged == 0;
+            if (complete) cancelAcknowledgementTimeoutLocked();
+        }
+        // Completion may run reactor/user callbacks, so it must happen outside the monitor.
+        if (failed) drained.completeExceptionally(new IllegalStateException("Terminal viewer closed before output drained"));
+        else if (complete) drained.complete(null);
     }
 
     private void flush() {
@@ -179,6 +211,7 @@ final class TerminalOutputFlow implements AutoCloseable {
             }
             if (drainEffects) drainEffects();
         }
+        completeDrainIfFinished();
     }
 
     private OutputBatch prepareNextLocked() {
@@ -256,7 +289,7 @@ final class TerminalOutputFlow implements AutoCloseable {
         if (backpressured && unacknowledged <= UNACKED_LOW_WATER
                 && pendingBytes <= PENDING_LOW_WATER) {
             backpressured = false;
-            cancelAcknowledgementTimeoutLocked();
+            if (!finishing) cancelAcknowledgementTimeoutLocked();
             desiredPressure = false;
         }
     }
@@ -272,12 +305,13 @@ final class TerminalOutputFlow implements AutoCloseable {
     private void acknowledgementTimedOut(long generation) {
         boolean drainEffects;
         synchronized (this) {
-            if (!closed && backpressured && generation == acknowledgementTimeoutGeneration) {
+            if (!closed && (backpressured || finishing) && generation == acknowledgementTimeoutGeneration) {
                 closeRejectedLocked();
             }
             drainEffects = claimEffectDrainLocked();
         }
         if (drainEffects) drainEffects();
+        completeDrainIfFinished();
     }
 
     private void cancelAcknowledgementTimeoutLocked() {
@@ -381,6 +415,7 @@ final class TerminalOutputFlow implements AutoCloseable {
             drainEffects = claimEffectDrainLocked();
         }
         if (drainEffects) drainEffects();
+        completeDrainIfFinished();
     }
 
     private static SplitBatch splitPrefix(OutputBatch batch, int maximumBytes) {

@@ -38,7 +38,7 @@ class JdbcAgentDirectoryTest {
 
         assertEquals(256, descriptor.workspaceName().length());
         assertEquals("Worker", descriptor.name());
-        assertEquals(4_096, descriptor.description().length());
+        assertEquals(JdbcAgentDirectory.MAX_WORKER_DESCRIPTION_CHARACTERS, descriptor.description().length());
         assertEquals("coder", descriptor.role());
     }
 

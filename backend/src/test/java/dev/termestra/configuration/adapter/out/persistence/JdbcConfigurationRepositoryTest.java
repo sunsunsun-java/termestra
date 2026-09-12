@@ -25,6 +25,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class JdbcConfigurationRepositoryTest {
     @TempDir Path temporaryDirectory;
 
+    @Test void readsFullRoleOnlyByIdWhileListsStayBoundedAndUnicodeSafe() {
+        JdbcConfigurationRepository repository = new JdbcConfigurationRepository(
+                database("role-detail.db"), new ObjectMapper());
+        String body = "x".repeat(4_095) + "😀" + "z".repeat(60_000) + "FINAL INSTRUCTION";
+        String id = UUID.randomUUID().toString();
+        repository.insert(new RoleTemplate(id, "Long role", "custom", body, "tool",
+                List.of(), Map.of(), false), Instant.now());
+        var summary = repository.roleTemplates().stream().filter(role -> id.equals(role.id()))
+                .findFirst().orElseThrow();
+        assertEquals("x".repeat(4_095), summary.description());
+        assertEquals(body, repository.roleTemplate(id).orElseThrow().description());
+        assertTrue(repository.roleTemplate("missing").isEmpty());
+    }
+
     @Test void rejectsNewCustomCollectionsAtTheirLimitsAndStillAllowsExistingAppStateUpdates() {
         SqliteDatabase database = database("configuration-limits.db");
         database.write("seed configuration limits", connection -> {

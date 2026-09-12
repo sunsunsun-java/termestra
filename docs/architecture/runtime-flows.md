@@ -59,6 +59,9 @@ Run 在提示识别和启动/恢复输入完整提交（含 Enter）前保持 `s
 后台等待期间保留 PTY，浏览器可人工完成操作，Termestra 不向该页面自动提交指令。
 识别使用当前输入区域及 VT 样式：Hermes 的斜体 placeholder、Claude/Codex 的 dim
 placeholder 与普通草稿区分，用户按 Home 或重绘草稿不会使输入区变为就绪。
+Codex 当前输入框兼容 `›` 与 `»` 提示符；两种提示符均要求输入起点光标和空白输入或
+dim placeholder，仍受 loading、忙碌状态和人工输入保护。真实 `»` 启动输出及 PTY
+启动回归防止 CLI 已能交互、系统却仍等待输入框直到超时。
 可见历史即使引用完整 trust/login 页面，也不能覆盖下方已验证的当前 composer；
 没有当前 composer 证据的登录/确认页仍等待用户操作。
 忙碌提示只取当前输入框下方状态区或紧邻输入框的带样式 spinner，Codex loading
@@ -138,9 +141,13 @@ sequenceDiagram
 ```
 
 Worker `report` 或 Orchestrator `cancel` 可以终结公开 Dispatch，并关闭 Delivery；
-迟到的投递确认不能复活终态。持久派单与汇报通知遇到明确的 CLI 生成中提示会返回
+迟到的投递确认不能复活终态。消费者取得 Worker 运行锁后、写入 PTY 前再次校验
+Delivery attempt 仍持有效租约，已取消的排队工作不会继续投递。冷启动 Worker 使用
+当前 HTTP server 的实际监听端口，不沿用 Delivery 入队时的旧端口。持久派单与汇报通知遇到明确的 CLI 生成中提示会返回
 `deferred`，不占用 30 秒输入等待，也不消耗失败次数。没有持久重试队列的同步
 status/cancel 通知仍在有界期限内等待就绪；未知屏幕、草稿、权限弹窗保留原有保护。
+`team cancel` 已持久取消但即时通知失败时，CLI 保持成功退出并在 stderr 明确报告
+未送达及原因，避免用户把取消成功误认为 Worker 已收到通知。
 
 `TeamApplicationService.report` 在同一 SQLite 事务中写入汇报 Message、终结 Dispatch、
 关闭派单 Delivery 并创建唯一的 `report_deliveries` 通知行，然后立即返回
@@ -186,7 +193,15 @@ sequenceDiagram
 ```
 
 IO 和 Control 必须成对绑定同一 `clientId`。关闭 viewer 只清理该连接和 flow
-lease；`stop` control message 才请求终止 Run。
+lease；`stop` control message 才请求终止 Run。进程输出结束后，Control 的 `exit`
+等待该 viewer 全部 IO 字节经 xterm 渲染并回传 `output_ack`；即使最后输出很短也启用
+30 秒确认期限，超时或断连关闭 viewer 并释放资源。停止过程在输出排空前不对外
+暴露终态，避免 Control 抢先关闭 IO。
+
+Terminal Mirror 缩减行数时先删除光标下方行，再按需将上方内容移入有界 history；
+恢复快照保留未完成的 ESC/CSI/OSC 解析位置。组合字符附加到前一基础字符，
+单格最多保留 32 个 UTF-16 code unit；与当前 xterm/Unicode11 的缩放、组合字符及
+跨快照控制序列行为由真实解析器差分测试覆盖。
 
 ## 编辑 Tasks Document
 
@@ -216,7 +231,9 @@ sequenceDiagram
 ```
 
 本地编辑器修改和浏览器修改使用同一文件权威。文件 watcher 只在有订阅者时
-存在，最后一个订阅者断开或 Workspace 删除时关闭。
+存在，最后一个订阅者断开或 Workspace 删除时关闭。新订阅读到 watcher 尚未广播的
+外部修改时，先补发给已有订阅再推进共享 revision；文件系统 `OVERFLOW` 触发有界
+重读，并沿用 revision 去重。
 
 ## 重启恢复
 
@@ -230,7 +247,9 @@ sequenceDiagram
 4. 把遗留 `delivering` Delivery 隔离为 `uncertain`，恢复 `pending` 和到期
    `retry_wait`；
 5. 用户再次启动 Agent 时优先恢复 provider-native session，否则注入有界恢复
-   摘要；
+   摘要。原生恢复参数仅注入直接执行的 provider 命令；shell/wrapper 保留原 argv，
+   使用摘要恢复。Codex 的 `-c` 配置和 `-s` sandbox 参数不会被当成恢复标志；
+   摘要携带当前 Run 的 session 绑定标记，使新 provider session 可以被再次捕获；
 6. Browser 重连时重建 Terminal mirror、Tasks watcher 和所有 viewer 投影。
 
 ## 删除 Workspace 或 Worker

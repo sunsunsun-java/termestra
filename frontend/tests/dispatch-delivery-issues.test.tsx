@@ -18,6 +18,7 @@ vi.mock('../web/src/api.js', () => ({
 }))
 
 import { WorkersPane } from '../web/src/worker/WorkersPane.js'
+import { ToastProvider } from '../web/src/ui/useToast.js'
 
 import { useDispatchDeliveryIssues } from '../web/src/worker/useDispatchDeliveryIssues.js'
 
@@ -48,7 +49,7 @@ describe('dispatch delivery issue visibility', () => {
     retryReportDelivery.mockResolvedValue(undefined)
     render(<WorkersPane workspaceId="workspace-1" workers={[{ id: 'worker-1', name: 'Alice', role: 'coder', status: 'idle', pendingTaskCount: 0 }]}
       terminalRuns={[]} startingWorkerId={null} onAddWorkerClick={() => {}} onDeleteWorker={() => {}}
-      onOpenShellTerminal={() => {}} onOpenWorker={() => {}} onStartWorker={() => {}} onRenameWorker={async () => ({ error: null })} />)
+      onOpenShellTerminal={() => {}} onOpenWorker={() => {}} onStartWorker={() => {}} onRenameWorker={async () => ({ error: null })} />, { wrapper: ToastProvider })
     await screen.findByText(/Report notification/)
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(retryReportDelivery).not.toHaveBeenCalled()

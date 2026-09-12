@@ -111,7 +111,14 @@ public final class TerminalWebSocketHandler implements WebSocketHandler, AutoClo
         Sinks.Many<WebSocketMessage> protocol = Sinks.many().unicast()
                 .onBackpressureBuffer(new ArrayBlockingQueue<>(MAX_PENDING_PROTOCOL_MESSAGES));
         Flux<WebSocketMessage> lifecycle = state.terminalExit()
-                .map(run -> text(session, new ExitMessage("exit", run.exitCode())))
+                .flatMap(run -> Mono.defer(() -> {
+                    TerminalOutputFlow flow = viewer.flow();
+                    if (flow == null) return Mono.error(new IllegalStateException("Terminal IO channel is closed"));
+                    // IO and control are independent transports. Only the final rendering ACK
+                    // proves that closing them on exit cannot discard the Run's trailing output.
+                    return Mono.fromCompletionStage(flow.finish())
+                            .thenReturn(text(session, new ExitMessage("exit", run.exitCode())));
+                }))
                 .take(1);
         Mono<WebSocketMessage> restore = waitForIo(viewer)
                 .then(Mono.fromCallable(() -> text(session,

@@ -9,12 +9,19 @@ import java.nio.file.Path;
 import java.nio.file.ClosedWatchServiceException;
 import java.nio.file.FileSystems;
 import java.nio.file.WatchService;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchEvent;
+import java.nio.file.Watchable;
+import java.nio.file.StandardWatchEventKinds;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -72,6 +79,38 @@ class NioTasksFileWatcherTest {
         assertThrows(IllegalStateException.class, () -> watcher.watch(workspace, () -> { }));
 
         assertThrows(ClosedWatchServiceException.class, () -> opened.get().poll());
+    }
+
+    @Test void refreshesTheDocumentWhenOverflowHasDiscardedTheIndividualFileEvents() throws Exception {
+        AtomicBoolean open = new AtomicBoolean(true);
+        AtomicInteger refreshes = new AtomicInteger();
+        WatchEvent<Object> overflow = new WatchEvent<>() {
+            @Override public Kind<Object> kind() { return StandardWatchEventKinds.OVERFLOW; }
+            @Override public int count() { return 1; }
+            @Override public Object context() { return null; }
+        };
+        WatchKey key = new WatchKey() {
+            @Override public boolean isValid() { return true; }
+            @Override public List<WatchEvent<?>> pollEvents() { return List.of(overflow); }
+            @Override public boolean reset() { open.set(false); return true; }
+            @Override public void cancel() { }
+            @Override public Watchable watchable() { return workspace.resolve(".termestra"); }
+        };
+        try (WatchService watch = new WatchService() {
+            @Override public WatchKey take() { return key; }
+            @Override public WatchKey poll() { return key; }
+            @Override public WatchKey poll(long timeout, TimeUnit unit) { return key; }
+            @Override public void close() { open.set(false); }
+        }) {
+            // Inject the OS overflow signal without depending on host queue sizes or timing.
+            var loop = NioTasksFileWatcher.class.getDeclaredMethod("run",
+                    WatchService.class, Path.class, AtomicBoolean.class, Runnable.class);
+            loop.setAccessible(true);
+            loop.invoke(null, watch, workspace.resolve(".termestra"), open,
+                    (Runnable) refreshes::incrementAndGet);
+        }
+
+        assertEquals(1, refreshes.get());
     }
 
     private static void awaitCalls(AtomicInteger calls, int minimum) throws InterruptedException {

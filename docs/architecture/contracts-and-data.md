@@ -8,7 +8,7 @@ controller/DTO、前端 wire type 和边界测试为准。
 `application.properties` 默认绑定 `127.0.0.1:3000`。请求依次经过：
 
 1. `LocalOnlyFilter`：remote address 必须是 loopback，Host 与 Origin 只能是
-   `localhost`、`127.0.0.1` 或 `::1`；
+   `localhost`、`127.0.0.1` 或 `::1`，URI 中 IPv6 literal 的方括号在白名单检查前规范化；
 2. `UiSessionFilter`：UI API 与所有 WebSocket 要求进程级 HttpOnly、SameSite
    Strict cookie；
 3. Team application authentication：`/api/team/*` 使用注入到托管 Run 的
@@ -36,6 +36,13 @@ controller/DTO、前端 wire type 和边界测试为准。
 UI 专用 projection 使用 `/api/ui/...` 命名。managed Agent 的 `/api/team/*` 不应
 复用 UI Session 认证。新增 endpoint 时保持所属上下文明确，避免 controller 直接
 访问 JDBC 或 PTY adapter。
+
+Role Template 与 TeamMember 的角色正文最多 65,536 字符。Role Template 集合保持
+最多 132 条、每条 description 最多 4,096 字符的摘要投影；
+`GET /api/settings/role-templates/{id}` 按需读取单条完整正文，不存在时返回 404。
+Marketplace 导入保留全文，创建 Worker 与保存模板使用相同正文容量。
+自动启动或派单 prompt 在角色正文与协议包装组合后仍有 393,216 字符硬上限，
+包含启动正文 XML 转义所需的空间。
 
 模型列表 endpoint 最多返回 256 个 CLI 动态枚举结果；不支持、失败或空结果统一返回
 空列表，不回退到 Configuration 的静态建议。相同 Workspace/preset 的冷请求共用一次

@@ -307,7 +307,7 @@ class InputLimitsHttpIntegrationTest {
         client.post().uri("/api/settings/role-templates").header(HttpHeaders.COOKIE, cookie)
                 .bodyValue(Map.of("name", "Large role", "role_type", "custom",
                         "description", "D".repeat(
-                                ConfigurationInputLimits.MAX_ROLE_DESCRIPTION_CHARACTERS + 1),
+                                ConfigurationInputLimits.MAX_ROLE_BODY_CHARACTERS + 1),
                         "default_command", "tool", "default_args", List.of(), "default_env", Map.of()))
                 .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.error").exists();
 

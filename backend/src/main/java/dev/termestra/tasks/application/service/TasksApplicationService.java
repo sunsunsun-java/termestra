@@ -79,6 +79,9 @@ public final class TasksApplicationService implements TasksUseCase {
             Path workspace = path(workspaceId);
             String snapshot = documents.read(workspace);
             TasksDocument initial=TasksDocument.from(snapshot);
+            // A new viewer may read an external edit before the watcher handles it.
+            // Deliver it to existing viewers before advancing their shared baseline.
+            publishIfChangedLocked(workspaceId, snapshot);
             CopyOnWriteArraySet<Subscriber> values =
                     listeners.computeIfAbsent(workspaceId, ignored -> new CopyOnWriteArraySet<>());
             if(values.size()>=MAX_SUBSCRIBERS_PER_WORKSPACE)throw new dev.termestra.tasks.application.port.in.TasksSubscriptionLimit(MAX_SUBSCRIBERS_PER_WORKSPACE);

@@ -123,6 +123,7 @@ public final class DispatchDeliveryApplicationService implements DispatchDeliver
     }
 
     private void deliver(DispatchDeliveryWork work) {
+        if (!ledger.isDeliveryClaimActive(work.attemptId(), Instant.now(clock))) return;
         var dispatch = work.dispatch().dispatch();
         Optional<TeamMember> member = members.findById(dispatch.workspaceId().toString(),
                 dispatch.toAgentId().toString());

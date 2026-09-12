@@ -13,7 +13,7 @@ public final class JdbcAgentDirectory implements AgentDirectory {
     static final int MAX_WORKSPACE_NAME_CHARACTERS=256;
     static final int MAX_WORKSPACE_PATH_CHARACTERS=4_096;
     static final int MAX_WORKER_NAME_CHARACTERS=128;
-    static final int MAX_WORKER_DESCRIPTION_CHARACTERS=4_096;
+    static final int MAX_WORKER_DESCRIPTION_CHARACTERS=65_536;
     static final int MAX_WORKER_ROLE_CHARACTERS=64;
     private static final Set<String> WORKER_ROLES=Set.of("coder","reviewer","tester","custom");
     private final SqliteDatabase database;

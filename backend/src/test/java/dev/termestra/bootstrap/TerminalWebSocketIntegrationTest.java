@@ -58,6 +58,7 @@ class TerminalWebSocketIntegrationTest {
         HttpClient client = HttpClient.newHttpClient();
         WebSocket io = connect(client, cookie, runId, "io", ioListener);
         WebSocket control = connect(client, cookie, runId, "control", controlListener);
+        ioListener.acknowledgeThrough(control);
         controlListener.awaitText("\"type\":\"restore\"");
         RecordingListener duplicateIoListener = new RecordingListener();
         RecordingListener duplicateControlListener = new RecordingListener();
@@ -68,7 +69,6 @@ class TerminalWebSocketIntegrationTest {
         io.sendBinary(ByteBuffer.wrap("hello websocket\n".getBytes()), true).join();
         awaitRunOutput(http, cookie, runId, "hello websocket");
         ioListener.awaitText("hello websocket");
-        control.sendText("{\"type\":\"output_ack\",\"bytes\":16}", true).join();
         control.sendText("{\"type\":\"output_ack\",\"bytes\":2147483647}", true).join();
         controlListener.awaitText("Invalid terminal control message");
         control.sendText("{\"type\":\"resize\",\"cols\":120,\"rows\":40}", true).join();
@@ -160,9 +160,28 @@ class TerminalWebSocketIntegrationTest {
         private final StringBuilder binary = new StringBuilder();
         private final Object monitor = new Object();
         private boolean closed;
+        private WebSocket acknowledgementChannel;
+        private int acknowledgedCharacters;
+        private CompletableFuture<WebSocket> acknowledgementTail;
+
+        void acknowledgeThrough(WebSocket control) {
+            synchronized (monitor) {
+                acknowledgementChannel = control;
+                acknowledgementTail = CompletableFuture.completedFuture(control);
+                acknowledgeReceived();
+            }
+        }
+
+        private void acknowledgeReceived() {
+            if (acknowledgementChannel == null || acknowledgedCharacters == text.length()) return;
+            int bytes = text.substring(acknowledgedCharacters).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            acknowledgedCharacters = text.length();
+            acknowledgementTail = acknowledgementTail.thenCompose(socket -> socket.sendText(
+                    "{\"type\":\"output_ack\",\"bytes\":" + bytes + "}", true));
+        }
         @Override public void onOpen(WebSocket webSocket) { webSocket.request(1); }
         @Override public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
-            synchronized (monitor) { text.append(data); monitor.notifyAll(); } webSocket.request(1); return null;
+            synchronized (monitor) { text.append(data); if (last) acknowledgeReceived(); monitor.notifyAll(); } webSocket.request(1); return null;
         }
         @Override public CompletionStage<?> onBinary(WebSocket webSocket, ByteBuffer data, boolean last) {
             byte[] bytes = new byte[data.remaining()]; data.get(bytes);

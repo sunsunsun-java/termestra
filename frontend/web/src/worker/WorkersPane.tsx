@@ -261,7 +261,6 @@ export const WorkersPane = ({
                 </button>
               )}
             />
-            {!readOnly ? <ScenarioTeamCards workspaceId={workspaceId} /> : null}
           </>
         ) : (
           <div data-testid="worker-grid">
@@ -293,6 +292,10 @@ export const WorkersPane = ({
             ))}
           </div>
         )}
+        {/* Keep an accepted scenario request alive while polling adds its members. */}
+        {!readOnly ? (
+          <ScenarioTeamCards workspaceId={workspaceId} showCards={workers.length === 0} />
+        ) : null}
       </div>
 
       <Confirm

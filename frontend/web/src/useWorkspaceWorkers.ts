@@ -51,6 +51,7 @@ export const useWorkspaceWorkers = (
   activeWorkspaceId: string | null
 ) => {
   const workspaceKey = workspaceIds.join('\0')
+  const [loadedWorkspaceIds, setLoadedWorkspaceIds] = useState<ReadonlySet<string>>(new Set())
   const [workersByWorkspaceId, setWorkersByWorkspaceId] = useState<Record<string, TeamListItem[]>>(
     {}
   )
@@ -58,6 +59,7 @@ export const useWorkspaceWorkers = (
   useEffect(() => {
     if (!workspaceKey) {
       setWorkersByWorkspaceId({})
+      setLoadedWorkspaceIds(new Set())
       return
     }
     let cancelled = false
@@ -105,6 +107,13 @@ export const useWorkspaceWorkers = (
               }
             }
           }
+          setLoadedWorkspaceIds((current) => {
+            const next = new Set(ids.filter((id) => current.has(id)))
+            for (const result of results) {
+              if (result.status === 'fulfilled') next.add(result.item)
+            }
+            return next.size === current.size && [...next].every((id) => current.has(id)) ? current : next
+          })
           setWorkersByWorkspaceId((current) => {
             const next: Record<string, TeamListItem[]> = {}
             for (const workspaceId of ids) next[workspaceId] = current[workspaceId] ?? []
@@ -137,5 +146,5 @@ export const useWorkspaceWorkers = (
     }
   }, [activeWorkspaceId, workspaceKey])
 
-  return [workersByWorkspaceId, setWorkersByWorkspaceId] as const
+  return [workersByWorkspaceId, setWorkersByWorkspaceId, loadedWorkspaceIds] as const
 }

@@ -579,6 +579,15 @@ export const listRoleTemplates = async (): Promise<RoleTemplate[]> => {
   return payload.map(fromRoleTemplatePayload)
 }
 
+export const getRoleTemplate = async (templateId: string, signal?: AbortSignal): Promise<RoleTemplate> => {
+  const response = await apiFetch(`/api/settings/role-templates/${encodeURIComponent(templateId)}`,
+    signal ? { signal } : undefined, INTERACTIVE_QUERY_TIMEOUT_MS)
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to load role template'))
+  }
+  return fromRoleTemplatePayload((await response.json()) as RoleTemplatePayload)
+}
+
 export const createRoleTemplate = async (input: RoleTemplateInput): Promise<RoleTemplate> => {
   const response = await apiFetch('/api/settings/role-templates', {
     method: 'POST',
@@ -692,12 +701,14 @@ export const listTerminalRuns = async (
     'terminal runs',
     COLLECTION_LIMITS.terminalRuns
   ).map(
-    ({ agent_id, agent_name, run_id, status, terminal_input_profile }) => ({
+    ({ agent_id, agent_name, run_id, status, terminal_input_profile, startup_phase, startup_message }) => ({
       agent_id,
       agent_name,
       run_id,
       status,
       terminal_input_profile: terminal_input_profile ?? 'default',
+      ...(startup_phase !== undefined ? { startup_phase } : {}),
+      ...(startup_message !== undefined ? { startup_message } : {}),
     })
   )
 }

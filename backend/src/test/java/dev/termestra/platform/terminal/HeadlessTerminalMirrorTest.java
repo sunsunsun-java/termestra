@@ -11,6 +11,64 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 class HeadlessTerminalMirrorTest {
+    @Test void snapshotsContinueSplitEscapeCsiAndOscSequences() {
+        for (String[] chunks : new String[][] {
+                {"hello\033", "[31mX"}, {"hello\033[31", "mX"},
+                {"hello\033]0;", "window title\007X"},
+                {"hello\033]0;window title\033", "\\X"},
+                {"hello\033[" + "9".repeat(300), "mX"}
+        }) {
+            HeadlessTerminalMirror original = new HeadlessTerminalMirror(20, 4, 0);
+            original.write(chunks[0]);
+            HeadlessTerminalMirror restored = new HeadlessTerminalMirror(20, 4, 0);
+            restored.write(original.snapshot());
+            original.write(chunks[1]);
+            restored.write(chunks[1]);
+            assertEquals(original.screenText(), restored.screenText());
+            assertEquals(original.view().cursorColumn(), restored.view().cursorColumn());
+        }
+    }
+
+    @Test void shrinkingKeepsRowsAboveTheCursorAndGrowingRecoversScrolledRows() {
+        HeadlessTerminalMirror mirror = new HeadlessTerminalMirror(20, 4, 10);
+        mirror.write("hello");
+        mirror.resize(20, 2);
+        assertEquals(java.util.List.of("hello", ""), mirror.view().lines());
+        assertEquals(0, mirror.view().cursorRow());
+        mirror.resize(20, 4);
+        mirror.write("\r\none\r\ntwo\r\nthree");
+        mirror.resize(20, 2);
+        assertEquals(java.util.List.of("two", "three"), mirror.view().lines());
+        assertEquals(1, mirror.view().cursorRow());
+        mirror.resize(20, 4);
+        assertEquals(java.util.List.of("hello", "one", "two", "three"), mirror.view().lines());
+        assertEquals(3, mirror.view().cursorRow());
+    }
+
+    @Test void combiningMarksStayWithTheirBaseCellAcrossCheckpointAndDeferredWrap() {
+        for (String text : java.util.List.of("e\u0301X", "你\u0301X", "a❤\ufe0f", "abc\u0301")) {
+            HeadlessTerminalMirror original = new HeadlessTerminalMirror(3, 3, 0);
+            original.write(text);
+            HeadlessTerminalMirror restored = new HeadlessTerminalMirror(3, 3, 0);
+            restored.write(original.snapshot());
+            original.write("!");
+            restored.write("!");
+            assertEquals(original.screenText(), restored.screenText());
+            assertEquals(original.view().cursorColumn(), restored.view().cursorColumn());
+        }
+        HeadlessTerminalMirror mirror = new HeadlessTerminalMirror(20, 4, 0);
+        mirror.write("e\u0301X");
+        assertEquals(2, mirror.view().cursorColumn());
+    }
+
+    @Test void hostileCombiningRunsHaveABoundedCellAndCheckpoint() {
+        HeadlessTerminalMirror mirror = new HeadlessTerminalMirror(20, 4, 0);
+        mirror.write("e" + "\u0301".repeat(100_000));
+        assertTrue(mirror.view().lines().getFirst().length() <= 32);
+        assertTrue(mirror.snapshot().length() < 1024);
+        assertEquals(1, mirror.view().cursorColumn());
+    }
+
     @Test void mirrorsCarriageReturnAndEraseToEndOfLine() {
         HeadlessTerminalMirror mirror = new HeadlessTerminalMirror(80, 24);
 

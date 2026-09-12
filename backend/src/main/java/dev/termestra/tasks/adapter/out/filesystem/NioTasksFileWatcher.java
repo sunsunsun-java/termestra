@@ -42,7 +42,10 @@ public final class NioTasksFileWatcher implements TasksFileWatcher {
         while(open.get()){
             try{
                 WatchKey key=watch.take();boolean tasksChanged=false;
-                for(WatchEvent<?> event:key.pollEvents())if(event.context() instanceof Path path&&path.getFileName().toString().equals("tasks.md"))tasksChanged=true;
+                for(WatchEvent<?> event:key.pollEvents()){
+                    if(event.kind()==StandardWatchEventKinds.OVERFLOW
+                            ||event.context() instanceof Path path&&path.getFileName().toString().equals("tasks.md"))tasksChanged=true;
+                }
                 if(tasksChanged)try{changed.run();}catch(TasksDocumentTooLarge|TasksDocumentAccessFailure recoverable){
                     // The next filesystem event retries the read. A transient invalid or unreadable
                     // document must not silently tear down the long-lived watch registration.

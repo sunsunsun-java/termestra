@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import test from 'node:test'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { gzipSync } from 'node:zlib'
 
 import { packageTarballMatches, verifyPublishedPackage } from './publish-npm-tarballs.mjs'
 
@@ -449,4 +456,83 @@ test('rejects a same-origin tarball URL that redirects to another origin', async
       new Promise((resolve, reject) => target.close(error => error ? reject(error) : resolve())),
     ])
   }
+})
+
+
+for (const stalledRequest of ['preflight', 'version headers', 'version body', 'dist-tags body']) {
+  test(`metadata deadline aborts stalled ${stalledRequest} without publishing`, async () => {
+    let requests = 0
+    let registry
+    let integrity
+    const server = createServer((_request, response) => {
+      requests++
+      const stall = stalledRequest === 'preflight'
+        || (stalledRequest.startsWith('version') && requests === 2)
+        || (stalledRequest.startsWith('dist-tags') && requests === 3)
+      if (stall) {
+        if (stalledRequest.endsWith('body')) {
+          response.writeHead(200, { 'content-type': 'application/json' })
+          response.write('{')
+        }
+        return
+      }
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ dist: { integrity, tarball: `${registry}/runtime.tgz` } }))
+    })
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+    registry = `http://127.0.0.1:${server.address().port}`
+    const workspace = mkdtempSync(join(tmpdir(), 'termestra-publish-deadline-'))
+    const archive = join(workspace, 'fixture.tgz')
+    const body = Buffer.from(JSON.stringify({ name: '@termestra/runtime-test', version: '1.0.0',
+      publishConfig: { access: 'public', registry }, repository: { url: 'https://example.test/repository' } }))
+    const header = Buffer.alloc(512)
+    header.write('package/package.json')
+    header.write(body.length.toString(8), 124)
+    const bytes = gzipSync(Buffer.concat([header, body, Buffer.alloc((512 - body.length % 512) % 512), Buffer.alloc(1024)]))
+    writeFileSync(archive, bytes)
+    integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`
+    try {
+      await assert.rejects(promisify(execFile)(process.execPath, [
+        fileURLToPath(new URL('./publish-npm-tarballs.mjs', import.meta.url)), 'latest', archive,
+      ], { timeout: 3000, killSignal: 'SIGKILL', env: { ...process.env,
+        TERMESTRA_NPM_REGISTRY: registry, TERMESTRA_NPM_VERIFICATION_TIMEOUT_MS: '150',
+        TERMESTRA_NPM_VERIFICATION_RETRY_DELAY_MS: '10' } }), error => {
+        assert.equal(error.killed, false, 'the configured deadline must terminate before the watchdog')
+        assert.match(error.stderr, /TimeoutError|was not consistently exposed/)
+        return true
+      })
+      assert.equal(requests, stalledRequest === 'preflight' ? 1 : stalledRequest.startsWith('version') ? 2 : 3)
+    } finally {
+      server.closeAllConnections()
+      await new Promise(resolve => server.close(resolve))
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+}
+
+test('version and dist-tag reads consume the same metadata deadline', async () => {
+  let now = 0
+  const remaining = []
+  await assert.rejects(verifyPublishedPackage({
+    name: '@termestra/runtime-test',
+    version: '1.0.0',
+    integrity: 'sha512-release',
+    distTag: 'latest',
+    readVersion: async timeoutMs => {
+      remaining.push(timeoutMs)
+      now += 80
+      return { dist: { integrity: 'sha512-release', tarball: 'https://registry.example/runtime.tgz' } }
+    },
+    readDistTags: async timeoutMs => {
+      remaining.push(timeoutMs)
+      now += 20
+      return { latest: '1.0.0' }
+    },
+    readTarball: async () => assert.fail('the exhausted metadata deadline must prevent tarball verification'),
+    timeoutMs: 100,
+    retryDelayMs: 10,
+    clock: () => now,
+    wait: async () => assert.fail('the exhausted deadline must not schedule another retry'),
+  }), /not consistently exposed.*100 ms/)
+  assert.deepEqual(remaining, [100, 20])
 })

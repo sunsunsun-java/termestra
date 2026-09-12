@@ -43,6 +43,36 @@ class AgentExecutionHttpIntegrationTest {
     @Autowired SqliteDatabase database;
     @Autowired RuntimeOperationCoordinator operations;
 
+    @Test void orchestratorCompletesStartupWithCodexDoubleAnglePrompt() {
+        WebTestClient client = WebTestClient.bindToServer().responseTimeout(Duration.ofSeconds(5))
+                .baseUrl("http://127.0.0.1:" + port).build();
+        String cookie = uiCookie(client);
+        Path path = temp("termestra-codex-ready-");
+        Map<?, ?> workspace = client.post().uri("/api/workspaces").header(HttpHeaders.COOKIE, cookie)
+                .bodyValue(Map.of("name", "Codex startup", "path", path.toString(), "autostart_orchestrator", false))
+                .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
+        String workspaceId = Objects.requireNonNull(workspace).get("id").toString();
+        String orchestratorId = workspaceId + ":orchestrator";
+        try {
+            TestJavaCommand fixture = TestJavaCommand.rawTerminalFixture(PtyTestFixture.class, "codex-startup");
+            client.post().uri("/api/workspaces/" + workspaceId + "/agents/" + orchestratorId + "/config")
+                    .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of(
+                            "command", fixture.command(), "args", fixture.arguments(), "interactive_command", "codex"))
+                    .exchange().expectStatus().isNoContent();
+            String runId = start(client, cookie, workspaceId, orchestratorId);
+            awaitPhase(runId, "ready");
+            awaitOutput(client, cookie, runId, "startup-submitted");
+            assertEquals("running", durableRunStatus(runId));
+            client.get().uri("/api/ui/workspaces/" + workspaceId + "/runs")
+                    .header(HttpHeaders.COOKIE, cookie).exchange().expectStatus().isOk()
+                    .expectBody().jsonPath("$[0].run_id").isEqualTo(runId)
+                    .jsonPath("$[0].status").isEqualTo("running")
+                    .jsonPath("$[0].startup_phase").isEqualTo("ready");
+        } finally {
+            execution.forgetWorkspace(workspaceId);
+        }
+    }
+
     @Test void workerCreationReturnsAcceptedStartupBeforeLoginAndBecomesReadyAfterConfirmation() throws Exception {
         WebTestClient client = WebTestClient.bindToServer().responseTimeout(Duration.ofSeconds(5))
                 .baseUrl("http://127.0.0.1:" + port).build();

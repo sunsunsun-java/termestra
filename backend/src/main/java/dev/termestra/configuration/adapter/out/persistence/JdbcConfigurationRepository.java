@@ -176,7 +176,19 @@ public final class JdbcConfigurationRepository implements ConfigurationRepositor
 
     @Override
     public List<RoleTemplate> roleTemplates() {
-        return database.read("list role templates", connection -> {
+        return readRoleTemplates(null);
+    }
+
+    @Override
+    public Optional<RoleTemplate> roleTemplate(String id) {
+        if (!validId(id)) return Optional.empty();
+        return readRoleTemplates(id).stream().findFirst();
+    }
+
+    private List<RoleTemplate> readRoleTemplates(String id) {
+        int descriptionLimit = id == null ? ConfigurationInputLimits.MAX_ROLE_DESCRIPTION_CHARACTERS
+                : ConfigurationInputLimits.MAX_ROLE_BODY_CHARACTERS;
+        return database.read("read role templates", connection -> {
             List<RoleTemplate> values = new ArrayList<>();
             String sql = """
                     SELECT substr(id,1,?),substr(name,1,?),substr(role_type,1,?),
@@ -185,28 +197,27 @@ public final class JdbcConfigurationRepository implements ConfigurationRepositor
                            substr(default_env,1,?),
                            is_builtin
                     FROM role_templates
-                    ORDER BY is_builtin DESC,created_at ASC
-                    LIMIT 132
-                    """;
+                    """ + (id == null ? "ORDER BY is_builtin DESC,created_at ASC LIMIT 132" : "WHERE id=? LIMIT 1");
             try (var statement = connection.prepareStatement(sql)) {
                 statement.setInt(1, MAX_ID_CHARACTERS + 1);
                 statement.setInt(2, ConfigurationInputLimits.MAX_ROLE_NAME_CHARACTERS + 1);
                 statement.setInt(3, ConfigurationInputLimits.MAX_ROLE_TYPE_CHARACTERS + 1);
-                statement.setInt(4, ConfigurationInputLimits.MAX_ROLE_DESCRIPTION_CHARACTERS + 1);
+                statement.setInt(4, descriptionLimit + 1);
                 statement.setInt(5, ConfigurationInputLimits.MAX_COMMAND_CHARACTERS + 1);
                 statement.setInt(6, MAX_LEGACY_JSON_CHARACTERS + 1);
                 statement.setInt(7, MAX_LEGACY_JSON_CHARACTERS + 1);
+                if (id != null) statement.setString(8, id);
                 try (var rows = statement.executeQuery()) {
                     while (rows.next()) {
-                        String id=rows.getString(1);
+                        String roleId=rows.getString(1);
                         String name=ConfigurationInputLimits.boundedRoleName(rows.getString(2));
                         String roleType=ConfigurationInputLimits.boundedRoleType(rows.getString(3));
-                        if(!validId(id)||name==null||name.isBlank()||roleType==null||roleType.isBlank())continue;
+                        if(!validId(roleId)||name==null||name.isBlank()||roleType==null||roleType.isBlank())continue;
                         values.add(new RoleTemplate(
-                                id,
+                                roleId,
                                 name,
                                 roleType,
-                                ConfigurationInputLimits.boundedRoleDescription(rows.getString(4)),
+                                boundedText(rows.getString(4), descriptionLimit),
                                 ConfigurationInputLimits.boundedCommand(rows.getString(5)),
                                 ConfigurationInputLimits.boundedArguments(
                                         readLegacy(rows.getString(6), STRINGS, List.of())),

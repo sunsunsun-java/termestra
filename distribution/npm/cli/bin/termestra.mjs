@@ -64,8 +64,8 @@ if (args[0] === 'team') {
       process.exit(1)
     }
     const value = args[index + 1]
-    const port = Number.parseInt(value ?? '', 10)
-    if (!value || Number.isNaN(port) || port < 0 || port > 65535) {
+    const port = Number(value)
+    if (!/^\d+$/.test(value ?? '') || port < 0 || port > 65535) {
       console.error(value ? `Invalid port: ${value}` : 'Usage: termestra [--port <port>]')
       process.exit(1)
     }

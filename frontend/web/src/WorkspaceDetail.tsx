@@ -45,6 +45,8 @@ type WorkspaceDetailProps = {
   orchestratorAutostartRunId: string | null
   terminalRuns: TerminalRunSummary[]
   terminalRunsStale: boolean
+  terminalRunsLoaded: boolean
+  workersLoaded: boolean
   workers: TeamListItem[]
   workspace: WorkspaceSummary | undefined
 }
@@ -64,6 +66,8 @@ export const WorkspaceDetail = ({
   orchestratorAutostartRunId,
   terminalRuns,
   terminalRunsStale,
+  terminalRunsLoaded,
+  workersLoaded,
   workers,
   workspace,
 }: WorkspaceDetailProps) => {
@@ -108,6 +112,8 @@ export const WorkspaceDetail = ({
     workspaceId: workspace?.id ?? '',
     workers,
     terminalRuns,
+    workersLoaded,
+    terminalRunsLoaded,
   })
   const shellPanelTabs = panelTabs.tabs.filter((tab) => tab.kind === 'shell')
   const shellRuns = workspace

@@ -22,6 +22,8 @@ type AppWorkspaceContentProps = {
   recordOrchestratorResult: (workspaceId: string, result: OrchestratorStartResult) => void
   terminalRuns: TerminalRunSummary[]
   terminalRunsStale: boolean
+  terminalRunsLoaded: boolean
+  workersLoaded: boolean
   workerActions: WorkerActions
   workers: TeamListItem[]
 }
@@ -43,6 +45,8 @@ export const AppWorkspaceContent = ({
   recordOrchestratorResult,
   terminalRuns,
   terminalRunsStale,
+  terminalRunsLoaded,
+  workersLoaded,
   workerActions,
   workers,
 }: AppWorkspaceContentProps) => {
@@ -77,6 +81,8 @@ export const AppWorkspaceContent = ({
         }
         terminalRuns={terminalRuns}
         terminalRunsStale={terminalRunsStale}
+        terminalRunsLoaded={terminalRunsLoaded}
+        workersLoaded={workersLoaded}
         workers={workers}
         workspace={activeWorkspace}
       />

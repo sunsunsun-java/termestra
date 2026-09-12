@@ -43,6 +43,10 @@ frontend/
 `last_pty_line` 只是固定长度的提示，正式 Worker 结果只能来自 Report。
 
 Run ID 表示已有可查看的 Run；`status` 与 `startup_phase` 才决定启动展示和操作。
+`api.ts` 的 `listTerminalRuns` 保留 summary 中的 `startup_phase` 和
+`startup_message`，由 `useTerminalRuns` 轮询送达页面；终端 WebSocket 的屏幕输出
+不会替代这两个字段。HTTP summary 经 API adapter 到 Orchestrator 展示的边界由
+`frontend/tests/terminal-runs-api.test.tsx` 覆盖。
 `starting/initializing` 显示正在启动，`waiting_for_user` 提示进入终端完成操作，只有
 `running/ready` 表示启动成功并允许派单。创建成员与启动进程分开展示：启动已接受时
 保留启动进度，不立即显示就绪成功。启动错误按当前 Run 管理，新尝试不沿用旧 Run 的
@@ -60,13 +64,16 @@ UI Run 轮询包含 active Run 和后端仍保留的每 Agent 最新启动失败
 `web/src/api.ts` 与 `lib/ui-session-fetch.ts` 集中处理：
 
 - 首次获取 UI Session cookie；session 失效时受控重取；
-- 热查询、交互查询和 Marketplace 查询的不同超时；
+- 热查询、交互查询和 Marketplace 查询的不同超时，覆盖响应头及完整有界响应体读取；
 - 后端 `snake_case` 到内部 `camelCase` 的显式映射；
 - 集合硬上限和异常响应解析；
 - Workspace 创建等易重复操作的 single-flight 约束。
 
 UI 组件不应重复发明 fetch、认证刷新或 wire 映射。新增 endpoint 时在 adapter
 层定义 payload 类型和大小预期，再向 hook 暴露 UI 语义。
+
+角色模板列表只携带正文摘要。选用模板时按 ID 读取完整详情；请求随选择变化、
+Workspace 切换和关闭弹窗取消，加载完成前不能把摘要作为 Worker 指令提交。
 
 Workspace 创建使用 `launch/AgentModelSelect`。Worker 打开创建弹窗或切换 CLI 时默认
 选择“CLI 默认模型”，并按当前 Workspace 和所选 preset 单独请求模型列表；枚举成功且
@@ -87,6 +94,12 @@ Workspace 创建使用 `launch/AgentModelSelect`。Worker 打开创建弹窗或�
 - Workspace 列表批量读取使用固定并发；
 - 缓存使用有界 LRU，写队列只保留一个执行中值和一个最新待写值。
 
+Worker 与 Run 列表分别记录成功加载状态，包括成功返回空列表。Terminal tab 只在
+对应列表加载后清理不存在的引用；Workspace 切换时先加载该 Workspace 的偏好，
+避免把上一个 Workspace 的状态持久化到新 Workspace。场景创建对话框在首个 Worker
+出现后仍保留至请求完成，使后续失败或部分成功结果可见。目录选择重复点击当前路径
+不会取消该路径的有效探测。
+
 增加新轮询前，先确认不能由现有投影或流提供，并写出频率、暂停条件、错误退避
 和集合上限。
 
@@ -98,7 +111,8 @@ Workspace 创建使用 `launch/AgentModelSelect`。Worker 打开创建弹窗或�
 - `/control`：restore、resize、output acknowledgement、stop、error、exit。
 
 客户端只在 control restore 完成后把 live output 交给 xterm，并按字节确认已消费
-输出。断开只结束 viewer，不等同于停止 Run。
+输出。服务端收到尾部输出的渲染确认后才发送 `exit`，避免独立 Control 通道先关闭
+尚有数据的 IO 通道。断开只结束 viewer，不等同于停止 Run。
 
 对话历史沿用 CLI 的 terminal-native scrollback：完成内容留在 xterm normal buffer，
 用户在同一对话区持续向上滚动即可查看当前 Run 的可用历史。浏览器 scrollback 固定为

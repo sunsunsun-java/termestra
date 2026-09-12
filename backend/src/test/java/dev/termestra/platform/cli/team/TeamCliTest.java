@@ -42,6 +42,32 @@ class TeamCliTest {
         assertDoesNotThrow(() -> UUID.fromString(received.get().path("idempotency_key").asText()));
     }
 
+    @Test void cancellationWarnsWhenTheDurableCancelDidNotReachTheWorker() throws Exception {
+        AtomicReference<JsonNode> received = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/team/cancel", exchange -> {
+            received.set(new ObjectMapper().readTree(exchange.getRequestBody()));
+            byte[] body = "{\"ok\":true,\"forwarded\":false,\"forward_error\":\"Worker is busy\"}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(202, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        ByteArrayOutputStream errors = new ByteArrayOutputStream();
+        TeamCli cli = new TeamCli(environment(server.getAddress().getPort()), InputStream.nullInputStream(),
+                new PrintWriter(new ByteArrayOutputStream(), true), new PrintWriter(errors, true), new ObjectMapper());
+
+        cli.run(List.of("cancel", "--dispatch", "dispatch-1", "Stop obsolete work"));
+
+        assertEquals("dispatch-1", received.get().path("dispatch_id").asText());
+        assertEquals("Stop obsolete work", received.get().path("reason").asText());
+        String warning = errors.toString(StandardCharsets.UTF_8);
+        assertTrue(warning.contains("cancelled the dispatch"));
+        assertTrue(warning.contains("Worker may still be executing"));
+        assertTrue(warning.contains("Worker is busy"));
+    }
+
     @Test void listUsesTermestraAuthenticationHeadersAcrossRealHttp() throws Exception {
         AtomicReference<String> agentId=new AtomicReference<>();
         AtomicReference<String> token=new AtomicReference<>();

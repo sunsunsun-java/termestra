@@ -141,6 +141,21 @@ public final class JdbcTeamLedger implements TeamLedger, OpenDispatchCountSource
         });
     }
 
+    @Override public boolean isDeliveryClaimActive(String attemptId, Instant now) {
+        return database.read("validate dispatch delivery claim", connection -> {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    SELECT 1 FROM dispatch_deliveries delivery
+                    JOIN dispatches dispatch ON dispatch.id=delivery.dispatch_id
+                    WHERE delivery.attempt_id=? AND delivery.state='delivering'
+                      AND delivery.lease_expires_at>=? AND dispatch.status='queued'
+                    """)) {
+                statement.setString(1, attemptId);
+                statement.setLong(2, now.toEpochMilli());
+                try (ResultSet rows = statement.executeQuery()) { return rows.next(); }
+            }
+        });
+    }
+
     @Override public void markDeliverySubmitted(String attemptId, Instant submittedAt) {
         database.write("complete dispatch delivery", connection -> {
             String dispatchId = transitionAttempt(connection, attemptId, "submitted", null, null,

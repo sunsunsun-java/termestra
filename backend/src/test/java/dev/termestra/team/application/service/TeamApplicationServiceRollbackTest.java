@@ -389,6 +389,7 @@ class TeamApplicationServiceRollbackTest {
         private final TeamLedger delegate;
         private DelegatingTeamLedger(TeamLedger delegate){this.delegate=delegate;}
         @Override public DispatchEnqueueResult enqueue(Dispatch dispatch,TeamMessage message,String runtimePort,String idempotencyKey){return delegate.enqueue(dispatch,message,runtimePort,idempotencyKey);}
+        @Override public boolean isDeliveryClaimActive(String attemptId,Instant now){return delegate.isDeliveryClaimActive(attemptId,now);}
         @Override public Optional<DispatchDeliveryWork> claimNextDelivery(String leaseOwner,Instant now,Instant leaseExpiresAt){return delegate.claimNextDelivery(leaseOwner,now,leaseExpiresAt);}
         @Override public void deferDeliveryClaim(String attemptId,String reason,Instant nextAttemptAt,Instant updatedAt){delegate.deferDeliveryClaim(attemptId,reason,nextAttemptAt,updatedAt);}
         @Override public void markDeliverySubmitted(String attemptId,Instant submittedAt){delegate.markDeliverySubmitted(attemptId,submittedAt);}

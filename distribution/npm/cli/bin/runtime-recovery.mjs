@@ -121,6 +121,12 @@ export function downloadWithResume(url, archive, {
       throw new Error(`runtime tarball exceeds ${MAX_RUNTIME_TARBALL_BYTES} bytes`)
     }
     if (result.status === 0) return
+    if (result.status === 33 && sizeBefore > 0) {
+      // A CDN may ignore Range. Discard the partial file before a fresh request;
+      // the shared deadline/request budget and final integrity check still apply.
+      rmSync(archive, { force: true })
+      continue
+    }
     lastFailure = result.error?.message || result.stderr?.trim() || `curl exited with ${result.status}`
     const retryWindow = Math.floor(deadline - now())
     if (archiveSize(archive) <= sizeBefore && requests < MAX_DOWNLOAD_REQUESTS && retryWindow > 0) {

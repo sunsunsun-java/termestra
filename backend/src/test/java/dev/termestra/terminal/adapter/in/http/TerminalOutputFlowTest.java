@@ -18,6 +18,54 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.*;
 
 class TerminalOutputFlowTest {
+    @Test void finishWaitsForEveryPendingAndRenderedByte() throws Exception {
+        List<String> emitted = new CopyOnWriteArrayList<>();
+        try (TerminalOutputFlow flow = new TerminalOutputFlow(emitted::add, ignored -> { })) {
+            String text = "x".repeat(110 * 1024) + "FINAL";
+            flow.enqueue(text);
+            var finished = flow.finish().toCompletableFuture();
+            assertEquals(100 * 1024, flow.unacknowledgedBytes());
+            assertFalse(finished.isDone());
+            assertTrue(flow.acknowledge(100 * 1024));
+            awaitText(emitted, text);
+            assertFalse(finished.isDone(), "the final frame still needs its rendering ACK");
+            assertTrue(flow.acknowledge(10 * 1024 + 5));
+            finished.get(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test void finishHasABoundedDeadlineEvenForOneUnacknowledgedByte() {
+        try (TerminalOutputFlow flow = new TerminalOutputFlow(ignored -> { }, ignored -> { },
+                () -> { }, () -> { }, 50)) {
+            flow.enqueue("x");
+            var finished = flow.finish().toCompletableFuture();
+            awaitCondition(finished::isDone, "final byte did not time out");
+            assertTrue(finished.isCompletedExceptionally());
+            assertTrue(flow.closed());
+        }
+    }
+
+    @Test void disconnectReleasesAFinalDrainWaiter() {
+        TerminalOutputFlow flow = new TerminalOutputFlow(ignored -> { }, ignored -> { });
+        flow.enqueue("x");
+        var finished = flow.finish().toCompletableFuture();
+        flow.close();
+        assertTrue(finished.isCompletedExceptionally());
+    }
+
+    @Test void finalSynchronousAckCompletesOutsideTheEmitterAndMonitor() {
+        AtomicReference<TerminalOutputFlow> current = new AtomicReference<>();
+        TerminalOutputFlow flow = new TerminalOutputFlow(text -> {
+            current.get().acknowledge(text.length());
+            var finished = current.get().finish().toCompletableFuture();
+            assertFalse(finished.isDone(), "emitter must return before exit is emitted");
+        }, ignored -> { });
+        current.set(flow);
+        flow.enqueue("x");
+        assertTrue(flow.finish().toCompletableFuture().isDone());
+        flow.close();
+    }
+
     @Test void normalResizeBurstQueuedDuringEmissionIsFlushedInsteadOfRejectedAsSlow()
             throws Exception {
         List<String> emitted = new CopyOnWriteArrayList<>();

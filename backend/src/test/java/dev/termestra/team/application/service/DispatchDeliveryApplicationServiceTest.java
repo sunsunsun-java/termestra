@@ -27,6 +27,74 @@ import static org.junit.jupiter.api.Assertions.*;
 class DispatchDeliveryApplicationServiceTest {
     @TempDir Path temporaryDirectory;
 
+    @Test void cancellationAfterClaimPreventsTerminalInputOnceTheWorkerLockIsAcquired() throws Exception {
+        assertClosedClaimIsNotDelivered(false);
+    }
+
+    @Test void reportAfterClaimPreventsTerminalInputOnceTheWorkerLockIsAcquired() throws Exception {
+        assertClosedClaimIsNotDelivered(true);
+    }
+
+    private void assertClosedClaimIsNotDelivered(boolean report) throws Exception {
+        RuntimeOperationCoordinator operations = new RuntimeOperationCoordinator();
+        Fixture fixture = fixture("closed-claim.db", new DeliveryResult(true, null), operations);
+        String dispatchId = fixture.enqueue("closed-claim");
+        CountDownLatch claimed = new CountDownLatch(1);
+        TeamLedger observedLedger = (TeamLedger) java.lang.reflect.Proxy.newProxyInstance(
+                TeamLedger.class.getClassLoader(), new Class<?>[]{TeamLedger.class}, (proxy, method, args) -> {
+                    try {
+                        Object result = method.invoke(fixture.ledger, args);
+                        if (method.getName().equals("claimNextDelivery")
+                                && ((java.util.Optional<?>) result).isPresent()) claimed.countDown();
+                        return result;
+                    } catch (java.lang.reflect.InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+        AtomicInteger terminalInputs = new AtomicInteger();
+        AgentTeamNotifier notifier = (AgentTeamNotifier) java.lang.reflect.Proxy.newProxyInstance(
+                AgentTeamNotifier.class.getClassLoader(), new Class<?>[]{AgentTeamNotifier.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("deliver")) terminalInputs.incrementAndGet();
+                    return new DeliveryResult(true, null);
+                });
+        TeamApplicationService team = new TeamApplicationService(fixture.ledger,
+                new JdbcTeamMemberRepository(fixture.database), (actor, token) -> true, notifier,
+                workspace -> java.util.Set.of(), new PendingTaskProjection(fixture.ledger), fixture.clock,
+                operations, () -> { });
+        DispatchDeliveryApplicationService delivery = new DispatchDeliveryApplicationService(observedLedger,
+                new JdbcTeamMemberRepository(fixture.database), notifier, operations, fixture.clock);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread delivering = new Thread(() -> {
+            try { delivery.processNext(); } catch (Throwable error) { failure.set(error); }
+        });
+        try {
+            operations.withAgent(fixture.workspaceId, fixture.worker.id().toString(), () -> {
+                delivering.start();
+                try { assertTrue(claimed.await(1, TimeUnit.SECONDS)); }
+                catch (InterruptedException interrupted) { throw new AssertionError(interrupted); }
+                if (report) {
+                    team.report(new dev.termestra.team.application.port.in.ReportTaskCommand(
+                            fixture.workspaceId, fixture.worker.id().toString(), "test-token", dispatchId,
+                            "Already completed", null, List.of()));
+                } else {
+                    assertTrue(team.cancel(new dev.termestra.team.application.port.in.CancelTaskCommand(
+                            fixture.workspaceId, fixture.workspaceId + ":orchestrator", "test-token",
+                            dispatchId, "No longer needed")).forwarded());
+                }
+            });
+            delivering.join(3_000);
+            assertFalse(delivering.isAlive());
+            assertNull(failure.get());
+            assertEquals(0, terminalInputs.get(), "a closed claim must never reach the terminal");
+            assertEquals(report ? "reported" : "cancelled", fixture.value(dispatchId, "dispatch.status"));
+            assertEquals("closed", fixture.value(dispatchId, "delivery.state"));
+        } finally {
+            delivering.interrupt();
+            delivering.join(3_000);
+        }
+    }
+
     @Test void submitsACommittedDeliveryAndPersistsTheAcknowledgementAtomically() {
         Fixture fixture = fixture("success.db", new DeliveryResult(true, null));
         String dispatchId = fixture.enqueue("key-success");

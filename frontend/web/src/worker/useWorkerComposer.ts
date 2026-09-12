@@ -7,6 +7,7 @@ import {
   type CommandPreset,
   createRoleTemplate,
   deleteRoleTemplate,
+  getRoleTemplate,
   getWorkerLaunchOptions,
   getWorkerModels,
   listRoleTemplates,
@@ -138,7 +139,7 @@ const getDefaultDescription = (
   language: UiLanguage
 ) =>
   language === 'zh'
-    ? (roleTemplates.find((template) => template.roleType === role)?.description ??
+    ? (roleTemplates.find((template) => template.isBuiltin && template.roleType === role)?.description ??
       fallbackRoleDescriptions.zh[role])
     : fallbackRoleDescriptions.en[role]
 
@@ -153,8 +154,11 @@ export const useWorkerComposer = ({
   const [workerRole, setWorkerRole] = useState<WorkerRole>('coder')
   const [roleTemplates, setRoleTemplates] = useState<RoleTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
+  const [selectedTemplateDefault, setSelectedTemplateDefault] = useState<{ id: string; description: string } | null>(null)
   const [templateBusy, setTemplateBusy] = useState(false)
   const templateBusyRef = useRef(false)
+  const templateReadRef = useRef<AbortController | null>(null)
+  const [templateLoading, setTemplateLoading] = useState(false)
   const [templateError, setTemplateError] = useState<string | null>(null)
   const [roleDescription, setRoleDescriptionState] = useState(
     fallbackRoleDescriptions[language].coder
@@ -175,7 +179,9 @@ export const useWorkerComposer = ({
   )
   const workerNameGeneratedRef = useRef(false)
   const roleDescriptionEditedRef = useRef(false)
-  const roleDescriptionDefault = getDefaultDescription(workerRole, roleTemplates, language)
+  const roleDescriptionDefault = selectedTemplateId !== null
+    ? (selectedTemplateDefault?.id === selectedTemplateId ? selectedTemplateDefault.description : '')
+    : getDefaultDescription(workerRole, roleTemplates, language)
   const customTemplates = useMemo(
     () => roleTemplates.filter((template) => !template.isBuiltin),
     [roleTemplates]
@@ -203,6 +209,23 @@ export const useWorkerComposer = ({
       )
     })
   }, [])
+
+  const cancelTemplateRead = () => {
+    templateReadRef.current?.abort()
+    templateReadRef.current = null
+    setTemplateLoading(false)
+  }
+
+  useEffect(() => {
+    setTemplateLoading(false)
+    if (open && selectedTemplateId !== null && selectedTemplateDefault?.id !== selectedTemplateId) {
+      selectTemplate(selectedTemplateId)
+    }
+    return () => {
+      templateReadRef.current?.abort()
+      templateReadRef.current = null
+    }
+  }, [open, scopeKey])
 
   useEffect(() => {
     setCreating(createInFlightByScopeRef.current.has(scopeKey))
@@ -299,13 +322,17 @@ export const useWorkerComposer = ({
   }, [language, workerRole, usedNames])
 
   const selectWorkerRole = (value: WorkerRole) => {
+    cancelTemplateRead()
     setWorkerRole(value)
+    setSelectedTemplateDefault(null)
     setSelectedTemplateId(null)
     roleDescriptionEditedRef.current = false
     setRoleDescriptionState(getDefaultDescription(value, roleTemplates, language))
   }
 
   const selectTemplate = (templateId: string | null) => {
+    cancelTemplateRead()
+    setSelectedTemplateDefault(null)
     if (templateId === null) {
       // Clear selection but stay on the Custom role with the blank default.
       setWorkerRole('custom')
@@ -319,13 +346,35 @@ export const useWorkerComposer = ({
     setWorkerRole('custom')
     setSelectedTemplateId(templateId)
     roleDescriptionEditedRef.current = false
-    setRoleDescriptionState(template.description)
+    // A list row contains only a summary; never use it as the member's instructions.
+    setRoleDescriptionState('')
+    setCreateWorkerError(null)
+    const controller = new AbortController()
+    templateReadRef.current = controller
+    setTemplateLoading(true)
+    void getRoleTemplate(templateId, controller.signal)
+      .then((detail) => {
+        if (templateReadRef.current !== controller || controller.signal.aborted) return
+        setSelectedTemplateDefault({ id: templateId, description: detail.description })
+        if (!roleDescriptionEditedRef.current) setRoleDescriptionState(detail.description)
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setCreateWorkerError(error instanceof Error ? error.message : String(error))
+        }
+      })
+      .finally(() => {
+        if (templateReadRef.current === controller) {
+          templateReadRef.current = null
+          setTemplateLoading(false)
+        }
+      })
   }
 
   const saveAsTemplate = async (name: string) => {
     const trimmedName = name.trim()
     const trimmedDescription = roleDescription.trim()
-    if (!trimmedName || !trimmedDescription || templateBusyRef.current) return
+    if (!trimmedName || !trimmedDescription || templateBusyRef.current || templateReadRef.current) return
     templateBusyRef.current = true
     setTemplateBusy(true)
     setTemplateError(null)
@@ -335,8 +384,9 @@ export const useWorkerComposer = ({
         roleType: 'custom',
         description: trimmedDescription,
       })
-      setRoleTemplates((current) => [...current, created])
+      setRoleTemplates((current) => [...current, { ...created, description: created.description.slice(0, 4096) }])
       setSelectedTemplateId(created.id)
+      setSelectedTemplateDefault({ id: created.id, description: created.description })
       setWorkerRole('custom')
       roleDescriptionEditedRef.current = false
       setRoleDescriptionState(created.description)
@@ -359,6 +409,8 @@ export const useWorkerComposer = ({
       await deleteRoleTemplate(templateId)
       setRoleTemplates((current) => current.filter((entry) => entry.id !== templateId))
       if (selectedTemplateId === templateId) {
+        cancelTemplateRead()
+        setSelectedTemplateDefault(null)
         setSelectedTemplateId(null)
         roleDescriptionEditedRef.current = false
         setRoleDescriptionState(fallbackRoleDescriptions[language].custom)
@@ -373,6 +425,11 @@ export const useWorkerComposer = ({
   }
 
   const resetRoleDescription = () => {
+    if (selectedTemplateId !== null && selectedTemplateDefault?.id !== selectedTemplateId) {
+      selectTemplate(selectedTemplateId)
+      return
+    }
+    cancelTemplateRead()
     roleDescriptionEditedRef.current = false
     setRoleDescriptionState(roleDescriptionDefault)
   }
@@ -383,6 +440,8 @@ export const useWorkerComposer = ({
   // We sequence the raw setters and then forcibly mark the description as
   // user-edited so neither overwrites the imported value.
   const applyMarketplaceImport = ({ name, description }: { name: string; description: string }) => {
+    cancelTemplateRead()
+    setSelectedTemplateDefault(null)
     workerNameGeneratedRef.current = false
     setWorkerName(name)
     setSelectedTemplateId(null)
@@ -403,7 +462,8 @@ export const useWorkerComposer = ({
 
   const submit = (event: FormEvent<HTMLFormElement>, onSuccess: (result: Awaited<ReturnType<WorkerActions['createWorker']>>) => void) => {
     event.preventDefault()
-    if (!scopeKey || createInFlightByScopeRef.current.has(scopeKey)) return
+    if (!scopeKey || createInFlightByScopeRef.current.has(scopeKey) || templateReadRef.current
+        || (selectedTemplateId !== null && selectedTemplateDefault?.id !== selectedTemplateId)) return
     const requestScope = scopeKey
     const execute = createWorkerRef.current
     const selectedPreset = commandPresets.find((preset) => preset.id === commandPresetId)
@@ -487,7 +547,7 @@ export const useWorkerComposer = ({
     roleDescriptionDefault,
     selectedTemplateId,
     startupCommand,
-    templateBusy,
+    templateBusy: templateBusy || templateLoading,
     templateError,
     workerName,
     workerRole,

@@ -18,6 +18,32 @@ import static dev.termestra.execution.application.service.InteractiveOutputTail.
 import static org.junit.jupiter.api.Assertions.*;
 
 class InteractiveStartupRecognitionTest {
+    @ParameterizedTest @ValueSource(strings = {"›", "»"})
+    void recognizesCodexComposerFromReportedStartupScreen(String marker) {
+        var output = output("codex");
+        output.append(marker + " \u001b[2mAsk Codex to do anything\u001b[0m\r\u001b[3G");
+        assertEquals(READY, output.snapshot().readiness().state());
+        output.append("\r\u001b[2K" + marker + " ");
+        assertEquals(READY, output.snapshot().readiness().state());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"›", "»"})
+    void codexComposerStillRequiresAnEmptyInputAtTheCursor(String marker) {
+        var output = output("codex");
+        output.append(marker + " \u001b[2mAsk Codex to do anything\u001b[0m\r\u001b[3G");
+        output.invalidateForUserInput();
+        output.append("\r\u001b[2K" + marker + " Ask Codex to do anything\r\u001b[3G");
+        assertEquals(INITIALIZING, output.snapshot().readiness().state(), "ordinary text is a draft");
+        output.append("\r\u001b[2K" + marker + " \u001b[2mAsk Codex to do anything\u001b[0m\r\u001b[3G");
+        assertEquals(READY, output.snapshot().readiness().state(), "placeholder repaint clears the draft");
+        output.append("\u001b[1G");
+        assertEquals(INITIALIZING, output.snapshot().readiness().state(), "cursor on prompt glyph");
+        output.append("\u001b[40G");
+        assertEquals(INITIALIZING, output.snapshot().readiness().state(), "cursor outside input start");
+        output.append("\u001b[3G\r\n  esc to interrupt\u001b[1A\u001b[3G");
+        assertEquals(INITIALIZING, output.snapshot().readiness().state(), "busy footer");
+    }
+
     @ParameterizedTest @ValueSource(strings = {"hermes", "claude", "codex", "agy", "cursor-agent", "opencode"})
     void quotedBusyHelpAboveTheComposerDoesNotBlockInput(String command) {
         var output = output(command);
@@ -127,8 +153,8 @@ class InteractiveStartupRecognitionTest {
 
     @ParameterizedTest @ValueSource(ints = {1, 79, 4096})
     void replaysRealCliStartupScreensAtDifferentOutputBoundaries(int chunkSize) throws Exception {
-        for (String cli : List.of("claude", "codex", "agy", "cursor", "opencode", "pi", "hermes")) {
-            String command = cli.equals("cursor") ? "cursor-agent" : cli;
+        for (String cli : List.of("claude", "codex", "codex-double-chevron", "agy", "cursor", "opencode", "pi", "hermes")) {
+            String command = cli.equals("cursor") ? "cursor-agent" : cli.startsWith("codex") ? "codex" : cli;
             InteractiveOutputTail output = output(command);
             String raw = fixture(cli);
             for (int offset = 0; offset < raw.length(); offset += chunkSize) {
@@ -287,9 +313,10 @@ class InteractiveStartupRecognitionTest {
         }
     }
 
-    @Test void aLoadingCodexComposerCannotReleaseInputEvenAfterTheStabilityWindow() throws Exception {
+    @ParameterizedTest @ValueSource(strings = {"›", "»"})
+    void aLoadingCodexComposerCannotReleaseInputEvenAfterTheStabilityWindow(String marker) throws Exception {
         var output = output("codex");
-        String realStartup = fixture("codex");
+        String realStartup = fixture("codex").replace("›", marker);
         int placeholder = realStartup.indexOf("Ask Codex to do anything");
         int initialFrameEnd = realStartup.indexOf("\u001b[?2026l", placeholder) + "\u001b[?2026l".length();
         output.append(realStartup.substring(0, initialFrameEnd));

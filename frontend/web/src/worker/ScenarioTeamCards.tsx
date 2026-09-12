@@ -31,12 +31,19 @@ const PRESENTATION: Record<ScenarioId, ScenarioPresentation> = {
   },
 }
 
-export const ScenarioTeamCards = ({ workspaceId }: { workspaceId: string }) => {
+export const ScenarioTeamCards = ({
+  workspaceId,
+  showCards,
+}: {
+  workspaceId: string
+  showCards: boolean
+}) => {
   const { language, t } = useI18n()
   const toast = useToast()
   const [selected, setSelected] = useState<ScenarioPreset | null>(null)
   const [goal, setGoal] = useState('')
   const [applying, setApplying] = useState(false)
+  const [applyError, setApplyError] = useState<string | null>(null)
   const applyingRef = useRef(false)
   const mountedRef = useRef(true)
 
@@ -48,6 +55,7 @@ export const ScenarioTeamCards = ({ workspaceId }: { workspaceId: string }) => {
   }, [])
 
   const openScenario = (scenario: ScenarioPreset) => {
+    setApplyError(null)
     setGoal(scenario.goalTemplate[language])
     setSelected(scenario)
   }
@@ -61,6 +69,7 @@ export const ScenarioTeamCards = ({ workspaceId }: { workspaceId: string }) => {
 
     applyingRef.current = true
     setApplying(true)
+    setApplyError(null)
     try {
       await applyTeamScenario(workspaceId, selected.id, goal, language)
       if (!mountedRef.current) return
@@ -68,10 +77,7 @@ export const ScenarioTeamCards = ({ workspaceId }: { workspaceId: string }) => {
       setSelected(null)
     } catch (error: unknown) {
       if (!mountedRef.current) return
-      toast.show({
-        kind: 'error',
-        message: error instanceof Error ? error.message : String(error),
-      })
+      setApplyError(error instanceof Error ? error.message : String(error))
     } finally {
       applyingRef.current = false
       if (mountedRef.current) setApplying(false)
@@ -79,35 +85,39 @@ export const ScenarioTeamCards = ({ workspaceId }: { workspaceId: string }) => {
   }
 
   return (
-    <div
-      className="mx-auto mt-6 w-full max-w-[420px]"
-      data-testid="scenario-team-cards"
-    >
-      <div className="mb-2 flex items-center justify-center gap-1.5 text-xs font-medium uppercase tracking-wide text-ter">
-        <Sparkles size={12} aria-hidden />
-        {t('scenario.sectionTitle')}
-      </div>
-      <div className="flex flex-col gap-2">
-        {SCENARIO_PRESETS.map((scenario) => {
-          const presentation = PRESENTATION[scenario.id]
-          return (
-            <button
-              key={scenario.id}
-              type="button"
-              onClick={() => openScenario(scenario)}
-              className="rounded border bg-1 p-3 text-left transition-colors hover:bg-3"
-              style={{ borderColor: 'var(--border)' }}
-              data-testid={`scenario-card-${scenario.id}`}
-            >
-              <div className="flex items-center gap-2 text-pri">
-                {presentation.icon}
-                <span className="text-sm font-medium">{t(presentation.titleKey)}</span>
-              </div>
-              <div className="mt-1 text-xs text-ter">{t(presentation.descriptionKey)}</div>
-            </button>
-          )
-        })}
-      </div>
+    <>
+      {showCards ? (
+        <div
+          className="mx-auto mt-6 w-full max-w-[420px]"
+          data-testid="scenario-team-cards"
+        >
+          <div className="mb-2 flex items-center justify-center gap-1.5 text-xs font-medium uppercase tracking-wide text-ter">
+            <Sparkles size={12} aria-hidden />
+            {t('scenario.sectionTitle')}
+          </div>
+          <div className="flex flex-col gap-2">
+            {SCENARIO_PRESETS.map((scenario) => {
+              const presentation = PRESENTATION[scenario.id]
+              return (
+                <button
+                  key={scenario.id}
+                  type="button"
+                  onClick={() => openScenario(scenario)}
+                  className="rounded border bg-1 p-3 text-left transition-colors hover:bg-3"
+                  style={{ borderColor: 'var(--border)' }}
+                  data-testid={`scenario-card-${scenario.id}`}
+                >
+                  <div className="flex items-center gap-2 text-pri">
+                    {presentation.icon}
+                    <span className="text-sm font-medium">{t(presentation.titleKey)}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-ter">{t(presentation.descriptionKey)}</div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <Dialog.Root open={selected !== null} onOpenChange={(open) => !open && closeDialog()}>
         <Dialog.Portal>
@@ -147,6 +157,9 @@ export const ScenarioTeamCards = ({ workspaceId }: { workspaceId: string }) => {
                   data-testid="scenario-goal-input"
                 />
               </label>
+              {applyError ? (
+                <p role="alert" className="mt-3 text-sm text-danger">{applyError}</p>
+              ) : null}
               <div className="mt-4 flex justify-end gap-2">
                 <button
                   type="button"
@@ -171,6 +184,6 @@ export const ScenarioTeamCards = ({ workspaceId }: { workspaceId: string }) => {
           </div>
         </Dialog.Portal>
       </Dialog.Root>
-    </div>
+    </>
   )
 }

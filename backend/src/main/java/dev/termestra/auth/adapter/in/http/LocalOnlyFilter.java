@@ -40,6 +40,9 @@ public final class LocalOnlyFilter implements WebFilter {
         catch (URISyntaxException invalidOrigin) { return false; }
     }
     private static boolean isLocalHost(String host) {
-        return host != null && LOCAL_HOSTS.contains(host.toLowerCase(Locale.ROOT));
+        if (host == null) return false;
+        // URI.getHost() retains brackets around an IPv6 literal.
+        if (host.startsWith("[") && host.endsWith("]")) host = host.substring(1, host.length() - 1);
+        return LOCAL_HOSTS.contains(host.toLowerCase(Locale.ROOT));
     }
 }

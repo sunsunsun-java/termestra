@@ -49,6 +49,48 @@ class TasksApplicationServiceTest {
     }
 
     @Test
+    void aNewSubscriberCannotHideAnExternalEditFromExistingSubscribers() {
+        AtomicReference<String> document = new AtomicReference<>("initial");
+        AtomicReference<Runnable> changed = new AtomicReference<>();
+        TasksApplicationService service = service(document,
+                (path, callback) -> { changed.set(callback); return () -> { }; });
+        List<TasksDocumentEvent> first = new ArrayList<>();
+        List<TasksDocumentEvent> second = new ArrayList<>();
+
+        service.observe("workspace", first::add);
+        document.set("external edit");
+        service.observe("workspace", second::add);
+        changed.get().run();
+
+        assertEquals(List.of(new TasksDocumentEvent(true, "initial"),
+                new TasksDocumentEvent(false, "external edit")), first);
+        assertEquals(List.of(new TasksDocumentEvent(true, "external edit")), second);
+    }
+
+    @Test
+    void retainsTheNewSubscriberWhenPublishingItsSnapshotClosesThePreviousSubscriber() {
+        AtomicReference<String> document = new AtomicReference<>("initial");
+        AtomicReference<Runnable> changed = new AtomicReference<>();
+        AtomicInteger watchesClosed = new AtomicInteger();
+        TasksApplicationService service = service(document,
+                (path, callback) -> { changed.set(callback); return watchesClosed::incrementAndGet; });
+        service.observe("workspace", event -> {
+            if (!event.snapshot()) throw new IllegalStateException("viewer disconnected");
+        });
+        List<TasksDocumentEvent> received = new ArrayList<>();
+
+        document.set("external edit");
+        try (var subscription = service.observe("workspace", received::add)) {
+            document.set("later edit");
+            changed.get().run();
+        }
+
+        assertEquals(List.of(new TasksDocumentEvent(true, "external edit"),
+                new TasksDocumentEvent(false, "later edit")), received);
+        assertEquals(2, watchesClosed.get());
+    }
+
+    @Test
     void deliversAChangeDuringWatchRegistrationAfterTheSnapshot() {
         AtomicReference<String> document = new AtomicReference<>("before watch");
         TasksApplicationService service = service(document, (path, changed) -> {

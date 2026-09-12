@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { getEventListeners } from 'node:events'
 
-import { createUiSessionFetch } from '../web/src/lib/ui-session-fetch.ts'
+import { createUiSessionFetch, MAX_API_RESPONSE_BYTES } from '../web/src/lib/ui-session-fetch.ts'
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -173,4 +174,116 @@ test('caller cancellation rejects immediately even when the fetch adapter ignore
   })
 
   await assert.rejects(Promise.race([request, fallback]), { name: 'AbortError' })
+})
+
+const streamingResponse = (status = 200) => {
+  let controller
+  let cancelled = false
+  const response = new Response(new ReadableStream({
+    start(value) { controller = value },
+    cancel() { cancelled = true },
+  }), { status, headers: { 'content-type': 'application/json', 'x-contract': 'preserved' } })
+  return {
+    response,
+    write: (text) => controller.enqueue(new TextEncoder().encode(text)),
+    close: () => controller.close(),
+    get cancelled() { return cancelled },
+  }
+}
+
+test('deadline includes a stalled JSON body after response headers', { timeout: 2000 }, async () => {
+  const stream = streamingResponse()
+  stream.write('{"value":')
+  let signal
+  const client = createUiSessionFetch(async (_url, init) => {
+    signal = init.signal
+    return stream.response
+  }, { requestTimeoutMs: 20 })
+  await assert.rejects(client.fetch('/runs').then((response) => response.json()), { name: 'TimeoutError' })
+  assert.equal(signal.aborted, true)
+  await new Promise(setImmediate)
+  assert.equal(stream.cancelled, true)
+})
+
+test('caller abort after headers cancels both body branches and rejects without waiting for the deadline', { timeout: 2000 }, async () => {
+  const stream = streamingResponse()
+  const controller = new AbortController()
+  let receivedHeaders
+  const headers = new Promise((resolve) => { receivedHeaders = resolve })
+  const client = createUiSessionFetch(async () => {
+    receivedHeaders()
+    return stream.response
+  }, { requestTimeoutMs: 10_000 })
+  const pending = client.fetch('/team', { signal: controller.signal })
+  await headers
+  await new Promise(setImmediate)
+  controller.abort(new DOMException('workspace changed', 'AbortError'))
+  await assert.rejects(pending, { name: 'AbortError' })
+  await new Promise(setImmediate)
+  assert.equal(stream.cancelled, true)
+})
+
+test('bounds received bytes even without Content-Length and cancels an oversized body', async () => {
+  const stream = streamingResponse()
+  stream.write('x'.repeat(MAX_API_RESPONSE_BYTES + 1))
+  const client = createUiSessionFetch(async () => stream.response)
+  await assert.rejects(client.fetch('/catalog'), new RegExp(`API response exceeds ${MAX_API_RESPONSE_BYTES} bytes`))
+  await new Promise(setImmediate)
+  assert.equal(stream.cancelled, true)
+})
+
+test('completed bounded responses preserve identity, status, headers and body cloning', async () => {
+  const stream = streamingResponse(409)
+  stream.write('{"value":1}')
+  stream.close()
+  const controller = new AbortController()
+  const client = createUiSessionFetch(async () => stream.response)
+  const response = await client.fetch('/tasks', { signal: controller.signal })
+  assert.equal(response, stream.response)
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0)
+  assert.equal(response.bodyUsed, false)
+  assert.equal(response.status, 409)
+  assert.equal(response.headers.get('x-contract'), 'preserved')
+  // The network body has finished; a later workspace change must not destroy
+  // the fully received response before its caller parses it.
+  controller.abort()
+  assert.deepEqual(await response.clone().json(), { value: 1 })
+  assert.deepEqual(await response.json(), { value: 1 })
+})
+
+test('stalled session body releases its single-flight gate at the session deadline', { timeout: 2000 }, async () => {
+  const stream = streamingResponse()
+  let calls = 0
+  const client = createUiSessionFetch(async () => ++calls === 1 ? stream.response : json({ ok: true }), { sessionTimeoutMs: 20 })
+  await assert.rejects(client.initialize(), { name: 'TimeoutError' })
+  await client.initialize()
+  assert.equal(calls, 2)
+})
+
+test('a stalled 403 body times out before stale-session parsing or retry', { timeout: 2000 }, async () => {
+  const stream = streamingResponse(403)
+  let calls = 0
+  const client = createUiSessionFetch(async () => { calls++; return stream.response }, { requestTimeoutMs: 20 })
+  await assert.rejects(client.fetch('/team'), { name: 'TimeoutError' })
+  assert.equal(calls, 1)
+})
+
+test('body-less successful responses retain their 204 contract', async () => {
+  const response = new Response(null, { status: 204 })
+  const client = createUiSessionFetch(async () => response)
+  assert.equal(await client.fetch('/delete'), response)
+})
+
+
+test('zero deadline requests still honor caller cancellation and bound their body', { timeout: 2000 }, async () => {
+  const stream = streamingResponse()
+  const controller = new AbortController()
+  const client = createUiSessionFetch(async () => stream.response)
+  const pending = client.fetch('/api/fs/pick-folder', { signal: controller.signal }, 0)
+  await new Promise(setImmediate)
+  controller.abort()
+  await assert.rejects(pending, { name: 'AbortError' })
+  await new Promise(setImmediate)
+  assert.equal(stream.cancelled, true)
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0)
 })

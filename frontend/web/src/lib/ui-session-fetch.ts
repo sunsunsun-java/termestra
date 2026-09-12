@@ -22,6 +22,10 @@ interface UiSessionFetchOptions {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 const DEFAULT_SESSION_TIMEOUT_MS = 10_000
+// Covers bounded configuration/catalog lists as well as the 900 KiB Tasks
+// document envelope. Count decoded stream bytes, not Content-Length, which
+// may be absent or describe the compressed representation.
+export const MAX_API_RESPONSE_BYTES = 16 * 1024 * 1024
 
 const abortError = (signal: AbortSignal): unknown =>
   signal.reason ?? new DOMException('The request was aborted.', 'AbortError')
@@ -42,13 +46,49 @@ const awaitWithSignal = async <T>(operation: Promise<T>, signal?: AbortSignal): 
   }
 }
 
+/** Drain a clone before returning so callers keep the original Response's
+ * status, headers, URL and normal body/clone methods without unbounded I/O.
+ * The original branch retains at most the bounded response until consumed. */
+const receiveBoundedBody = async (
+  response: Response,
+  signal: AbortSignal
+): Promise<Response> => {
+  if (!response.body) return response
+  const reader = response.clone().body!.getReader()
+  const cancel = (reason: unknown) => {
+    // Both tee branches must be cancelled to release the network reader.
+    void reader.cancel(reason).catch(() => {})
+    void response.body?.cancel(reason).catch(() => {})
+  }
+  const onAbort = () => cancel(abortError(signal))
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    if (signal.aborted) throw abortError(signal)
+    let receivedBytes = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (signal.aborted) throw abortError(signal)
+      if (done) return response
+      receivedBytes += value.byteLength
+      if (receivedBytes > MAX_API_RESPONSE_BYTES) {
+        throw new Error(`API response exceeds ${MAX_API_RESPONSE_BYTES} bytes`)
+      }
+    }
+  } catch (error) {
+    cancel(error)
+    throw error
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+    reader.releaseLock()
+  }
+}
+
 const requestWithTimeout = async (
   request: FetchRequest,
   input: RequestInfo | URL,
   init: RequestInit | undefined,
   timeoutMs: number
 ): Promise<Response> => {
-  if (timeoutMs <= 0) return request(input, init)
   const callerSignal = init?.signal
   if (callerSignal?.aborted) throw abortError(callerSignal)
 
@@ -69,16 +109,21 @@ const requestWithTimeout = async (
     'TimeoutError'
   )
   const deadline = new Promise<never>((_resolve, reject) => {
-    timeout = setTimeout(() => {
-      controller.abort(timeoutError)
-      reject(timeoutError)
-    }, timeoutMs)
+    if (timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        controller.abort(timeoutError)
+        reject(timeoutError)
+      }, timeoutMs)
+    }
   })
   try {
-    const response = Promise.resolve().then(() =>
-      request(input, { ...init, signal: controller.signal })
-    )
+    const response = Promise.resolve()
+      .then(() => request(input, { ...init, signal: controller.signal }))
+      .then((result) => receiveBoundedBody(result, controller.signal))
     return await Promise.race([response, deadline, callerAborted])
+  } catch (error) {
+    controller.abort(error)
+    throw error
   } finally {
     if (timeout !== undefined) clearTimeout(timeout)
     callerSignal?.removeEventListener('abort', onCallerAbort)

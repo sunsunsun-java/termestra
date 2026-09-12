@@ -112,12 +112,13 @@ export const useFsBrowser = (enabled: boolean) => {
   )
 
   const selectEntry = useCallback((path: string) => {
+    if (path === selected) return
     probeTokenRef.current++
     probeControllerRef.current?.abort()
     probeControllerRef.current = null
     setProbe(null)
     setSelected(path)
-  }, [])
+  }, [selected])
 
   return { browse, loading, navigate, probe, selectEntry, selected }
 }

@@ -13,6 +13,7 @@ final class AgentRecoverySummary {
         RecoveryWorker current=context.workers().stream().filter(worker->worker.id().equals(agent.agentId())).findFirst().orElse(new RecoveryWorker(agent.agentId(),agent.name(),agent.role(),0));
         List<RecoveryWorker> workers=context.workers().stream().filter(worker->!worker.id().equals(agent.agentId())).toList();
         List<String> lines=new ArrayList<>(List.of(
+                "Termestra session binding: workspace_id="+agent.workspaceId()+"; agent_id="+agent.agentId(),
                 "你是 "+agent.workspaceName()+" 的 "+agent.name()+"（"+agent.role()+"）。",
                 "你刚被 Termestra 重启了，且无法通过原生 session resume 恢复。下面是接力上下文。", "",
                 "## 最近 1 小时与 user 的对话"));

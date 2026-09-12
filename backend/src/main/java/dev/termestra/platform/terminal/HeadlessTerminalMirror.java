@@ -19,6 +19,7 @@ public final class HeadlessTerminalMirror {
     private static final int MAX_SEQUENCE = 256;
     private static final int MAX_STYLE_SEQUENCE = 512;
     private static final int MAX_RETAINED_STYLES = 256;
+    private static final int MAX_CELL_TEXT_CHARACTERS = 32;
     private static final Set<Integer> SNAPSHOT_DEC_MODES = Set.of(
             1, 3, 5, 6, 7, 9, 12, 25, 66, 67,
             1000, 1002, 1003, 1004, 1005, 1006, 1015,
@@ -90,6 +91,7 @@ public final class HeadlessTerminalMirror {
         StringBuilder minimal = new StringBuilder("\033c");
         active.appendCheckpoint(minimal, false, false, Integer.MAX_VALUE);
         active.appendState(minimal);
+        appendParserState(minimal);
         return jsonStringBytes(minimal) <= MAX_SNAPSHOT_TRANSPORT_BYTES ? minimal.toString() : "\033c";
     }
 
@@ -107,7 +109,24 @@ public final class HeadlessTerminalMirror {
             }
             alternate.appendState(checkpoint);
         }
+        appendParserState(checkpoint);
         return checkpoint.length() <= characterLimit ? checkpoint.toString() : null;
+    }
+
+    private void appendParserState(StringBuilder checkpoint) {
+        switch (parserState) {
+            case TEXT -> { }
+            case ESCAPE -> checkpoint.append('\033');
+            case CSI -> {
+                checkpoint.append("\033[").append(sequence);
+                // Preserve the ignored oversized sequence without retaining its hostile tail.
+                if (sequenceOverflow) checkpoint.append(";".repeat(MAX_SEQUENCE + 1));
+            }
+            // OSC contents are side effects, not screen state. An unknown command keeps the
+            // parser inside OSC until its terminator without replaying clipboard/title effects.
+            case OSC -> checkpoint.append("\033]9999;");
+            case OSC_ESCAPE -> checkpoint.append("\033]9999;\033");
+        }
     }
 
     synchronized String screenText() { return active.render(); }
@@ -283,7 +302,7 @@ public final class HeadlessTerminalMirror {
         private String savedStyle = "";
         private int textAttributes;
         private int savedTextAttributes;
-        private int pendingCodePoint;
+        private String pendingText = "";
         private String pendingStyle = "";
         private final java.util.TreeSet<Integer> decModes = new java.util.TreeSet<>();
         private final java.util.HashSet<String> retainedStyles = new java.util.HashSet<>();
@@ -299,10 +318,21 @@ public final class HeadlessTerminalMirror {
             painted(0, rows);
             for (int index = 0; index < history.size(); index++) history.set(index, resizeLine(history.get(index)));
             for (int index = 0; index < screen.size(); index++) screen.set(index, resizeLine(screen.get(index)));
-            while (screen.size() < rows) screen.add(blank());
+            while (screen.size() < rows) {
+                if (retainsHistory && cursorRow == screen.size() - 1 && !history.isEmpty()) {
+                    screen.addFirst(history.removeLast());
+                    cursorRow++;
+                    savedRow++;
+                } else screen.add(blank());
+            }
             while (screen.size() > rows) {
-                Cell[] removed = screen.removeFirst();
-                if (retainsHistory) history.add(removed);
+                if (screen.size() > cursorRow + 1) screen.removeLast();
+                else {
+                    Cell[] removed = screen.removeFirst();
+                    if (retainsHistory) history.add(removed);
+                    cursorRow--;
+                    savedRow = Math.max(0, savedRow - 1);
+                }
             }
             cursorRow = bounded(cursorRow, 0, rows - 1);
             cursorColumn = bounded(cursorColumn, 0, columns - 1);
@@ -326,7 +356,7 @@ public final class HeadlessTerminalMirror {
             style = "";
             savedStyle = "";
             textAttributes = savedTextAttributes = 0;
-            pendingCodePoint = 0;
+            pendingText = "";
             pendingStyle = "";
             decModes.clear();
             retainedStyles.clear();
@@ -334,11 +364,15 @@ public final class HeadlessTerminalMirror {
         }
 
         private void put(int codePoint) {
+            int width = width(codePoint);
+            if (width == 0) {
+                appendCombining(codePoint);
+                return;
+            }
             if (wrapPending) {
                 if (autowrap) { cursorColumn = 0; lineFeed(); }
                 wrapPending = false;
             }
-            int width = width(codePoint);
             if (width == 2 && cursorColumn == columns - 1 && autowrap) {
                 cursorColumn = 0;
                 lineFeed();
@@ -349,10 +383,26 @@ public final class HeadlessTerminalMirror {
             if (width == 2 && cursorColumn + 1 < columns) line[cursorColumn + 1] = new Cell("", line[cursorColumn].style(), textAttributes);
             if (cursorColumn + width >= columns) {
                 cursorColumn = columns - 1;
-                wrapPending = autowrap;
-                pendingCodePoint = codePoint;
+                // At the right margin a combining mark still belongs to this cell even
+                // when DECAWM is disabled; the next printable cell decides whether to wrap.
+                wrapPending = true;
+                pendingText = new String(Character.toChars(codePoint));
                 pendingStyle = style;
             } else cursorColumn += width;
+        }
+
+        private void appendCombining(int codePoint) {
+            int column = wrapPending ? cursorColumn : cursorColumn - 1;
+            if (column < 0) return;
+            Cell[] line = screen.get(cursorRow);
+            if (line[column] != null && line[column].text().isEmpty() && column > 0) column--;
+            Cell cell = line[column];
+            if (cell == null || cell.text().length() + Character.charCount(codePoint)
+                    > MAX_CELL_TEXT_CHARACTERS) return;
+            String text = cell.text() + new String(Character.toChars(codePoint));
+            line[column] = new Cell(text, cell.style(), cell.attributes());
+            if (wrapPending) pendingText = text;
+            painted(cursorRow, cursorRow + 1);
         }
 
         /** Marks repaint operations, including writes/erases that leave the same final cells. */
@@ -571,11 +621,11 @@ public final class HeadlessTerminalMirror {
             appendStyle(target,savedStyle);
             appendCursor(target,savedRow,savedColumn);
             target.append("\0337");
-            if(wrapPending&&pendingCodePoint!=0){
-                int pendingWidth=width(pendingCodePoint);
+            if(wrapPending&&!pendingText.isEmpty()){
+                int pendingWidth = width(pendingText.codePointAt(0));
                 appendStyle(target,pendingStyle);
                 appendCursor(target,cursorRow,Math.max(0,columns-pendingWidth));
-                target.appendCodePoint(pendingCodePoint);
+                target.append(pendingText);
             }else{
                 appendStyle(target,style);
                 appendCursor(target,cursorRow,cursorColumn);
@@ -729,6 +779,10 @@ public final class HeadlessTerminalMirror {
     }
 
     private static int width(int codePoint) {
+        int type = Character.getType(codePoint);
+        if (type == Character.NON_SPACING_MARK || type == Character.ENCLOSING_MARK
+                || (type == Character.FORMAT && codePoint != 0x00ad)
+                || (codePoint >= 0x1160 && codePoint <= 0x11ff)) return 0;
         return codePoint >= 0x1100 && (codePoint <= 0x115f || codePoint == 0x2329 || codePoint == 0x232a
                 || (codePoint >= 0x2e80 && codePoint <= 0xa4cf)
                 || (codePoint >= 0xac00 && codePoint <= 0xd7a3)

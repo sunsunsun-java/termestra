@@ -30,6 +30,24 @@ public final class PtyTestFixture {
                 System.out.flush();
                 echoInput();
             }
+            case "codex-startup" -> {
+                System.out.print("\u001b[2J\u001b[H» \u001b[2mAsk Codex to do anything\u001b[0m\u001b[1;3H");
+                System.out.flush();
+                var input = new java.io.ByteArrayOutputStream();
+                int value;
+                while ((value = System.in.read()) >= 0 && value != '\r') {
+                    if (input.size() >= 65_536) throw new IOException("fixture startup input exceeded its limit");
+                    input.write(value);
+                }
+                String startup = input.toString(java.nio.charset.StandardCharsets.UTF_8);
+                if (value != '\r' || !startup.startsWith("\u001b[200~<termestra-message kind=\"startup\">")
+                        || !startup.endsWith("</termestra-message>\n\u001b[201~")) {
+                    throw new IOException("fixture did not receive a complete startup submission");
+                }
+                System.out.print("\r\nstartup-submitted\r\n");
+                System.out.flush();
+                echoInput();
+            }
             case "exit" -> { }
             default -> throw new IllegalArgumentException("Unknown PTY test fixture mode: " + mode);
         }

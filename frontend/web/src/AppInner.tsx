@@ -35,7 +35,7 @@ export const AppInner = () => {
   const { activeWorkspaceId, selectWorkspace, setActiveWorkspaceId } = useWorkspaceSelection()
   const { demoMode, enableDemo, exitDemo } = useDemoMode()
   const localPollIds = demoMode || !workspaces ? [] : workspaces.map(({ id }) => id)
-  const [workersByWorkspaceId, setWorkersByWorkspaceId] = useWorkspaceWorkers(
+  const [workersByWorkspaceId, setWorkersByWorkspaceId, workersLoadedWorkspaceIds] = useWorkspaceWorkers(
     localPollIds,
     demoMode ? null : activeWorkspaceId
   )
@@ -188,6 +188,8 @@ export const AppInner = () => {
             recordOrchestratorResult={wsCreate.recordOrchestratorResult}
             terminalRuns={terms.terminalRuns}
             terminalRunsStale={terminalRunState.stale}
+            terminalRunsLoaded={terminalRunState.initialized}
+            workersLoaded={activeId !== undefined && workersLoadedWorkspaceIds.has(activeId)}
             workerActions={workerActions}
             workers={activeWorkers}
           />

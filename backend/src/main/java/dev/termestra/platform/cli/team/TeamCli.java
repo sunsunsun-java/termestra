@@ -82,7 +82,24 @@ public final class TeamCli implements Callable<Integer> {
     }
 
     private void send(TeamRuntimeClient client,List<String> args){if(args.size()<2||isUuid(args.getFirst()))throw usage("Usage: team send <worker-name> <task>");String task=String.join(" ",args.subList(1,args.size())).trim();if(task.isEmpty())throw usage("Usage: team send <worker-name> <task>");ObjectNode body=client.body();body.put("runtime_port",TeamEnvironment.from(environment).port());body.put("to",args.getFirst());body.put("text",task);body.put("idempotency_key",UUID.randomUUID().toString());out.println(client.post("/api/team/send",body));}
-    private void cancel(TeamRuntimeClient client,List<String> args){Parsed parsed=parse(args,true);if(parsed.dispatchId==null)throw usage("Missing --dispatch <dispatch-id>\n\nUsage: team cancel --dispatch <dispatch-id> <reason>");if(parsed.positionals.isEmpty())throw usage("Missing <reason>\n\nUsage: team cancel --dispatch <dispatch-id> <reason>");ObjectNode body=client.body();body.put("dispatch_id",parsed.dispatchId);body.put("reason",String.join(" ",parsed.positionals).trim());client.post("/api/team/cancel",body);}
+    private void cancel(TeamRuntimeClient client, List<String> args) {
+        Parsed parsed = parse(args, true);
+        if (parsed.dispatchId == null) throw usage("Missing --dispatch <dispatch-id>\n\nUsage: team cancel --dispatch <dispatch-id> <reason>");
+        if (parsed.positionals.isEmpty()) throw usage("Missing <reason>\n\nUsage: team cancel --dispatch <dispatch-id> <reason>");
+        ObjectNode body = client.body();
+        body.put("dispatch_id", parsed.dispatchId);
+        body.put("reason", String.join(" ", parsed.positionals).trim());
+        String response = client.post("/api/team/cancel", body);
+        try {
+            JsonNode payload = json.readTree(response);
+            if (payload.path("forwarded").isBoolean() && !payload.path("forwarded").asBoolean()) {
+                err.println("Termestra cancelled the dispatch, but the Worker may still be executing because its stop notification was not delivered: "
+                        + payload.path("forward_error").asText("unknown delivery outcome"));
+            }
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("Invalid runtime response", error);
+        }
+    }
     private void report(TeamRuntimeClient client,List<String> args,boolean status){Parsed parsed=parse(args,!status);if(status&&parsed.dispatchId!=null)throw usage("team status does not accept --dispatch; use team report for assigned work");if(parsed.stdin&&!parsed.positionals.isEmpty())throw usage("--stdin is mutually exclusive with a positional argument");if(!parsed.stdin&&parsed.positionals.size()!=1)throw usage("Missing "+(status?"<current status>":"<result>")+" (or pass --stdin to read it from stdin)");String text=parsed.stdin?readInput():parsed.positionals.getFirst();ObjectNode body=client.body();if(parsed.dispatchId!=null)body.put("dispatch_id",parsed.dispatchId);body.put("result",text);body.set("artifacts",client.artifacts(parsed.artifacts));String response=client.post(status?"/api/team/status":"/api/team/report",body);try{JsonNode payload=json.readTree(response);if(payload.path("forwarded").isBoolean()&&!payload.path("forwarded").asBoolean()&&payload.path("forward_error").isTextual())err.println("Termestra recorded the "+(status?"status update":"report")+", but could not deliver it to Orchestrator in real time: "+payload.path("forward_error").asText());}catch(JsonProcessingException error){throw new IllegalStateException("Invalid runtime response",error);}}
     private Parsed parse(List<String> args,boolean allowDispatch){Parsed p=new Parsed();for(int i=0;i<args.size();i++){String arg=args.get(i);switch(arg){case "--stdin"->p.stdin=true;case "--success","--failed"->{}case "--artifact"->{if(i+1>=args.size()||args.get(i+1).startsWith("--"))throw usage("--artifact requires a value");p.artifacts.add(args.get(++i));}case "--dispatch"->{if(!allowDispatch)throw usage("team status does not accept --dispatch; use team report for assigned work");if(i+1>=args.size()||args.get(i+1).startsWith("--"))throw usage("--dispatch requires a value");p.dispatchId=args.get(++i);}default->{if(arg.startsWith("--"))throw usage("Unknown argument: "+arg);p.positionals.add(arg);}}}return p;}
     private String readInput(){try{String value=readBounded(input,MAX_STDIN_BYTES,"--stdin input");if(value.trim().isEmpty())throw usage("--stdin received empty input");return value;}catch(IOException error){throw new UncheckedIOException(error);}}

@@ -54,6 +54,8 @@ type Params = {
   workspaceId: string
   workers: TeamListItem[]
   terminalRuns: TerminalRunSummary[]
+  workersLoaded: boolean
+  terminalRunsLoaded: boolean
 }
 
 /**
@@ -65,7 +67,15 @@ type Params = {
  * its tab. Persistence is per-workspace; switching workspaces swaps the
  * loaded list without touching localStorage for the others.
  */
-export const useTerminalPanelTabs = ({ workspaceId, workers, terminalRuns }: Params) => {
+export const useTerminalPanelTabs = ({
+  workspaceId,
+  workers,
+  terminalRuns,
+  workersLoaded,
+  terminalRunsLoaded,
+}: Params) => {
+  const [stateWorkspaceId, setStateWorkspaceId] = useState(workspaceId)
+  const ownsState = stateWorkspaceId === workspaceId
   const [orderedIds, setOrderedIds] = useState<string[]>(() => readStoredIds(tabsKey(workspaceId)))
   const [activeId, setActiveIdRaw] = useState<string | null>(() => {
     const stored = readStoredActive(activeKey(workspaceId))
@@ -76,48 +86,25 @@ export const useTerminalPanelTabs = ({ workspaceId, workers, terminalRuns }: Par
   const orderedIdsRef = useRef(orderedIds)
   orderedIdsRef.current = orderedIds
   // Reload from localStorage when switching workspaces.
-  const lastWorkspaceRef = useRef<string>(workspaceId)
-
   useEffect(() => {
-    if (lastWorkspaceRef.current === workspaceId) return
-    lastWorkspaceRef.current = workspaceId
+    if (stateWorkspaceId === workspaceId) return
+    setStateWorkspaceId(workspaceId)
     setOrderedIds(readStoredIds(tabsKey(workspaceId)))
     const stored = readStoredActive(activeKey(workspaceId))
     setActiveIdRaw(stored.length > 0 ? stored : null)
-  }, [workspaceId])
+  }, [stateWorkspaceId, workspaceId])
 
-  // The reviewer flagged a silent data-loss bug: on workspace switch the
-  // poll-driven workers/runs arrive a tick AFTER the stored ids reload, so
-  // `tabs` derives to [] for one render, the gc effect filters orderedIds
-  // to [], and the persistence effect writes [] back to localStorage. We
-  // gate BOTH the gc and the persistence on `dataLoaded` — true once we
-  // observe a non-empty snapshot for this workspaceId, or once the user
-  // explicitly opens a tab.
-  const dataLoadedRef = useRef(false)
-  // Reset on workspace switch. workers/terminalRuns are deliberately excluded
-  // from the deps because we want this effect to "zero out" the gate exactly
-  // when the workspace id flips — the next effect below promotes the gate
-  // back to true once data arrives for the new workspace.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: workspace-switch reset is intentional
+  // Persist only the state loaded for this workspace. Projections may still
+  // be loading; their absence is not evidence that a saved tab was deleted.
   useEffect(() => {
-    dataLoadedRef.current = workers.length > 0 || terminalRuns.length > 0
-  }, [workspaceId])
-  // Promote the gate to true as soon as workers/runs deliver any data for
-  // the current workspace. This effect (not a render-time ref mutation)
-  // avoids the StrictMode double-render anti-pattern flagged by review.
-  useEffect(() => {
-    if (workers.length > 0 || terminalRuns.length > 0) dataLoadedRef.current = true
-  }, [workers, terminalRuns])
-
-  useEffect(() => {
-    if (!dataLoadedRef.current) return
+    if (!ownsState) return
     writeStored(tabsKey(workspaceId), JSON.stringify(orderedIds))
-  }, [orderedIds, workspaceId])
+  }, [orderedIds, ownsState, workspaceId])
 
   useEffect(() => {
-    if (!dataLoadedRef.current) return
+    if (!ownsState) return
     writeStored(activeKey(workspaceId), activeId ?? '')
-  }, [activeId, workspaceId])
+  }, [activeId, ownsState, workspaceId])
 
   const workerById = useMemo(() => new Map(workers.map((w) => [w.id, w] as const)), [workers])
   const shellRunById = useMemo(() => {
@@ -155,45 +142,40 @@ export const useTerminalPanelTabs = ({ workspaceId, workers, terminalRuns }: Par
     return out
   }, [orderedIds, workerById, shellRunById, terminalRuns])
 
-  // GC ids whose referent is gone — only after we've observed at least one
-  // populated snapshot for this workspace. Empty workers/runs is treated as
-  // "still loading", not "everything was deleted".
-  //
-  // Survivors are computed inside the setOrderedIds updater from the latest
-  // workerById/shellRunById, not from a `tabs` closure. The closure form
-  // races with the workspace-switch setOrderedIds: when both fire in the
-  // same cycle, the updater would see the new orderedIds but a stale
-  // `surviving` set built from the previous tabs render, and would filter
-  // everything out.
+  // The two projections load independently. Only a successful snapshot of
+  // the corresponding collection can prove a tab is gone, including an empty
+  // snapshot. Never infer readiness from the other collection's contents.
   useEffect(() => {
-    if (!dataLoadedRef.current) return
+    if (!ownsState) return
     setOrderedIds((current) => {
       const next = current.filter((id) => {
-        if (id.startsWith('worker:')) return workerById.has(id.slice('worker:'.length))
-        if (id.startsWith('shell:')) return shellRunById.has(id.slice('shell:'.length))
+        if (id.startsWith('worker:')) {
+          return !workersLoaded || workerById.has(id.slice('worker:'.length))
+        }
+        if (id.startsWith('shell:')) {
+          return !terminalRunsLoaded || shellRunById.has(id.slice('shell:'.length))
+        }
         return false
       })
       return next.length === current.length ? current : next
     })
-  }, [workerById, shellRunById])
+  }, [ownsState, workerById, shellRunById, workersLoaded, terminalRunsLoaded])
 
-  // Reactivate something if active points to a dead tab.
   useEffect(() => {
-    if (!dataLoadedRef.current) return
+    if (!ownsState) return
+    if (activeId?.startsWith('worker:') && !workersLoaded) return
+    if (activeId?.startsWith('shell:') && !terminalRunsLoaded) return
     if (activeId && tabs.some((tab) => tab.id === activeId)) return
     setActiveIdRaw(tabs[0]?.id ?? null)
-  }, [activeId, tabs])
+  }, [activeId, ownsState, tabs, workersLoaded, terminalRunsLoaded])
 
   const openWorkerTab = useCallback((workerId: string) => {
-    // User action also counts as "data loaded" — they explicitly want a tab.
-    dataLoadedRef.current = true
     const id = workerTabId(workerId)
     setOrderedIds((current) => appendBoundedTerminalTab(current, id))
     setActiveIdRaw(id)
   }, [])
 
   const openShellTab = useCallback((runId: string) => {
-    dataLoadedRef.current = true
     const id = shellTabId(runId)
     setOrderedIds((current) => appendBoundedTerminalTab(current, id))
     setActiveIdRaw(id)

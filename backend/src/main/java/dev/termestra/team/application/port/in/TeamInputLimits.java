@@ -9,7 +9,7 @@ import java.util.List;
 public final class TeamInputLimits {
     public static final int MAX_MEMBER_ID_CHARACTERS = 256;
     public static final int MAX_MEMBER_NAME_CHARACTERS = 128;
-    public static final int MAX_MEMBER_DESCRIPTION_CHARACTERS = 4_096;
+    public static final int MAX_MEMBER_DESCRIPTION_CHARACTERS = 65_536;
     public static final int MAX_ROLE_CHARACTERS = 64;
     public static final int MAX_TASK_TEXT_CHARACTERS = 65_536;
     public static final int MAX_REPORT_TEXT_CHARACTERS = 65_536;

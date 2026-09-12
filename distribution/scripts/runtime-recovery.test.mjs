@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { createServer } from 'node:http'
+import { createHash } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { gzipSync } from 'node:zlib'
 
 import {
@@ -203,7 +208,7 @@ function tar(entries) {
     const body = Buffer.from(entry.body ?? '')
     const header = Buffer.alloc(512)
     writeString(header, 0, 100, entry.name)
-    writeOctal(header, 100, 8, entry.type === '5' ? 0o755 : 0o644)
+    writeOctal(header, 100, 8, entry.mode ?? (entry.type === '5' ? 0o755 : 0o644))
     writeOctal(header, 108, 8, 0)
     writeOctal(header, 116, 8, 0)
     writeOctal(header, 124, 12, body.length)
@@ -229,3 +234,108 @@ function writeOctal(buffer, offset, length, value) {
   const encoded = value.toString(8).padStart(length - 2, '0') + '\0 '
   buffer.write(encoded, offset, length, 'ascii')
 }
+
+
+test('recovers an interrupted runtime when the server ignores Range, retaining integrity checks', async () => {
+  const packageName = '@termestra/runtime-darwin-arm64'
+  const version = '1.0.0'
+  const manifest = { name: packageName, version, os: ['darwin'], cpu: ['arm64'] }
+  const bytes = gzipSync(tar([
+    { name: 'package/package.json', body: JSON.stringify(manifest) },
+    { name: 'package/runtime/bin/java', body: '#!/bin/sh\nexit 0\n', mode: 0o755 },
+    { name: 'package/app/termestra.jar', body: 'application fixture' },
+  ]))
+  const cutoff = Math.floor(bytes.length / 2)
+  const ranges = []
+  let integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`
+  let registry
+  const server = createServer((request, response) => {
+    if (request.url !== '/runtime.tgz') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ ...manifest, dist: { tarball: `${registry}/runtime.tgz`, integrity } }))
+      return
+    }
+    ranges.push(request.headers.range)
+    response.writeHead(200, { 'content-length': bytes.length })
+    if (ranges.length === 1) {
+      response.write(bytes.subarray(0, cutoff))
+      setTimeout(() => response.destroy(), 20)
+    } else response.end(bytes)
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  registry = `http://127.0.0.1:${server.address().port}`
+  const workspace = mkdtempSync(join(tmpdir(), 'termestra-runtime-range-test-'))
+  const module = new URL('../npm/cli/bin/runtime-recovery.mjs', import.meta.url).href
+  const recover = () => promisify(execFile)(process.execPath, ['--input-type=module', '--eval',
+    `import { recoverRuntimePackage } from ${JSON.stringify(module)};
+     await recoverRuntimePackage(${JSON.stringify({ packageName, version, platform: 'darwin', architecture: 'arm64', cliRoot: workspace, registry })});`,
+  ], { timeout: 5000, killSignal: 'SIGKILL' })
+  try {
+    await recover()
+    assert.deepEqual(ranges, [undefined, `bytes=${cutoff}-`, undefined])
+    assert.equal(readFileSync(join(workspace, '.runtime', 'runtime-darwin-arm64', 'app', 'termestra.jar'), 'utf8'), 'application fixture')
+    ranges.length = 0
+    integrity = `sha512-${Buffer.alloc(64).toString('base64')}`
+    await assert.rejects(recover(), /does not match npm registry integrity/)
+    assert.deepEqual(ranges, [undefined, `bytes=${cutoff}-`, undefined])
+    assert.equal(readFileSync(join(workspace, '.runtime', 'runtime-darwin-arm64', 'app', 'termestra.jar'), 'utf8'), 'application fixture')
+  } finally {
+    server.closeAllConnections()
+    await new Promise(resolve => server.close(resolve))
+    rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+test('range fallback retains the shared request capacity', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'termestra-runtime-range-capacity-'))
+  const archive = join(workspace, 'runtime.tgz')
+  let requests = 0
+  try {
+    assert.throws(() => downloadWithResume('https://registry.npmjs.org/runtime.tgz', archive, {
+      runCurl: () => {
+        requests++
+        if (requests % 2) writeFileSync(archive, 'partial')
+        return { status: requests % 2 ? 18 : 33, stderr: 'interrupted or unsupported range' }
+      },
+      now: () => 0,
+      sleep: () => {},
+    }), /failed after 96 resumable requests/)
+    assert.equal(requests, 96)
+  } finally { rmSync(workspace, { recursive: true, force: true }) }
+})
+
+
+test('CLI rejects malformed ports before starting the runtime', async () => {
+  const launcher = new URL('../npm/cli/bin/termestra.mjs', import.meta.url)
+  for (const value of ['3000junk', '3.5', '0x1000', '3e3', '+3000', ' 3000', '-1', '65536', '']) {
+    await assert.rejects(promisify(execFile)(process.execPath, [fileURLToPath(launcher), '--port', value]), error => {
+      assert.equal(error.code, 1)
+      assert.equal(error.stdout, '')
+      assert.match(error.stderr, value ? /^Invalid port:/ : /^Usage: termestra/)
+      return true
+    })
+  }
+})
+
+
+test('CLI forwards valid decimal port boundaries unchanged', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'termestra-cli-port-'))
+  try {
+    const cli = join(workspace, 'cli')
+    cpSync(fileURLToPath(new URL('../npm/cli', import.meta.url)), cli, { recursive: true })
+    const bin = join(workspace, 'runtime-current', 'runtime', 'bin')
+    mkdirSync(bin, { recursive: true })
+    writeFileSync(join(bin, 'java'), '#!/bin/sh\nprintf "%s\\n" "$@"\n', { mode: 0o755 })
+    const launcher = join(cli, 'bin', 'termestra.mjs')
+    for (const value of ['0', '3000', '65535', '003000']) {
+      const { stdout, stderr } = await promisify(execFile)(process.execPath, ['--input-type=module', '--eval',
+        `Object.defineProperty(process, 'platform', { value: 'darwin' });
+         Object.defineProperty(process, 'arch', { value: 'arm64' });
+         process.argv = [process.execPath, ${JSON.stringify(launcher)}, '--port', ${JSON.stringify(value)}];
+         await import(${JSON.stringify(pathToFileURL(launcher).href)});`,
+      ])
+      assert.equal(stderr, '')
+      assert.equal(stdout.trim().split('\n').at(-1), `--server.port=${Number(value)}`)
+    }
+  } finally { rmSync(workspace, { recursive: true, force: true }) }
+})

@@ -37,12 +37,19 @@ class ConfigurationInputLimitsTest {
         RoleTemplate role = new RoleTemplate(null,
                 "n".repeat(ConfigurationInputLimits.MAX_ROLE_NAME_CHARACTERS),
                 "t".repeat(ConfigurationInputLimits.MAX_ROLE_TYPE_CHARACTERS),
-                "d".repeat(ConfigurationInputLimits.MAX_ROLE_DESCRIPTION_CHARACTERS),
+                "d".repeat(ConfigurationInputLimits.MAX_ROLE_BODY_CHARACTERS),
                 "c".repeat(ConfigurationInputLimits.MAX_COMMAND_CHARACTERS),
                 arguments, environment, false);
 
         ConfigurationInputLimits.validate(preset);
         ConfigurationInputLimits.validate(role);
+    }
+
+    @Test void rejectsRoleBodiesAboveTheirDetailBudget() {
+        var role = new RoleTemplate(null, "Role", "custom",
+                "d".repeat(ConfigurationInputLimits.MAX_ROLE_BODY_CHARACTERS + 1),
+                "", List.of(), Map.of(), false);
+        assertThrows(IllegalArgumentException.class, () -> ConfigurationInputLimits.validate(role));
     }
 
     @Test void rejectsArgumentAndEnvironmentCountItemAndAggregateAmplification() {

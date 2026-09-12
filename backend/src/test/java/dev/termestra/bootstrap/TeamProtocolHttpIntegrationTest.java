@@ -37,6 +37,50 @@ class TeamProtocolHttpIntegrationTest {
         workspacesWithRealPtys.clear();
     }
 
+    @Test void aDurableDispatchStartsItsWorkerWithTheCurrentServerPort() throws IOException {
+        WebTestClient client = WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port).build();
+        String cookie = uiCookie(client);
+        Map<?, ?> workspace = client.post().uri("/api/workspaces").header(HttpHeaders.COOKIE, cookie)
+                .bodyValue(Map.of("name", "Recovered delivery", "path", temp("termestra-delivery-port-").toString(),
+                        "autostart_orchestrator", false)).exchange().expectStatus().isCreated()
+                .expectBody(Map.class).returnResult().getResponseBody();
+        String workspaceId = Objects.requireNonNull(workspace).get("id").toString();
+        workspacesWithRealPtys.add(workspaceId);
+        Map<?, ?> worker = client.post().uri("/api/workspaces/" + workspaceId + "/workers")
+                .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of("name", "Alice", "role", "coder"))
+                .exchange().expectStatus().isCreated().expectBody(Map.class).returnResult().getResponseBody();
+        String workerId = Objects.requireNonNull(worker).get("id").toString();
+        TestJavaCommand command = TestJavaCommand.fixture(PtyTestFixture.class, "runtime-port");
+        client.post().uri("/api/workspaces/" + workspaceId + "/agents/" + workerId + "/config")
+                .header(HttpHeaders.COOKIE, cookie).bodyValue(Map.of("command", command.command(), "args", command.arguments()))
+                .exchange().expectStatus().isNoContent();
+        String actor = workspaceId + ":orchestrator";
+        String token = credentials.issue(actor);
+        Map<?, ?> accepted = client.post().uri("/api/team/send").bodyValue(Map.of(
+                "project_id", workspaceId, "from_agent_id", actor, "token", token, "to", "Alice",
+                "text", "Recovered assignment", "runtime_port", "1", "idempotency_key", UUID.randomUUID().toString()))
+                .exchange().expectStatus().isAccepted().expectBody(Map.class).returnResult().getResponseBody();
+        String dispatchId = Objects.requireNonNull(accepted).get("dispatch_id").toString();
+        awaitCurrentToken(workerId);
+        for (int attempt = 0; attempt < 200; attempt++) {
+            var run = execution.listActiveSummaries(workspaceId).stream()
+                    .filter(value -> value.agentId().equals(workerId)).findFirst();
+            if (run.isPresent() && execution.get(run.orElseThrow().runId()).output().contains("port=" + port)) {
+                database.read("verify historical port remains persisted", connection -> {
+                    try (var statement = connection.prepareStatement("SELECT runtime_port FROM dispatch_deliveries WHERE dispatch_id=?")) {
+                        statement.setString(1, dispatchId);
+                        try (var rows = statement.executeQuery()) { assertTrue(rows.next()); assertEquals("1", rows.getString(1)); }
+                    }
+                    return null;
+                });
+                return;
+            }
+            try { Thread.sleep(50); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new AssertionError(interrupted); }
+        }
+        fail("The Worker did not inherit the currently listening runtime port " + port);
+    }
+
     @Test void runsSendReportCancelListAndDispatchQueriesAcrossRealHttpAndSqlite() throws IOException {
         WebTestClient client=WebTestClient.bindToServer().baseUrl("http://127.0.0.1:"+port).build();
         String cookie=uiCookie(client);

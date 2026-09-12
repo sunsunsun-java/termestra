@@ -30,6 +30,7 @@ public final class ConfigurationInputLimits {
     public static final int MAX_ROLE_NAME_CHARACTERS = 128;
     public static final int MAX_ROLE_TYPE_CHARACTERS = 64;
     public static final int MAX_ROLE_DESCRIPTION_CHARACTERS = 4_096;
+    public static final int MAX_ROLE_BODY_CHARACTERS = 65_536;
     public static final int MAX_SUGGESTED_MODELS = 32;
     public static final int MAX_MODEL_ID_CHARACTERS = 128;
 
@@ -52,7 +53,7 @@ public final class ConfigurationInputLimits {
         if (value == null) throw new IllegalArgumentException("Role template is required");
         requireText(value.name(), "name", MAX_ROLE_NAME_CHARACTERS);
         requireText(value.roleType(), "role_type", MAX_ROLE_TYPE_CHARACTERS);
-        validateOptionalText(value.description(), "description", MAX_ROLE_DESCRIPTION_CHARACTERS);
+        validateOptionalText(value.description(), "description", MAX_ROLE_BODY_CHARACTERS);
         validateOptionalText(value.defaultCommand(), "default_command", MAX_COMMAND_CHARACTERS);
         validateStringList(value.defaultArguments(), "default_args");
         validateEnvironment(value.defaultEnvironment(), "default_env");
@@ -76,6 +77,10 @@ public final class ConfigurationInputLimits {
 
     public static String boundedRoleType(String value) {
         return bounded(value, MAX_ROLE_TYPE_CHARACTERS);
+    }
+
+    public static String boundedRoleBody(String value) {
+        return bounded(value, MAX_ROLE_BODY_CHARACTERS);
     }
 
     public static String boundedRoleDescription(String value) {

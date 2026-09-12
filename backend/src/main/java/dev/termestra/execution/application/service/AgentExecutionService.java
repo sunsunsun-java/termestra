@@ -109,11 +109,17 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
     private AgentRunView startNewRun(StartAgentCommand command,AgentDescriptor agent){
         AgentLaunchConfiguration stored=repository.findConfiguration(command.workspaceId(),command.agentId()).orElseThrow(()->new ExecutionConflict("No agent launch config available"));
         Optional<AgentSessionCapture.CaptureSnapshot> capture=sessionCapture.snapshot(agent,stored.sessionIdCaptureJson());
-        String resumedSession=repository.findLastSession(command.workspaceId(),command.agentId()).orElse(null);
-        if(resumedSession!=null&&stored.resumeArgsTemplate()!=null&&!hasResumeArgs(stored.arguments())){boolean verify=stored.sessionIdCaptureJson()!=null&&(stored.sessionIdCaptureJson().contains("claude_project_jsonl_dir")||stored.sessionIdCaptureJson().contains("opencode_session_db"));if(verify&&!sessionCapture.exists(agent,stored.sessionIdCaptureJson(),resumedSession)){repository.clearLastSession(command.workspaceId(),command.agentId());resumedSession=null;}}
+        // A startup command can be a shell/wrapper whose interactive identity is only a
+        // readiness hint. Provider arguments must never be inserted into that wrapper's argv.
+        boolean nativeResume=stored.resumeArgsTemplate()!=null&&(stored.interactiveCommand()==null
+                || InteractiveInputSubmitter.supports(stored.command())&&Objects.equals(
+                        InteractiveInputSubmitter.commandName(stored.command()),
+                        InteractiveInputSubmitter.commandName(stored.interactiveCommand())));
+        String resumedSession=nativeResume?repository.findLastSession(command.workspaceId(),command.agentId()).orElse(null):null;
+        if(resumedSession!=null&&stored.resumeArgsTemplate()!=null&&!hasResumeArgs(stored.command(),stored.arguments())){boolean verify=stored.sessionIdCaptureJson()!=null&&(stored.sessionIdCaptureJson().contains("claude_project_jsonl_dir")||stored.sessionIdCaptureJson().contains("opencode_session_db"));if(verify&&!sessionCapture.exists(agent,stored.sessionIdCaptureJson(),resumedSession)){repository.clearLastSession(command.workspaceId(),command.agentId());resumedSession=null;}}
         List<String> yoloArguments=stored.presetAugmentationDisabled()?List.of():presetPolicy.yoloArguments(stored.commandPresetId(),stored.command());
         List<String> effectiveArguments=LaunchArguments.prependUnique(yoloArguments,stored.arguments());
-        if(resumedSession!=null&&stored.resumeArgsTemplate()!=null&&!hasResumeArgs(effectiveArguments)){List<String> resumeArguments=new ArrayList<>(List.of(stored.resumeArgsTemplate().replace("{session_id}",resumedSession).trim().split("\\s+")));resumeArguments.addAll(stored.arguments());effectiveArguments=LaunchArguments.prependUnique(yoloArguments,resumeArguments);capture=Optional.empty();}
+        if(resumedSession!=null&&stored.resumeArgsTemplate()!=null&&!hasResumeArgs(stored.command(),effectiveArguments)){List<String> resumeArguments=new ArrayList<>(List.of(stored.resumeArgsTemplate().replace("{session_id}",resumedSession).trim().split("\\s+")));resumeArguments.addAll(stored.arguments());effectiveArguments=LaunchArguments.prependUnique(yoloArguments,resumeArguments);capture=Optional.empty();}
         AgentLaunchConfiguration config=new AgentLaunchConfiguration(stored.command(),effectiveArguments,stored.commandPresetId(),stored.interactiveCommand(),stored.presetAugmentationDisabled(),stored.resumeArgsTemplate(),stored.sessionIdCaptureJson(),stored.environment(),stored.modelId(),stored.revision());
         RunCapacityBudget.Lease capacity=runCapacity.reserve(command.workspaceId());
         String token=null;PseudoTerminalHandle process=null;LiveRun live=null;
@@ -128,8 +134,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
             env.put("TERMESTRA_AGENT_TOKEN",token);
             process=launcher.start(new ProcessLaunchRequest(processCommand,agent.workspacePath(),env,80,24));
             if(!repository.insertRun(runId,command.workspaceId(),command.agentId(),process.pid(),RunStatus.STARTING,started))throw new ExecutionConflict("Agent no longer exists: "+command.agentId());
-            String nativeResumedSession=stored.resumeArgsTemplate()==null?null:resumedSession;
-            live=new LiveRun(runId,agent,config,process,started,nativeResumedSession,token,capacity);runs.put(runId,live);
+            live=new LiveRun(runId,agent,config,process,started,resumedSession,token,capacity);runs.put(runId,live);
             if(directory.find(command.workspaceId(),command.agentId()).isEmpty())throw new ExecutionConflict("Agent no longer exists: "+command.agentId());
             LiveRun activatedRun=live;
             process.activate(bytes->onOutput(activatedRun,bytes),
@@ -148,7 +153,7 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
                 beginStartup(live);
             } else {
                 // Shell and non-interactive processes have no composer handshake.
-                if(recovery.hasPreviousRun(agent.agentId(),runId)&&nativeResumedSession==null)injectRecoverySummary(live);
+                if(recovery.hasPreviousRun(agent.agentId(),runId)&&resumedSession==null)injectRecoverySummary(live);
                 completeStartup(live);
             }
             return live.view();
@@ -251,7 +256,36 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
         return message==null?null:message.substring(0,Math.min(message.length(),AgentRunSummaryView.MAX_STARTUP_MESSAGE_CHARS));
     }
 
-    private boolean hasResumeArgs(List<String> arguments){return arguments.stream().anyMatch(Set.of("--resume","-r","--continue","-c","--session","-s")::contains)||(!arguments.isEmpty()&&"resume".equals(arguments.getFirst()));}
+    private boolean hasResumeArgs(String command,List<String> arguments){
+        String provider=InteractiveInputSubmitter.commandName(command);
+        if("codex".equals(provider)){
+            // Global options may precede the subcommand. Their values (even "resume")
+            // are not subcommands, and -- introduces a positional prompt.
+            Set<String> valueOptions=Set.of("-c","--config","-s","--sandbox","-m","--model",
+                    "-p","--profile","-C","--cd","-a","--ask-for-approval","--add-dir",
+                    "--enable","--disable","--local-provider","--remote","--remote-auth-token-env");
+            for(int index=0;index<arguments.size();index++){
+                String argument=arguments.get(index);
+                if("--".equals(argument))return false;
+                if(valueOptions.contains(argument)){index++;continue;}
+                if(argument.startsWith("-"))continue;
+                return "resume".equals(argument);
+            }
+            return false;
+        }
+        Set<String> options=switch(provider==null?"":provider){
+            case "claude","qwen" -> Set.of("--resume","-r","--continue","-c");
+            case "opencode" -> Set.of("--session","-s","--continue","-c");
+            case "gemini" -> Set.of("--resume","-r");
+            case "agy" -> Set.of("--conversation");
+            default -> Set.of("--resume","--continue","--session");
+        };
+        for(String argument:arguments){
+            if("--".equals(argument))return false;
+            if(options.contains(argument.split("=",2)[0]))return true;
+        }
+        return false;
+    }
     private void captureSession(LiveRun run,AgentSessionCapture.CaptureSnapshot snapshot){
         Thread captureThread=Thread.ofVirtual().name("termestra-session-capture-"+run.id).unstarted(()->{
             long started=System.nanoTime();long delayMillis=SESSION_CAPTURE_INITIAL_DELAY_MILLIS;boolean persisted=false;
@@ -358,6 +392,9 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
     private RuntimeException transitionTerminal(LiveRun run,RunStatus terminal,Integer exitCode,boolean stopProcess){
         synchronized(run){
             if(!run.terminalTransition.compareAndSet(false,true))return run.terminalPersistenceFailure;
+            // Summary readers must not observe a terminal state while stop still has a live
+            // output producer. Claim termination ownership and its pending state atomically.
+            run.terminationPending.set(true);
             if(run.status==RunStatus.STARTING&&run.startupPhase!=StartupPhase.READY){
                 run.startupPhase=StartupPhase.FAILED;
                 if(run.startupMessage==null)run.startupMessage=stopProcess?"Agent stopped before startup completed.":"Agent exited before startup completed (exit code "+exitCode+").";
@@ -368,13 +405,9 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
             // Wake prompt-delivery waiters before stopping. This only quiesces input; credentials,
             // capture ownership and capacity remain held until process-tree termination is proven.
             quiesceAutomaticInput(run);
-            run.terminationPending.set(true);
             RuntimeException terminationFailure=processTerminations.terminate(
                     run.id,run.process::stopAndConfirm,
-                    ()->{
-                        synchronized(run){run.terminationPending.set(false);}
-                        continueAfterConfirmedTermination(run,terminal,exitCode,ended);
-                    });
+                    ()->continueAfterConfirmedTermination(run,terminal,exitCode,ended));
             if(terminationFailure!=null){
                 synchronized(run){
                     // The native attempt can complete at the same instant its bounded caller
@@ -396,6 +429,9 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
         // stopAndConfirm() guarantees that no more PTY bytes can arrive. Flush the decoder here as
         // well as on natural exit because an explicit stop may win the exit-callback race.
         flushFinalOutput(run);
+        // A terminal summary permits the control channel to send exit. Publish it only
+        // after the decoder's final bytes have reached every output subscriber.
+        synchronized(run){run.terminationPending.set(false);}
         if(run.durablyDeleted){discardDurablyMissingRun(run);return null;}
         cleanupRuntime(run);
         String failedResumeSession=exitCode!=null&&exitCode!=0?run.resumedSessionId:null;

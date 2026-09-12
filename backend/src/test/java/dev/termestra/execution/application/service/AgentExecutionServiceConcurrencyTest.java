@@ -54,6 +54,79 @@ class AgentExecutionServiceConcurrencyTest {
     private static final String WORKSPACE_ID = "workspace-1";
     private static final String AGENT_ID = "worker-1";
 
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void terminalSummaryWaitsForFinalUtf8OutputPublication(boolean naturalExit)throws Exception{
+        RecordingRepository repository=new RecordingRepository();
+        TestPty pty=new TestPty(125);
+        pty.notifyOnStop=false;
+        CountDownLatch publishing=new CountDownLatch(1);
+        CountDownLatch releasePublication=new CountDownLatch(1);
+        try(AgentExecutionService service=service(repository,ignored->pty)){
+            AgentRunView run=service.start(new StartAgentCommand(WORKSPACE_ID,AGENT_ID,"4010"));
+            pty.emitOutput(new byte[]{(byte)0xe4,(byte)0xb8});
+            List<String> output=new CopyOnWriteArrayList<>();
+            try(var subscription=service.open(run.runId(),text->{
+                output.add(text);
+                publishing.countDown();
+                try{
+                    if(!releasePublication.await(3,TimeUnit.SECONDS))throw new IllegalStateException("publication timeout");
+                }catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw new IllegalStateException(interrupted);}
+            }).subscription();ExecutorService executor=Executors.newVirtualThreadPerTaskExecutor()){
+                Future<?> stopped=executor.submit(()->{if(naturalExit)pty.exit(0);else service.stop(run.runId());});
+                try{
+                    assertTrue(publishing.await(3,TimeUnit.SECONDS));
+                    assertFalse(pty.alive());
+                    assertEquals("running",service.getSummary(run.runId()).status(),
+                            "exit cannot overtake the decoder's last output publication");
+                    assertEquals(List.of("\ufffd"),output);
+                }finally{releasePublication.countDown();}
+                stopped.get(3,TimeUnit.SECONDS);
+                assertEquals(naturalExit?"exited":"error",service.getSummary(run.runId()).status());
+            }
+        }finally{releasePublication.countDown();}
+    }
+
+    @Test void stopCannotPublishTerminalStatusBeforeQuiescingInputAndDrainingOutput() throws Exception {
+        RecordingRepository repository=new RecordingRepository();
+        TestPty pty=new TestPty(124);
+        try(AgentExecutionService service=service(repository,ignored->pty)){
+            AgentRunView run=service.start(new StartAgentCommand(WORKSPACE_ID,AGENT_ID,"4010"));
+            // Hold the actual mailbox admission monitor to deterministically pause stop between
+            // claiming the terminal transition and invoking the PTY teardown. This is a test-only
+            // scheduling probe; observable assertions use the normal summary and output ports.
+            var runsField=AgentExecutionService.class.getDeclaredField("runs");
+            runsField.setAccessible(true);
+            Object live=((java.util.Map<?,?>)runsField.get(service)).get(run.runId());
+            var mailboxField=live.getClass().getDeclaredField("automaticInput");
+            mailboxField.setAccessible(true);
+            var admissionField=AutomaticInputMailbox.class.getDeclaredField("admission");
+            admissionField.setAccessible(true);
+            Object admission=admissionField.get(mailboxField.get(live));
+            var transitionField=live.getClass().getDeclaredField("terminalTransition");
+            transitionField.setAccessible(true);
+            AtomicBoolean transition=(AtomicBoolean)transitionField.get(live);
+            List<String> output=new CopyOnWriteArrayList<>();
+            try(var subscription=service.open(run.runId(),output::add).subscription();
+                ExecutorService executor=Executors.newVirtualThreadPerTaskExecutor()){
+                Future<?> stopped;
+                synchronized(admission){
+                    stopped=executor.submit(()->service.stop(run.runId()));
+                    long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(3);
+                    while(!transition.get()&&System.nanoTime()<deadline)Thread.sleep(10);
+                    assertTrue(transition.get(),"stop did not claim the transition");
+                    assertTrue(pty.alive());
+                    assertEquals("running",service.getSummary(run.runId()).status(),
+                            "terminal viewers must not receive exit while a producer can still publish bytes");
+                    pty.emitOutput("final output before teardown");
+                    assertEquals(List.of("final output before teardown"),output);
+                }
+                stopped.get(3,TimeUnit.SECONDS);
+                assertFalse(pty.alive());
+                assertEquals("error",service.getSummary(run.runId()).status());
+            }
+        }
+    }
+
     @Test void startupOutputCannotPublishRunningBeforeStartupEnterCompletes() throws Exception {
         RecordingRepository repository = new RecordingRepository("cursor-agent");
         PromptingPty pty = new PromptingPty("  → Plan, search, build anything");
@@ -959,6 +1032,7 @@ class AgentExecutionServiceConcurrencyTest {
         private volatile Consumer<byte[]> outputListener;
 
         private final boolean exitOnActivate;
+        private boolean notifyOnStop=true;
         private TestPty(long pid) { this(pid, false); }
         private TestPty(long pid, boolean exitOnActivate) { this.pid = pid; this.exitOnActivate = exitOnActivate; }
         @Override public long pid() { return pid; }
@@ -971,7 +1045,7 @@ class AgentExecutionServiceConcurrencyTest {
         @Override public void pauseOutput() { }
         @Override public void resumeOutput() { }
         @Override public void stop() {
-            if (alive.compareAndSet(true, false) && exitListener != null) exitListener.accept(0);
+            if (alive.compareAndSet(true, false) && notifyOnStop && exitListener != null) exitListener.accept(0);
         }
         @Override public boolean alive() { return alive.get(); }
         private void emitOutput(String value) { outputListener.accept(value.getBytes(StandardCharsets.UTF_8)); }

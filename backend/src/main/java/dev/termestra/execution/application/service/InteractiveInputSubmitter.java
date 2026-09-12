@@ -288,8 +288,9 @@ final class InteractiveInputSubmitter {
             case "hermes" -> hermesScreenPrompt(terminal, view);
             case "claude" -> (trimmed.matches("[❯›]\\s*") && emptyPromptAtCursor(current, view.cursorColumn()))
                     || (trimmed.startsWith("❯ ") && placeholderAtCursor(terminal, view, '❯', false));
-            case "codex" -> (trimmed.matches("[❯›]\\s*") && emptyPromptAtCursor(current, view.cursorColumn()))
-                    || (trimmed.startsWith("› ") && placeholderAtCursor(terminal, view, '›', false));
+            case "codex" -> (trimmed.matches("[❯›»]\\s*") && emptyPromptAtCursor(current, view.cursorColumn()))
+                    || ((trimmed.startsWith("› ") || trimmed.startsWith("» "))
+                        && placeholderAtCursor(terminal, view, trimmed.charAt(0), false));
             case "pi" -> piIdentity && trimmed.isEmpty() && row > 0 && row + 1 < view.lines().size()
                     && DECORATION_LINE.matcher(view.lines().get(row - 1).trim()).matches()
                     && DECORATION_LINE.matcher(view.lines().get(row + 1).trim()).matches();
@@ -398,7 +399,7 @@ final class InteractiveInputSubmitter {
     }
 
     private static boolean emptyPromptAtCursor(String line, int column) {
-        for (char marker : new char[] {'❯', '›', '>'}) {
+        for (char marker : new char[] {'❯', '›', '»', '>'}) {
             int prompt = line.indexOf(marker);
             if (prompt >= 0 && column > prompt && column <= prompt + 2) return true;
         }

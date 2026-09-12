@@ -294,16 +294,21 @@ public class RuntimeWiring {
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
     @Bean AgentAuthenticator agentAuthenticator(AgentCredentialService credentials) { return credentials::validate; }
-    @Bean AgentTeamNotifier agentTeamNotifier(AgentMessagingUseCase messaging) {
+    @Bean AgentTeamNotifier agentTeamNotifier(AgentMessagingUseCase messaging,
+            org.springframework.boot.web.server.context.WebServerApplicationContext context) {
         return new AgentTeamNotifier() {
             private DeliveryResult result(MessageDeliveryResult result) {
                 return new DeliveryResult(result.delivered(), result.inputAttempted(),
                         result.uncertain(), result.deferred(), result.error());
             }
             @Override public DeliveryResult deliver(Dispatch dispatch, TeamMember worker, String runtimePort) {
+                var server = context.getWebServer();
+                if (server == null || server.getPort() <= 0) {
+                    return DeliveryResult.deferred("Termestra HTTP server is not listening yet");
+                }
                 return result(messaging.deliver(dispatch.workspaceId().toString(), worker.id().toString(),
                         dispatch.id().toString(), "Orchestrator", worker.description(),
-                        dispatch.task().value(), runtimePort));
+                        dispatch.task().value(), Integer.toString(server.getPort())));
             }
             @Override public DeliveryResult report(Dispatch dispatch, TeamMember worker) {
                 return result(messaging.report(dispatch.workspaceId().toString(), worker.name(),

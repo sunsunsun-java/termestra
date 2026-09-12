@@ -8,6 +8,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
+const DEFAULT_METADATA_TIMEOUT_MS = 30_000
 const DEFAULT_VERIFICATION_TIMEOUT_MS = 10 * 60 * 1000
 const DEFAULT_VERIFICATION_RETRY_DELAY_MS = 15 * 1000
 const DEFAULT_TARBALL_RETRY_DELAY_MS = 15 * 1000
@@ -51,7 +52,8 @@ async function main(arguments_) {
     assert.equal(manifest.publishConfig?.registry, registry, `${tarball} must declare ${registry} as its publish registry`)
     assert.ok(manifest.repository?.url, `${tarball} must declare repository.url for provenance`)
     const integrity = tarballIntegrity(tarball)
-    const existing = await packageVersion(registry, manifest.name, manifest.version)
+    const existing = await packageVersion(registry, manifest.name, manifest.version,
+      Math.min(DEFAULT_METADATA_TIMEOUT_MS, verificationTimeoutMs))
 
     if (!existing) {
       const publishArguments = ['publish', tarball, '--access', 'public', '--tag', distTag]
@@ -67,8 +69,8 @@ async function main(arguments_) {
       integrity,
       acceptedIntegrity: acceptedExistingIntegrities[`${manifest.name}@${manifest.version}`],
       distTag,
-      readVersion: () => packageVersion(registry, manifest.name, manifest.version),
-      readDistTags: () => packageDistTags(registry, manifest.name),
+      readVersion: remainingMs => packageVersion(registry, manifest.name, manifest.version, remainingMs),
+      readDistTags: remainingMs => packageDistTags(registry, manifest.name, remainingMs),
       readTarball: (tarballUrl, publishedIntegrity, timeoutMs, requestBudget) =>
         packageTarballMatches(registry, tarballUrl, publishedIntegrity, timeoutMs, {
           requestBudget,
@@ -106,12 +108,17 @@ export async function verifyPublishedPackage({
   assert.equal(typeof readTarball, 'function', 'readTarball must be a function')
 
   const startedAt = clock()
+  const metadataTimeout = () => {
+    const remainingMs = timeoutMs - Math.max(0, clock() - startedAt)
+    if (remainingMs <= 0) throw new Error('npm metadata verification deadline expired')
+    return Math.min(DEFAULT_METADATA_TIMEOUT_MS, remainingMs)
+  }
   const tarballRequestBudget = { requests: 0 }
   let lastObservation = 'the version is not visible'
   while (true) {
     let published
     try {
-      published = await readVersion()
+      published = await readVersion(metadataTimeout())
       if (!published) lastObservation = 'the version is not visible'
     } catch (error) {
       lastObservation = error instanceof Error ? error.message : String(error)
@@ -124,7 +131,7 @@ export async function verifyPublishedPackage({
           `${name}@${version} is published with different bytes; use a new version or record the exact earlier publication for recovery`)
       }
       try {
-        const distTags = await readDistTags()
+        const distTags = await readDistTags(metadataTimeout())
         if (distTags?.[distTag] === version) {
           const tarballUrl = published.dist?.tarball
           if (!tarballUrl) {
@@ -191,12 +198,12 @@ function tarballIntegrity(tarball) {
   return `sha512-${createHash('sha512').update(readFileSync(tarball)).digest('base64')}`
 }
 
-async function packageVersion(registry, name, version) {
-  return fetchJson(`${registry}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`, true)
+async function packageVersion(registry, name, version, timeoutMs) {
+  return fetchJson(`${registry}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`, true, timeoutMs)
 }
 
-async function packageDistTags(registry, name) {
-  return fetchJson(`${registry}/-/package/${encodeURIComponent(name)}/dist-tags`, true)
+async function packageDistTags(registry, name, timeoutMs) {
+  return fetchJson(`${registry}/-/package/${encodeURIComponent(name)}/dist-tags`, true, timeoutMs)
 }
 
 export async function packageTarballMatches(
@@ -357,10 +364,11 @@ function parsedContentRange(value) {
   return { start, end, total }
 }
 
-async function fetchJson(url, allowNotFound) {
+async function fetchJson(url, allowNotFound, timeoutMs) {
   const response = await fetch(url, {
     cache: 'no-store',
     headers: { accept: 'application/json', 'cache-control': 'no-cache' },
+    signal: AbortSignal.timeout(timeoutMs),
   })
   if (allowNotFound && response.status === 404) return undefined
   if (!response.ok) throw new Error(`npm registry request failed (${response.status}): ${url}`)
