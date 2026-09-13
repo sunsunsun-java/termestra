@@ -61,5 +61,8 @@ notification requests, a visible generation indicator defers input without a wri
 Synchronous status and cancellation notifications retain bounded readiness waiting
 because they have no durable retry queue. This policy belongs to each mailbox
 request; unknown screens, user drafts, and prompts awaiting user action retain
-their existing protections.
+their existing protections. Complete non-editing terminal reports (including focus
+and mode reports) preserve observed readiness; mixed or incomplete input still
+invalidates it. Geometry changes serialize with output and other resizes, updating
+the prompt mirror before requesting the native PTY redraw.
 _Avoid_: Browser keystroke, terminal output

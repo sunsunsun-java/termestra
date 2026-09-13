@@ -506,12 +506,33 @@ public final class AgentExecutionService implements AgentExecutionUseCase,AgentL
                     interrupted);
         }finally{if(locked)run.ptyInputLock.unlock();}
     }
+    // Only complete, non-editing terminal reports preserve the observed empty composer.
+    // Mixed keyboard input and incomplete escape sequences must still invalidate readiness.
+    private static final java.util.regex.Pattern TERMINAL_RESPONSE = java.util.regex.Pattern.compile(
+            "(?:\\u001B\\[[?>]?[0-9;]*[Rc]"
+            + "|\\u001B\\[[IO]"
+            + "|\\u001B\\[\\??[0-9]+;[0-9]+\\$y"
+            + "|\\u001B\\[\\?[0-9]+u"
+            + "|\\u001B\\[[4689];[0-9]+;[0-9]+t"
+            + "|\\u001BP[01]\\+r[0-9A-Fa-f]+(?:=[0-9A-Fa-f]*)?(?:;[0-9A-Fa-f]+(?:=[0-9A-Fa-f]*)?)*\\u001B\\\\"
+            + "|\\u001BP>\\|[\\x20-\\x7E]*\\u001B\\\\"
+            + "|\\u001B\\]\\d+;[^\\u0007\\u001B]*(?:\\u0007|\\u001B\\\\))+");
+
     private static boolean isTerminalResponse(byte[] input) {
-        String text=new String(input,java.nio.charset.StandardCharsets.US_ASCII);
-        return text.matches("(?:\\u001B\\[[?>]?[0-9;]*[Rc]|\\u001B\\]\\d+;[^\\u0007\\u001B]*(?:\\u0007|\\u001B\\\\))+");
+        if(input.length>4096)return false;
+        return TERMINAL_RESPONSE.matcher(new String(input,java.nio.charset.StandardCharsets.US_ASCII)).matches();
     }
 
-    @Override public void resize(String runId,int columns,int rows){if(columns<=0||rows<=0)throw new IllegalArgumentException("terminal size must be positive");LiveRun run=live(runId);if(run.active())run.process.resize(columns,rows);run.interactiveOutput.resize(columns,rows);}
+    @Override public void resize(String runId,int columns,int rows){
+        if(columns<=0||rows<=0)throw new IllegalArgumentException("terminal size must be positive");
+        LiveRun run=live(runId);
+        synchronized(run){
+            // Output callbacks and competing resizes share this monitor. A native resize may
+            // immediately redraw, so the prompt mirror must already use the new geometry.
+            run.interactiveOutput.resize(columns,rows);
+            if(run.active())run.process.resize(columns,rows);
+        }
+    }
     @Override public void pauseOutput(String runId){LiveRun run=live(runId);if(run.active())run.process.pauseOutput();}
     @Override public void resumeOutput(String runId){LiveRun run=live(runId);if(run.active())run.process.resumeOutput();}
     @Override public AgentRunView get(String runId){return live(runId).view();}

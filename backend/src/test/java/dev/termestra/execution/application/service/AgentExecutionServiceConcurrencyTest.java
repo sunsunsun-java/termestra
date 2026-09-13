@@ -535,7 +535,11 @@ class AgentExecutionServiceConcurrencyTest {
             "\u001b[?1;2c",
             "\u001b[12;4R",
             "\u001b[?12;4R",
-            "\u001b[12;4R\u001b[>0;276;0c"
+            "\u001b[12;4R\u001b[>0;276;0c",
+            "\u001b[I", "\u001b[O", "\u001b[?2027;0$y", "\u001b[?1u",
+            "\u001b[4;1200;900t", "\u001bP0+r4d73\u001b\\",
+            "\u001bP1+r544e=787465726d\u001b\\", "\u001bP>|XTerm(390)\u001b\\",
+            "\u001b[I\u001b[?2026;1$y"
     })
     void browserTerminalResponsesPreserveTheCurrentReadyPrompt(String response) throws Exception {
         RecordingRepository repository = new RecordingRepository("hermes");
@@ -559,7 +563,8 @@ class AgentExecutionServiceConcurrencyTest {
         }
     }
 
-    @Test void keyboardInputInvalidatesReadinessUntilTheCliDrawsAnotherEmptyPrompt() throws Exception {
+    @ParameterizedTest @ValueSource(strings={"draft task", "\u001b[Idraft task", "\u001bP0+r4d73", "\u001b[200~draft\u001b[201~"})
+    void keyboardInputInvalidatesReadinessUntilTheCliDrawsAnotherEmptyPrompt(String input) throws Exception {
         RecordingRepository repository = new RecordingRepository("hermes");
         PromptingPty pty = new PromptingPty();
         AgentExecutionService service = service(repository, ignored -> pty);
@@ -568,7 +573,7 @@ class AgentExecutionServiceConcurrencyTest {
             AgentRunView run = service.start(new StartAgentCommand(WORKSPACE_ID, AGENT_ID, "4010"));
             awaitStatus(service, run.runId(), "running");
             pty.emitPrompt();
-            service.write(run.runId(), "draft task".getBytes(StandardCharsets.UTF_8));
+            service.write(run.runId(), input.getBytes(StandardCharsets.UTF_8));
             Future<MessageDeliveryResult> delivery = requests.submit(() -> service.deliver(WORKSPACE_ID, AGENT_ID,
                     "after-keyboard-input", "orchestrator", "worker", "task", "4010"));
             Thread.sleep(150);
@@ -580,6 +585,74 @@ class AgentExecutionServiceConcurrencyTest {
             service.close();
             requests.shutdownNow();
         }
+    }
+
+    @ParameterizedTest @ValueSource(strings={"\u001b[I", "\u001b[O", "\u001b[?2027;0$y"})
+    void openCodeStartupAndDispatchSurviveNonEditingReports(String response) throws Exception {
+        RecordingRepository repository=new RecordingRepository("opencode");
+        PromptingPty pty=new PromptingPty("Ask anything...\r");
+        try(var service=service(repository,ignored->pty);var requests=Executors.newVirtualThreadPerTaskExecutor()) {
+            pty.afterActivation=()->service.write(repository.insertedRunIds.getFirst(),response.getBytes(StandardCharsets.UTF_8));
+            var run=service.start(new StartAgentCommand(WORKSPACE_ID,AGENT_ID,"4010"));
+            awaitStatus(service,run.runId(),"running");
+            pty.emitPrompt();
+            service.write(run.runId(),response.getBytes(StandardCharsets.UTF_8));
+            var delivered=requests.submit(()->service.deliver(WORKSPACE_ID,AGENT_ID,"after-focus",
+                    "orchestrator","worker","task","4010")).get(3,TimeUnit.SECONDS);
+            assertTrue(delivered.delivered());
+            assertEquals(2,pty.writes().stream().filter(response::equals).count());
+        }
+    }
+
+    @Test void openCodeResizeRepaintUsesTheNewGeometryBeforeStartupAndDispatch() throws Exception {
+        RecordingRepository repository=new RecordingRepository("opencode");
+        PromptingPty pty=new PromptingPty("");
+        try(var service=service(repository,ignored->pty);var requests=Executors.newVirtualThreadPerTaskExecutor()) {
+            var run=service.start(new StartAgentCommand(WORKSPACE_ID,AGENT_ID,"4010"));
+            // Native resize may cause output immediately, before resize() returns.
+            pty.onResize=(columns,rows)->pty.outputListener.accept(openCodeFrame(rows).getBytes(StandardCharsets.UTF_8));
+            service.resize(run.runId(),72,53);
+            awaitStatus(service,run.runId(),"running");
+            service.resize(run.runId(),72,53);
+            var result=requests.submit(()->service.deliver(WORKSPACE_ID,AGENT_ID,"after-resize",
+                    "orchestrator","worker","task","4010")).get(3,TimeUnit.SECONDS);
+            assertTrue(result.delivered());
+        }
+    }
+
+    @Test void concurrentResizesCannotOvertakeTheCurrentPtyGeometryChange() throws Exception {
+        RecordingRepository repository=new RecordingRepository("opencode");
+        PromptingPty pty=new PromptingPty("");
+        CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1),secondStarted=new CountDownLatch(1);
+        AtomicInteger changes=new AtomicInteger();
+        try(var service=service(repository,ignored->pty);var requests=Executors.newVirtualThreadPerTaskExecutor()) {
+            var run=service.start(new StartAgentCommand(WORKSPACE_ID,AGENT_ID,"4010"));
+            pty.onResize=(columns,rows)->{
+                if(changes.incrementAndGet()==1){entered.countDown();BlockingFirstLaunch.await(release);}
+                pty.outputListener.accept(openCodeFrame(rows).getBytes(StandardCharsets.UTF_8));
+            };
+            var first=requests.submit(()->service.resize(run.runId(),72,53));
+            assertTrue(entered.await(1,TimeUnit.SECONDS));
+            try {
+                var second=requests.submit(()->{secondStarted.countDown();service.resize(run.runId(),72,30);});
+                assertTrue(secondStarted.await(1,TimeUnit.SECONDS));
+                assertThrows(java.util.concurrent.TimeoutException.class,()->second.get(100,TimeUnit.MILLISECONDS));
+                release.countDown();first.get(2,TimeUnit.SECONDS);second.get(2,TimeUnit.SECONDS);
+                awaitStatus(service,run.runId(),"running");
+                assertEquals(2,changes.get());
+            } finally {release.countDown();}
+        }
+    }
+
+    private static String openCodeFrame(int rows) {
+        return "\u001b[2J\u001b[H"
+                +"\u001b["+(rows-6)+";1H  ┃"
+                +"\u001b["+(rows-5)+";1H  ┃"
+                +"\u001b["+(rows-4)+";1H  ┃"
+                +"\u001b["+(rows-3)+";1H  ┃  Build · Test Model Provider"
+                +"\u001b["+(rows-2)+";1H  ╹"+"▀".repeat(65)
+                +"\u001b["+(rows-1)+";1H  /workspace   ctrl+p commands"
+                +"\u001b["+(rows-5)+";6H";
     }
 
     @Test void interactiveDeliveriesAreFifoRequireFreshPromptsAndExcludeManualWrites() throws Exception {
@@ -1182,6 +1255,8 @@ class AgentExecutionServiceConcurrencyTest {
         private final String prompt;
         private PromptingPty() { this("Welcome to Hermes Agent!\r\n❯ "); }
         private PromptingPty(String prompt) { this.prompt = prompt; }
+        private Runnable afterActivation=()->{};
+        private java.util.function.BiConsumer<Integer,Integer> onResize=(columns,rows)->{};
         private final AtomicBoolean alive = new AtomicBoolean(true);
         private final CopyOnWriteArrayList<String> writes = new CopyOnWriteArrayList<>();
         private final AtomicBoolean blockNextEnter = new AtomicBoolean();
@@ -1195,6 +1270,7 @@ class AgentExecutionServiceConcurrencyTest {
             outputListener = output;
             exitListener = exit;
             emitPrompt();
+            afterActivation.run();
         }
         @Override public void write(byte[] input) {
             String value = new String(input, StandardCharsets.UTF_8);
@@ -1212,7 +1288,7 @@ class AgentExecutionServiceConcurrencyTest {
                 }
             }
         }
-        @Override public void resize(int columns, int rows) { }
+        @Override public void resize(int columns, int rows) { onResize.accept(columns,rows); }
         @Override public void pauseOutput() { }
         @Override public void resumeOutput() { }
         @Override public void stop() {
