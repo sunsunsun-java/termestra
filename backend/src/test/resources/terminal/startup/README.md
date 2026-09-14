@@ -22,6 +22,14 @@ dispatches, and checks drafts, busy input, focus, and fresh repaint evidence.
 The same checks cover transparent themes by replacing bottom-border glyphs with
 spaces, following OpenCode's `backgroundElement` alpha-dependent rendering.
 
+`opencode-1.18.30-silent-tool.json` is a minimized, neutralized 79 by 40 screen
+captured from a live delivery failure. OpenCode 1.18.30 had completed a silent
+startup-handshake tool but had not returned to its input prompt; it painted the
+tool card below the command footer without the usual `esc interrupt` hint. The
+fixture keeps only the composer boundary, command footer, trailing `(no output)`
+card and cursor position needed to prove that durable delivery defers without
+mistaking historical tool output for current activity.
+
 `opencode-session-opencode.json` and `opencode-session-lucent-orng.json` capture
 actual OpenCode 1.18.29 in an isolated temporary workspace, using its default and
 transparent themes. A loopback-only mock model returns a text response and then

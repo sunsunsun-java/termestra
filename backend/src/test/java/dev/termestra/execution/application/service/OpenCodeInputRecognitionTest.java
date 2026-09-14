@@ -56,6 +56,27 @@ class OpenCodeInputRecognitionTest {
         assertTrue(writes.isEmpty());
     }
 
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void toolOutputPaintedBelowTheOpenCode130CommandFooterIsBusy(boolean transparent) throws Exception {
+        var output = output();
+        output.resize(79, 40);
+        String frame = fixture("opencode-1.18.30-silent-tool");
+        output.append(transparent ? frame.replaceAll("[╹▀]", " ") : frame);
+
+        assertEquals(INITIALIZING, output.snapshot().readiness().state());
+        assertTrue(output.snapshot().readiness().busy(),
+                "OpenCode 1.18.30 tool execution must defer rather than exhaust delivery retries");
+    }
+
+    @Test void historicalNoOutputTextDoesNotMakeAReadyComposerBusy() throws Exception {
+        var output = output();
+        output.append("\u001b[5;1H  ┃  (no output)");
+        output.append(followup(false));
+
+        assertEquals(READY, output.snapshot().readiness().state());
+        assertFalse(output.snapshot().readiness().busy());
+    }
+
     @ParameterizedTest @ValueSource(ints = {1, 79, 4096})
     void recognizesTheRecordedEmptyComposerAfterTheFirstMessage(int chunkSize) throws Exception {
         for (boolean transparent : List.of(false, true)) {

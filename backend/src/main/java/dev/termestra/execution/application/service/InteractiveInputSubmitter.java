@@ -352,6 +352,28 @@ final class InteractiveInputSubmitter {
                                                 String executable) {
         int composer = "cursor-agent".equals(executable) ? cursorComposerRow(view) : view.cursorRow();
         if (composer < 0 || composer >= view.lines().size()) return false;
+        // OpenCode 1.18.30 can finish a silent tool while its submitted prompt still occupies the
+        // composer-shaped region. During that repaint the command footer appears before the
+        // trailing tool card, and the usual "esc interrupt" status is absent. Treat only the
+        // complete footer/bottom-border/tool-card layout as busy; identical transcript text above
+        // a current composer remains harmless.
+        if ("opencode".equals(executable)) {
+            for (int footer = composer + 2; footer + 1 < view.lines().size(); footer++) {
+                String commandFooter = view.lines().get(footer);
+                if (!commandFooter.matches(".*\\S+\\s+commands(?:\\s.*)?")) continue;
+                String metadata = view.lines().get(footer - 2);
+                String bottom = view.lines().get(footer - 1);
+                int border = metadata.indexOf('┃');
+                boolean completeComposerEnd = border >= 0
+                        && metadata.stripLeading().matches("┃\\s+\\S.* · \\S.*")
+                        && (bottom.indexOf('╹') == border && bottom.strip().matches("╹▀+")
+                            || bottom.isBlank());
+                if (!completeComposerEnd) continue;
+                for (int row = footer + 1; row < view.lines().size(); row++) {
+                    if (view.lines().get(row).strip().matches("┃\\s*\\(no output\\)")) return true;
+                }
+            }
+        }
         // OpenCode sometimes leaves its cursor on the busy footer during a partial repaint.
         // Require the bottom command bar and adjacent composer metadata, not transcript prose.
         if ("opencode".equals(executable) && composer >= 2 && composer >= view.lines().size() - 2
